@@ -64,9 +64,9 @@ export default function Dashboard() {
       fetchSessions(selectedSubaccount.id)
       mintLocationToken(selectedSubaccount.id)
     }
-  }, [selectedSubaccount])
+  }, [selectedSubaccount, fetchSessions])
 
-  const mintLocationToken = async (subaccountId: string) => {
+  const mintLocationToken = useCallback(async (subaccountId: string) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
@@ -93,7 +93,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error minting location token:', error)
     }
-  }
+  }, [])
 
   const createSubaccount = async (name: string) => {
     try {

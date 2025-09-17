@@ -107,7 +107,7 @@ export default function ChatWindow({ session, subaccount }: ChatWindowProps) {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [session, subaccount])
+  }, [session, subaccount, recipientPhone])
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault()

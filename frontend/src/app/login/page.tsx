@@ -1,9 +1,10 @@
 "use client"
 
 import LoginForm from '@/components/auth/LoginForm'
+import { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-export default function LoginPage() {
+function LoginContent() {
   const searchParams = useSearchParams()
   const error = searchParams.get('error')
 
@@ -24,11 +25,19 @@ export default function LoginPage() {
   }
 
   return (
+    <div className="max-w-md w-full">
+      {renderError()}
+      <LoginForm />
+    </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full">
-        {renderError()}
-        <LoginForm />
-      </div>
+      <Suspense fallback={<div className="max-w-md w-full" />}>
+        <LoginContent />
+      </Suspense>
     </div>
   )
 }
