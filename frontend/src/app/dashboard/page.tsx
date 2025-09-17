@@ -93,13 +93,55 @@ export default function Dashboard() {
       })
 
       if (!tokenResponse.ok) {
-        console.log('No location token available for leads')
-        setGhlLeads([])
+        console.log('No location token available for leads, trying to mint one...')
+        // Try to mint location token first
+        try {
+          const mintResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/mint-location-token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+            },
+            body: JSON.stringify({ subaccountId }),
+          })
+          
+          if (mintResponse.ok) {
+            // Retry getting location token
+            const retryTokenResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/location-token/${subaccountId}`, {
+              headers: {
+                'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+              },
+            })
+            
+            if (retryTokenResponse.ok) {
+              const locationToken = await retryTokenResponse.json()
+              await fetchLeadsWithToken(subaccountId, locationToken.access_token)
+            } else {
+              setGhlLeads([])
+            }
+          } else {
+            setGhlLeads([])
+          }
+        } catch (mintError) {
+          console.error('Error minting location token:', mintError)
+          setGhlLeads([])
+        }
         return
       }
 
       const locationToken = await tokenResponse.json()
+      await fetchLeadsWithToken(subaccountId, locationToken.access_token)
       
+    } catch (error) {
+      console.error('Error fetching GHL leads:', error)
+      setGhlLeads([])
+    } finally {
+      setLoadingLeads(false)
+    }
+  }, [])
+
+  const fetchLeadsWithToken = async (subaccountId: string, accessToken: string) => {
+    try {
       // Fetch leads from GHL API
       const leadsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/leads`, {
         method: 'POST',
@@ -109,24 +151,23 @@ export default function Dashboard() {
         },
         body: JSON.stringify({
           subaccountId,
-          locationToken: locationToken.access_token
+          locationToken: accessToken
         }),
       })
 
       if (leadsResponse.ok) {
         const leads = await leadsResponse.json()
         setGhlLeads(leads || [])
+        console.log('Fetched leads:', leads.length)
       } else {
         console.log('Failed to fetch leads')
         setGhlLeads([])
       }
     } catch (error) {
-      console.error('Error fetching GHL leads:', error)
+      console.error('Error fetching leads with token:', error)
       setGhlLeads([])
-    } finally {
-      setLoadingLeads(false)
     }
-  }, [])
+  }
 
   useEffect(() => {
     const init = async () => {
@@ -169,7 +210,10 @@ export default function Dashboard() {
     if (selectedSubaccount) {
       fetchSessions(selectedSubaccount.id)
       mintLocationToken(selectedSubaccount.id)
-      fetchGHLLeads(selectedSubaccount.id)
+      // Auto-fetch leads when subaccount is selected
+      if (selectedSubaccount.ghl_location_id) {
+        fetchGHLLeads(selectedSubaccount.id)
+      }
     }
   }, [selectedSubaccount, fetchSessions, mintLocationToken, fetchGHLLeads])
 

@@ -273,22 +273,26 @@ app.get('/auth/ghl/callback', async (req, res) => {
       console.log('Using first location as default:', finalLocationId);
     }
     
-    // Create subaccounts for each location
-    console.log('Creating subaccounts...');
-    const subaccountPromises = locations.map(location => 
-      supabaseAdmin
-        .from('subaccounts')
-        .upsert({
-          user_id: targetUserId,
-          ghl_location_id: location.id,
-          name: location.name || `Location ${location.id}`
-        })
-        .select()
-        .single()
-    );
+    // Create subaccount for selected location only
+    console.log('Creating subaccount for selected location...');
+    const selectedLocation = locations.find(loc => loc.id === finalLocationId) || locations[0];
+    
+    const { data: subaccount, error: subaccountError } = await supabaseAdmin
+      .from('subaccounts')
+      .upsert({
+        user_id: targetUserId,
+        ghl_location_id: selectedLocation.id,
+        name: selectedLocation.name || `Location ${selectedLocation.id}`
+      })
+      .select()
+      .single();
 
-    const subaccountResults = await Promise.all(subaccountPromises);
-    console.log('Created subaccounts:', subaccountResults.length);
+    if (subaccountError) {
+      console.error('Error creating subaccount:', subaccountError);
+      throw subaccountError;
+    }
+    
+    console.log('Created subaccount:', subaccount.name);
 
     // Redirect back to frontend dashboard
     console.log('Redirecting to dashboard...');
