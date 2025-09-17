@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
 import SubaccountSelector from '@/components/dashboard/SubaccountSelector'
@@ -18,7 +18,7 @@ export default function Dashboard() {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchSubaccounts = async () => {
+  const fetchSubaccounts = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('subaccounts')
@@ -34,9 +34,9 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error fetching subaccounts:', error)
     }
-  }
+  }, [selectedSubaccount])
 
-  const fetchSessions = async (subaccountId: string) => {
+  const fetchSessions = useCallback(async (subaccountId: string) => {
     try {
       const { data, error } = await supabase
         .from('sessions')
@@ -49,7 +49,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error fetching sessions:', error)
     }
-  }
+  }, [])
 
   useEffect(() => {
     const init = async () => {
@@ -57,7 +57,7 @@ export default function Dashboard() {
       setLoading(false)
     }
     init()
-  }, [])
+  }, [fetchSubaccounts])
 
   useEffect(() => {
     if (selectedSubaccount) {
@@ -140,10 +140,10 @@ export default function Dashboard() {
         throw new Error(error.message || 'Failed to create session')
       }
 
-      const { sessionId } = await response.json()
+      const { sessionId } = await response.json() as { sessionId: string }
       
       // Add the new session to the list immediately
-      const newSession = {
+      const newSession: Session = {
         id: sessionId,
         user_id: user.id,
         subaccount_id: selectedSubaccount.id,
@@ -153,7 +153,7 @@ export default function Dashboard() {
         created_at: new Date().toISOString()
       }
       
-      setSessions(prev => [newSession, ...prev])
+      setSessions((prev: Session[]) => [newSession, ...prev])
       
       // Poll for session status updates
       const pollSession = async () => {
@@ -165,9 +165,9 @@ export default function Dashboard() {
           })
           
           if (statusResponse.ok) {
-            const sessionData = await statusResponse.json()
-            setSessions(prev => 
-              prev.map(s => s.id === sessionId ? { ...s, ...sessionData } : s)
+            const sessionData = await statusResponse.json() as Partial<Session>
+            setSessions((prev: Session[]) => 
+              prev.map((s: Session) => s.id === sessionId ? { ...s, ...sessionData } as Session : s)
             )
             
             // Continue polling if still initializing or showing QR
