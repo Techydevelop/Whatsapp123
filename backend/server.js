@@ -87,7 +87,12 @@ app.get('/auth/ghl/callback', async (req, res) => {
   try {
     const { code, locationId, state } = req.query;
     
-    console.log('GHL Callback received:', { code: !!code, locationId, state });
+    console.log('GHL Callback received:', { 
+      code: !!code, 
+      locationId, 
+      state,
+      query: req.query 
+    });
     
     if (!code) {
       console.error('GHL callback error: Missing code');
@@ -98,6 +103,7 @@ app.get('/auth/ghl/callback', async (req, res) => {
     // If no locationId provided, we'll try to get it from company info later
     let finalLocationId = locationId;
 
+    console.log('Exchanging code for token...');
     // Exchange code for agency/company-level tokens
     const tokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', {
       client_id: process.env.GHL_CLIENT_ID,
@@ -107,9 +113,16 @@ app.get('/auth/ghl/callback', async (req, res) => {
       grant_type: 'authorization_code'
     });
 
+    console.log('Token response status:', tokenResponse.status);
+    
+    if (!tokenResponse.data || !tokenResponse.data.access_token) {
+      throw new Error('Invalid token response from GHL');
+    }
+    
     const { access_token, refresh_token, expires_in } = tokenResponse.data;
     
     // Get company and user info
+    console.log('Fetching company and user info...');
     const [companyResponse, userResponse] = await Promise.all([
       axios.get('https://services.leadconnectorhq.com/company', {
         headers: { Authorization: `Bearer ${access_token}` }
@@ -119,9 +132,23 @@ app.get('/auth/ghl/callback', async (req, res) => {
       })
     ]);
 
+    console.log('Company response:', companyResponse.status);
+    console.log('User response:', userResponse.status);
+    
+    if (!companyResponse.data || !companyResponse.data.companyId) {
+      throw new Error('Invalid company response from GHL');
+    }
+    
+    if (!userResponse.data || !userResponse.data.id) {
+      throw new Error('Invalid user response from GHL');
+    }
+    
     const companyId = companyResponse.data.companyId;
     const userInfo = userResponse.data;
     const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
+    
+    console.log('Company ID:', companyId);
+    console.log('User Info:', { id: userInfo.id, email: userInfo.email });
 
     // Determine target Supabase user to link
     let targetUserId = undefined;
@@ -176,9 +203,18 @@ app.get('/auth/ghl/callback', async (req, res) => {
     if (ghlError) throw ghlError;
 
     // Get all locations for this company
+    console.log('Fetching locations...');
     const locationsResponse = await axios.get('https://services.leadconnectorhq.com/locations', {
       headers: { Authorization: `Bearer ${access_token}` }
     });
+
+    console.log('Locations response status:', locationsResponse.status);
+    
+    if (!locationsResponse.data || !locationsResponse.data.locations) {
+      console.error('Invalid locations response from GHL');
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+      return res.redirect(`${frontendUrl}/login?error=invalid_locations_response`);
+    }
 
     const locations = locationsResponse.data.locations || [];
     
@@ -188,6 +224,8 @@ app.get('/auth/ghl/callback', async (req, res) => {
       return res.redirect(`${frontendUrl}/login?error=no_locations_found`);
     }
     
+    console.log('Found locations:', locations.length);
+    
     // If no locationId was provided, use the first location as default
     if (!finalLocationId && locations.length > 0) {
       finalLocationId = locations[0].id;
@@ -195,6 +233,7 @@ app.get('/auth/ghl/callback', async (req, res) => {
     }
     
     // Create subaccounts for each location
+    console.log('Creating subaccounts...');
     const subaccountPromises = locations.map(location => 
       supabaseAdmin
         .from('subaccounts')
@@ -207,16 +246,42 @@ app.get('/auth/ghl/callback', async (req, res) => {
         .single()
     );
 
-    await Promise.all(subaccountPromises);
+    const subaccountResults = await Promise.all(subaccountPromises);
+    console.log('Created subaccounts:', subaccountResults.length);
 
     // Redirect back to frontend dashboard
+    console.log('Redirecting to dashboard...');
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    console.log('Frontend URL:', frontendUrl);
     res.redirect(`${frontendUrl}/dashboard?ghl=connected`);
     
   } catch (error) {
     console.error('GHL callback error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      stack: error.stack
+    });
+    
+    // Determine specific error type
+    let errorType = 'ghl_auth_failed';
+    if (error.message.includes('Invalid token response')) {
+      errorType = 'invalid_token_response';
+    } else if (error.message.includes('Invalid company response')) {
+      errorType = 'invalid_company_response';
+    } else if (error.message.includes('Invalid user response')) {
+      errorType = 'invalid_user_response';
+    } else if (error.message.includes('Invalid locations response')) {
+      errorType = 'invalid_locations_response';
+    } else if (error.response?.status === 401) {
+      errorType = 'ghl_unauthorized';
+    } else if (error.response?.status === 403) {
+      errorType = 'ghl_forbidden';
+    }
+    
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
-    res.redirect(`${frontendUrl}/login?error=ghl_auth_failed`);
+    res.redirect(`${frontendUrl}/login?error=${errorType}`);
   }
 });
 
@@ -230,6 +295,9 @@ app.get('/oauth/callback', (req, res) => {
     return res.redirect(`${frontendUrl}/login?error=invalid_oauth_callback`);
   }
 });
+
+// Direct auth callback route for GHL
+
 
 // Session management routes
 app.post('/admin/create-session', requireAuth, async (req, res) => {
@@ -763,6 +831,18 @@ app.post('/admin/ghl/leads', requireAuth, async (req, res) => {
     console.error('Error fetching GHL leads:', error);
     res.status(500).json({ error: 'Failed to fetch leads' });
   }
+});
+
+// Test GHL credentials
+app.get('/test/ghl', (req, res) => {
+  res.json({
+    status: 'ok',
+    ghl_client_id: process.env.GHL_CLIENT_ID ? 'Set' : 'Missing',
+    ghl_client_secret: process.env.GHL_CLIENT_SECRET ? 'Set' : 'Missing',
+    ghl_redirect_uri: process.env.GHL_REDIRECT_URI || 'Missing',
+    frontend_url: process.env.FRONTEND_URL || 'Missing',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Health check
