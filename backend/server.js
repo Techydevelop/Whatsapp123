@@ -104,14 +104,27 @@ app.get('/auth/ghl/callback', async (req, res) => {
     let finalLocationId = locationId;
 
     console.log('Exchanging code for token...');
-    // Exchange code for agency/company-level tokens
-    const tokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', {
-      client_id: process.env.GHL_CLIENT_ID,
-      client_secret: process.env.GHL_CLIENT_SECRET,
-      redirect_uri: process.env.GHL_REDIRECT_URI,
-      code,
-      grant_type: 'authorization_code'
+    console.log('Using credentials:', {
+      client_id: process.env.GHL_CLIENT_ID ? 'Set' : 'Missing',
+      client_secret: process.env.GHL_CLIENT_SECRET ? 'Set' : 'Missing',
+      redirect_uri: process.env.GHL_REDIRECT_URI || 'Missing'
     });
+    
+    // Exchange code for agency/company-level tokens
+    const tokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', 
+      new URLSearchParams({
+        client_id: process.env.GHL_CLIENT_ID,
+        client_secret: process.env.GHL_CLIENT_SECRET,
+        redirect_uri: process.env.GHL_REDIRECT_URI,
+        code,
+        grant_type: 'authorization_code'
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    );
 
     console.log('Token response status:', tokenResponse.status);
     
@@ -154,24 +167,33 @@ app.get('/auth/ghl/callback', async (req, res) => {
     let targetUserId = undefined;
     if (state && typeof state === 'string') {
       targetUserId = state;
+      console.log('Using state userId:', targetUserId);
     } else {
       // Fallback: try to find by GHL user id in metadata
+      console.log('Searching for existing user...');
       const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
       const found = existingUser.users.find(u => u.user_metadata?.ghl_user_id === userInfo.id);
       targetUserId = found?.id;
+      console.log('Found existing user:', !!found);
     }
+    
     if (!targetUserId) {
+      console.log('Creating new user...');
       // As a last resort, create a user
       const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
         email: userInfo.email || `${userInfo.id}@ghl.user`,
         user_metadata: {
           ghl_user_id: userInfo.id,
           ghl_company_id: companyId,
-          name: userInfo.firstName + ' ' + userInfo.lastName
+          name: (userInfo.firstName || '') + ' ' + (userInfo.lastName || '')
         }
       });
-      if (createErr) throw createErr;
+      if (createErr) {
+        console.error('Error creating user:', createErr);
+        throw createErr;
+      }
       targetUserId = created.user?.id;
+      console.log('Created new user:', targetUserId);
     }
 
     // Ensure Supabase user metadata reflects GHL linkage (agency level)
@@ -672,12 +694,19 @@ app.post('/admin/mint-location-token', requireAuth, async (req, res) => {
     // Refresh agency token if needed
     let agencyAccessToken = ghlAccount.access_token;
     if (new Date(ghlAccount.expires_at) <= new Date()) {
-      const refreshResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', {
-        client_id: process.env.GHL_CLIENT_ID,
-        client_secret: process.env.GHL_CLIENT_SECRET,
-        refresh_token: ghlAccount.refresh_token,
-        grant_type: 'refresh_token'
-      });
+      const refreshResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', 
+        new URLSearchParams({
+          client_id: process.env.GHL_CLIENT_ID,
+          client_secret: process.env.GHL_CLIENT_SECRET,
+          refresh_token: ghlAccount.refresh_token,
+          grant_type: 'refresh_token'
+        }),
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
+        }
+      );
 
       const { access_token, refresh_token, expires_in } = refreshResponse.data;
       const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
@@ -696,13 +725,20 @@ app.post('/admin/mint-location-token', requireAuth, async (req, res) => {
     }
 
     // Mint location-specific token
-    const locationTokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', {
-      client_id: process.env.GHL_CLIENT_ID,
-      client_secret: process.env.GHL_CLIENT_SECRET,
-      location_id: subaccount.ghl_location_id,
-      access_token: agencyAccessToken,
-      grant_type: 'location_token'
-    });
+    const locationTokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', 
+      new URLSearchParams({
+        client_id: process.env.GHL_CLIENT_ID,
+        client_secret: process.env.GHL_CLIENT_SECRET,
+        location_id: subaccount.ghl_location_id,
+        access_token: agencyAccessToken,
+        grant_type: 'location_token'
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    );
 
     const { access_token: locationAccessToken, refresh_token: locationRefreshToken, expires_in: locationExpiresIn } = locationTokenResponse.data;
     const locationExpiresAt = new Date(Date.now() + locationExpiresIn * 1000).toISOString();
@@ -841,8 +877,39 @@ app.get('/test/ghl', (req, res) => {
     ghl_client_secret: process.env.GHL_CLIENT_SECRET ? 'Set' : 'Missing',
     ghl_redirect_uri: process.env.GHL_REDIRECT_URI || 'Missing',
     frontend_url: process.env.FRONTEND_URL || 'Missing',
+    supabase_url: process.env.SUPABASE_URL ? 'Set' : 'Missing',
+    supabase_anon_key: process.env.SUPABASE_ANON_KEY ? 'Set' : 'Missing',
+    supabase_service_key: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Missing',
     timestamp: new Date().toISOString()
   });
+});
+
+// Test GHL OAuth URL generation
+app.get('/test/ghl/auth-url', (req, res) => {
+  try {
+    const clientId = process.env.GHL_CLIENT_ID;
+    const redirectUri = process.env.GHL_REDIRECT_URI;
+    const scopes = 'locations.readonly users.readonly conversations.write';
+    
+    if (!clientId || !redirectUri) {
+      return res.status(400).json({ 
+        error: 'Missing GHL credentials',
+        clientId: !!clientId,
+        redirectUri: !!redirectUri
+      });
+    }
+    
+    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
+    
+    res.json({ 
+      authUrl,
+      clientId,
+      redirectUri,
+      scopes
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Health check
