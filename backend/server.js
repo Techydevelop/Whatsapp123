@@ -117,11 +117,13 @@ app.get('/auth/ghl/callback', async (req, res) => {
         client_secret: process.env.GHL_CLIENT_SECRET,
         redirect_uri: process.env.GHL_REDIRECT_URI,
         code,
-        grant_type: 'authorization_code'
+        grant_type: 'authorization_code',
+        user_type: 'Company'
       }),
       {
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
         }
       }
     );
@@ -136,22 +138,26 @@ app.get('/auth/ghl/callback', async (req, res) => {
     
     // Get company and user info
     console.log('Fetching company and user info...');
-    // Skip company/user API calls for now and use basic info
-    console.log('Skipping company/user API calls due to 404 errors');
+    // Get company and user info from token response
+    console.log('Using token response data for company and user info');
     
-    // Create mock responses to continue the flow
-    const companyResponse = { data: { companyId: 'default-company' } };
+    const tokenData = tokenResponse.data;
+    const companyResponse = { 
+      data: { 
+        companyId: tokenData.companyId || 'default-company' 
+      } 
+    };
     const userResponse = { 
       data: { 
-        id: 'user-' + Date.now(),
+        id: tokenData.userId || 'user-' + Date.now(),
         email: 'user@example.com',
         firstName: 'User',
         lastName: 'Name'
       } 
     };
 
-    console.log('Company response: Mock');
-    console.log('User response: Mock');
+    console.log('Company response: Token data');
+    console.log('User response: Token data');
     
     if (!companyResponse.data || !companyResponse.data.companyId) {
       throw new Error('Invalid company response from GHL');
@@ -231,18 +237,18 @@ app.get('/auth/ghl/callback', async (req, res) => {
 
     // Get all locations for this company
     console.log('Fetching locations...');
-    // Skip locations API call for now and use mock data
-    console.log('Skipping locations API call due to 404 errors');
-    
-    const locationsResponse = { 
-      data: { 
-        locations: [
-          { id: 'location-1', name: 'Default Location' }
-        ] 
-      } 
-    };
+    // Get locations using GHL API
+    console.log('Fetching locations using GHL API...');
+    const locationsResponse = await axios.get('https://services.leadconnectorhq.com/locations', {
+      headers: { 
+        Authorization: `Bearer ${access_token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Version': '2021-07-28'
+      }
+    });
 
-    console.log('Locations response status: Mock');
+    console.log('Locations response status:', locationsResponse.status);
     
     if (!locationsResponse.data || !locationsResponse.data.locations) {
       console.error('Invalid locations response from GHL');
@@ -711,11 +717,14 @@ app.post('/admin/mint-location-token', requireAuth, async (req, res) => {
           client_id: process.env.GHL_CLIENT_ID,
           client_secret: process.env.GHL_CLIENT_SECRET,
           refresh_token: ghlAccount.refresh_token,
-          grant_type: 'refresh_token'
+          grant_type: 'refresh_token',
+          user_type: 'Company',
+          redirect_uri: process.env.GHL_REDIRECT_URI
         }),
         {
           headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json'
           }
         }
       );
@@ -736,18 +745,18 @@ app.post('/admin/mint-location-token', requireAuth, async (req, res) => {
       agencyAccessToken = access_token;
     }
 
-    // Mint location-specific token
-    const locationTokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', 
-      new URLSearchParams({
-        client_id: process.env.GHL_CLIENT_ID,
-        client_secret: process.env.GHL_CLIENT_SECRET,
-        location_id: subaccount.ghl_location_id,
-        access_token: agencyAccessToken,
-        grant_type: 'location_token'
-      }),
+    // Mint location-specific token using correct API
+    const locationTokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/locationToken', 
+      {
+        companyId: ghlAccount.company_id,
+        locationId: subaccount.ghl_location_id
+      },
       {
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Version': '2021-07-28',
+          'Authorization': `Bearer ${agencyAccessToken}`
         }
       }
     );
