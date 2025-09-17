@@ -708,6 +708,63 @@ app.get('/admin/location-token/:subaccountId', requireAuth, async (req, res) => 
   }
 });
 
+// GHL Leads endpoint
+app.post('/admin/ghl/leads', requireAuth, async (req, res) => {
+  try {
+    const { subaccountId, locationToken } = req.body;
+    
+    if (!subaccountId || !locationToken) {
+      return res.status(400).json({ error: 'subaccountId and locationToken are required' });
+    }
+
+    // Verify subaccount belongs to user
+    const { data: subaccount, error: subaccountError } = await supabaseAdmin
+      .from('subaccounts')
+      .select('*')
+      .eq('id', subaccountId)
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (subaccountError || !subaccount) {
+      return res.status(404).json({ error: 'Subaccount not found' });
+    }
+
+    if (!subaccount.ghl_location_id) {
+      return res.status(400).json({ error: 'Subaccount has no GHL location ID' });
+    }
+
+    // Fetch leads from GHL API
+    const leadsResponse = await axios.get(`https://services.leadconnectorhq.com/contacts`, {
+      headers: { 
+        Authorization: `Bearer ${locationToken}`,
+        'Content-Type': 'application/json'
+      },
+      params: {
+        locationId: subaccount.ghl_location_id,
+        limit: 50
+      }
+    });
+
+    const leads = leadsResponse.data.contacts || [];
+    
+    // Transform leads to our format
+    const transformedLeads = leads.map(lead => ({
+      id: lead.id,
+      name: `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown',
+      phone: lead.phone || '',
+      email: lead.email || '',
+      status: lead.status || 'New',
+      source: lead.source || 'Unknown',
+      created_at: lead.dateAdded || new Date().toISOString()
+    }));
+
+    res.json(transformedLeads);
+  } catch (error) {
+    console.error('Error fetching GHL leads:', error);
+    res.status(500).json({ error: 'Failed to fetch leads' });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

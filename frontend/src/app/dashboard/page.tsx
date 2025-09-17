@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
 import SubaccountSelector from '@/components/dashboard/SubaccountSelector'
@@ -11,12 +12,26 @@ import GHLIntegration from '@/components/dashboard/GHLIntegration'
 type Subaccount = Database['public']['Tables']['subaccounts']['Row']
 type Session = Database['public']['Tables']['sessions']['Row']
 
+interface GHLLead {
+  id: string
+  name: string
+  phone: string
+  email?: string
+  status: string
+  source: string
+  created_at: string
+}
+
 export default function Dashboard() {
+  const searchParams = useSearchParams()
   const [subaccounts, setSubaccounts] = useState<Subaccount[]>([])
   const [selectedSubaccount, setSelectedSubaccount] = useState<Subaccount | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [ghlLeads, setGhlLeads] = useState<GHLLead[]>([])
+  const [loadingLeads, setLoadingLeads] = useState(false)
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
 
   const fetchSubaccounts = useCallback(async () => {
     try {
@@ -48,6 +63,68 @@ export default function Dashboard() {
       setSessions(data || [])
     } catch (error) {
       console.error('Error fetching sessions:', error)
+    }
+  }, [])
+
+  // Check for GHL connection success
+  useEffect(() => {
+    const ghlConnected = searchParams.get('ghl')
+    if (ghlConnected === 'connected') {
+      setShowSuccessMessage(true)
+      // Hide success message after 5 seconds
+      setTimeout(() => setShowSuccessMessage(false), 5000)
+    }
+  }, [searchParams])
+
+  // Fetch GHL leads for selected subaccount
+  const fetchGHLLeads = useCallback(async (subaccountId: string) => {
+    if (!subaccountId) return
+    
+    setLoadingLeads(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
+
+      // Get location token for this subaccount
+      const tokenResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/location-token/${subaccountId}`, {
+        headers: {
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+      })
+
+      if (!tokenResponse.ok) {
+        console.log('No location token available for leads')
+        setGhlLeads([])
+        return
+      }
+
+      const locationToken = await tokenResponse.json()
+      
+      // Fetch leads from GHL API
+      const leadsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/leads`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({
+          subaccountId,
+          locationToken: locationToken.access_token
+        }),
+      })
+
+      if (leadsResponse.ok) {
+        const leads = await leadsResponse.json()
+        setGhlLeads(leads || [])
+      } else {
+        console.log('Failed to fetch leads')
+        setGhlLeads([])
+      }
+    } catch (error) {
+      console.error('Error fetching GHL leads:', error)
+      setGhlLeads([])
+    } finally {
+      setLoadingLeads(false)
     }
   }, [])
 
@@ -92,8 +169,9 @@ export default function Dashboard() {
     if (selectedSubaccount) {
       fetchSessions(selectedSubaccount.id)
       mintLocationToken(selectedSubaccount.id)
+      fetchGHLLeads(selectedSubaccount.id)
     }
-  }, [selectedSubaccount, fetchSessions, mintLocationToken])
+  }, [selectedSubaccount, fetchSessions, mintLocationToken, fetchGHLLeads])
 
   const createSubaccount = async (name: string) => {
     try {
@@ -198,6 +276,27 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Success Message */}
+      {showSuccessMessage && (
+        <div className="bg-green-50 border border-green-200 rounded-md p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-green-800">
+                GoHighLevel Successfully Connected!
+              </h3>
+              <div className="mt-2 text-sm text-green-700">
+                <p>Your GHL account has been connected and subaccounts have been created. You can now manage leads and send WhatsApp messages.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* GHL Integration */}
       <GHLIntegration 
         subaccount={selectedSubaccount}
@@ -211,6 +310,77 @@ export default function Dashboard() {
         onSelect={setSelectedSubaccount}
         onCreate={createSubaccount}
       />
+
+      {/* GHL Leads Section */}
+      {selectedSubaccount && (
+        <div className="bg-white shadow rounded-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-gray-900">GHL Leads</h3>
+            <button
+              onClick={() => fetchGHLLeads(selectedSubaccount.id)}
+              disabled={loadingLeads}
+              className="px-3 py-1 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loadingLeads ? 'Loading...' : 'Refresh Leads'}
+            </button>
+          </div>
+          
+          {loadingLeads ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+              <span className="ml-2 text-gray-500">Loading leads...</span>
+            </div>
+          ) : ghlLeads.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500 mb-2">No leads found</p>
+              <p className="text-sm text-gray-400">
+                Make sure you have a valid GHL location token and leads in your account
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {ghlLeads.map((lead) => (
+                    <tr key={lead.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {lead.name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {lead.phone}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {lead.email || '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          {lead.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {lead.source}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(lead.created_at).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Sessions and Chat */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
