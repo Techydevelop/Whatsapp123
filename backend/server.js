@@ -228,6 +228,7 @@ app.get('/auth/ghl/callback', async (req, res) => {
         access_token,
         refresh_token,
         company_id: companyId,
+        location_id: finalLocationId || 'default-location',
         expires_at: expiresAt
       })
       .select()

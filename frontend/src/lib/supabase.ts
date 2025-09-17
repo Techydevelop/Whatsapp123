@@ -102,7 +102,7 @@ export type Database = {
           access_token: string
           refresh_token: string
           company_id: string
-          location_id: string
+          location_id: string | null
           expires_at: string
           created_at: string
         }
@@ -112,7 +112,7 @@ export type Database = {
           access_token: string
           refresh_token: string
           company_id: string
-          location_id: string
+          location_id?: string | null
           expires_at: string
           created_at?: string
         }
@@ -122,7 +122,7 @@ export type Database = {
           access_token?: string
           refresh_token?: string
           company_id?: string
-          location_id?: string
+          location_id?: string | null
           expires_at?: string
           created_at?: string
         }

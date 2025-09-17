@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS ghl_accounts (
   access_token TEXT NOT NULL,
   refresh_token TEXT NOT NULL,
   company_id TEXT NOT NULL,
+  location_id TEXT,
   expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -65,58 +66,99 @@ ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ghl_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ghl_location_tokens ENABLE ROW LEVEL SECURITY;
 
--- Create RLS policies
-CREATE POLICY "Users can view their own subaccounts" ON subaccounts
-  FOR SELECT USING (auth.uid() = user_id);
+-- Create RLS policies (with IF NOT EXISTS)
+DO $$ 
+BEGIN
+  -- Subaccounts policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'subaccounts' AND policyname = 'Users can view their own subaccounts') THEN
+    CREATE POLICY "Users can view their own subaccounts" ON subaccounts FOR SELECT USING (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'subaccounts' AND policyname = 'Users can insert their own subaccounts') THEN
+    CREATE POLICY "Users can insert their own subaccounts" ON subaccounts FOR INSERT WITH CHECK (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'subaccounts' AND policyname = 'Users can update their own subaccounts') THEN
+    CREATE POLICY "Users can update their own subaccounts" ON subaccounts FOR UPDATE USING (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'subaccounts' AND policyname = 'Users can delete their own subaccounts') THEN
+    CREATE POLICY "Users can delete their own subaccounts" ON subaccounts FOR DELETE USING (auth.uid() = user_id);
+  END IF;
 
-CREATE POLICY "Users can insert their own subaccounts" ON subaccounts
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
+  -- Sessions policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'sessions' AND policyname = 'Users can view their own sessions') THEN
+    CREATE POLICY "Users can view their own sessions" ON sessions FOR SELECT USING (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'sessions' AND policyname = 'Users can insert their own sessions') THEN
+    CREATE POLICY "Users can insert their own sessions" ON sessions FOR INSERT WITH CHECK (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'sessions' AND policyname = 'Users can update their own sessions') THEN
+    CREATE POLICY "Users can update their own sessions" ON sessions FOR UPDATE USING (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'sessions' AND policyname = 'Users can delete their own sessions') THEN
+    CREATE POLICY "Users can delete their own sessions" ON sessions FOR DELETE USING (auth.uid() = user_id);
+  END IF;
 
-CREATE POLICY "Users can update their own subaccounts" ON subaccounts
-  FOR UPDATE USING (auth.uid() = user_id);
+  -- Messages policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'messages' AND policyname = 'Users can view their own messages') THEN
+    CREATE POLICY "Users can view their own messages" ON messages FOR SELECT USING (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'messages' AND policyname = 'Users can insert their own messages') THEN
+    CREATE POLICY "Users can insert their own messages" ON messages FOR INSERT WITH CHECK (auth.uid() = user_id);
+  END IF;
 
-CREATE POLICY "Users can delete their own subaccounts" ON subaccounts
-  FOR DELETE USING (auth.uid() = user_id);
+  -- GHL accounts policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_accounts' AND policyname = 'Users can view their own GHL accounts') THEN
+    CREATE POLICY "Users can view their own GHL accounts" ON ghl_accounts FOR SELECT USING (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_accounts' AND policyname = 'Users can insert their own GHL accounts') THEN
+    CREATE POLICY "Users can insert their own GHL accounts" ON ghl_accounts FOR INSERT WITH CHECK (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_accounts' AND policyname = 'Users can update their own GHL accounts') THEN
+    CREATE POLICY "Users can update their own GHL accounts" ON ghl_accounts FOR UPDATE USING (auth.uid() = user_id);
+  END IF;
 
-CREATE POLICY "Users can view their own sessions" ON sessions
-  FOR SELECT USING (auth.uid() = user_id);
+  -- GHL location tokens policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_location_tokens' AND policyname = 'Users can view their own GHL location tokens') THEN
+    CREATE POLICY "Users can view their own GHL location tokens" ON ghl_location_tokens FOR SELECT USING (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_location_tokens' AND policyname = 'Users can insert their own GHL location tokens') THEN
+    CREATE POLICY "Users can insert their own GHL location tokens" ON ghl_location_tokens FOR INSERT WITH CHECK (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_location_tokens' AND policyname = 'Users can update their own GHL location tokens') THEN
+    CREATE POLICY "Users can update their own GHL location tokens" ON ghl_location_tokens FOR UPDATE USING (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_location_tokens' AND policyname = 'Users can delete their own GHL location tokens') THEN
+    CREATE POLICY "Users can delete their own GHL location tokens" ON ghl_location_tokens FOR DELETE USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can insert their own sessions" ON sessions
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own sessions" ON sessions
-  FOR UPDATE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own sessions" ON sessions
-  FOR DELETE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own messages" ON messages
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own messages" ON messages
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own GHL accounts" ON ghl_accounts
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own GHL accounts" ON ghl_accounts
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own GHL accounts" ON ghl_accounts
-  FOR UPDATE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own GHL location tokens" ON ghl_location_tokens
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own GHL location tokens" ON ghl_location_tokens
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own GHL location tokens" ON ghl_location_tokens
-  FOR UPDATE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own GHL location tokens" ON ghl_location_tokens
-  FOR DELETE USING (auth.uid() = user_id);
-
--- Enable Realtime
-ALTER PUBLICATION supabase_realtime ADD TABLE messages;
-ALTER PUBLICATION supabase_realtime ADD TABLE sessions;
+-- Enable Realtime (with IF NOT EXISTS check)
+DO $$ 
+BEGIN
+  -- Add messages table to realtime publication if not already added
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+  END IF;
+  
+  -- Add sessions table to realtime publication if not already added
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'sessions'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE sessions;
+  END IF;
+END $$;
