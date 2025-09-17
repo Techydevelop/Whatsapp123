@@ -64,7 +64,7 @@ export default function Dashboard() {
       fetchSessions(selectedSubaccount.id)
       mintLocationToken(selectedSubaccount.id)
     }
-  }, [selectedSubaccount, fetchSessions])
+  }, [selectedSubaccount, fetchSessions, mintLocationToken])
 
   const mintLocationToken = useCallback(async (subaccountId: string) => {
     try {
