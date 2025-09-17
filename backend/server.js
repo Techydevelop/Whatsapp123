@@ -136,28 +136,26 @@ app.get('/auth/ghl/callback', async (req, res) => {
     
     const { access_token, refresh_token, expires_in } = tokenResponse.data;
     
-    // Get company and user info
-    console.log('Fetching company and user info...');
     // Get company and user info from token response
     console.log('Using token response data for company and user info');
     
     const tokenData = tokenResponse.data;
     const companyResponse = { 
       data: { 
-        companyId: tokenData.companyId || 'default-company' 
+        companyId: tokenData.companyId 
       } 
     };
     const userResponse = { 
       data: { 
-        id: tokenData.userId || 'user-' + Date.now(),
-        email: 'user@example.com',
-        firstName: 'User',
-        lastName: 'Name'
+        id: tokenData.userId,
+        email: tokenData.email || 'user@example.com',
+        firstName: tokenData.firstName || 'User',
+        lastName: tokenData.lastName || 'Name'
       } 
     };
 
-    console.log('Company response: Token data');
-    console.log('User response: Token data');
+    console.log('Company response: Real token data');
+    console.log('User response: Real token data');
     
     if (!companyResponse.data || !companyResponse.data.companyId) {
       throw new Error('Invalid company response from GHL');
@@ -867,7 +865,9 @@ app.post('/admin/ghl/leads', requireAuth, async (req, res) => {
     const leadsResponse = await axios.get(`https://services.leadconnectorhq.com/contacts`, {
       headers: { 
         Authorization: `Bearer ${locationToken}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Version': '2021-07-28'
       },
       params: {
         locationId: subaccount.ghl_location_id,
@@ -875,7 +875,9 @@ app.post('/admin/ghl/leads', requireAuth, async (req, res) => {
       }
     });
 
+    console.log('GHL Leads API response status:', leadsResponse.status);
     const leads = leadsResponse.data.contacts || [];
+    console.log('Found leads:', leads.length);
     
     // Transform leads to our format
     const transformedLeads = leads.map(lead => ({
