@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Database, supabase } from '@/lib/supabase'
+import Image from 'next/image'
 
 type Session = Database['public']['Tables']['sessions']['Row']
 type Subaccount = Database['public']['Tables']['subaccounts']['Row']
@@ -176,9 +177,11 @@ export default function SessionsList({
                   <p className="text-sm text-gray-600 text-center">
                     Scan this QR code with your WhatsApp mobile app
                   </p>
-                  <img 
+                  <Image 
                     src={session.qr} 
                     alt="QR Code" 
+                    width={192}
+                    height={192}
                     className="w-48 h-48 border-2 border-gray-300 rounded-lg shadow-sm"
                   />
                   <p className="text-xs text-gray-500 text-center">

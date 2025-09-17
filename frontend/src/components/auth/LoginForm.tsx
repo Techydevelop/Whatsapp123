@@ -34,8 +34,9 @@ export default function LoginForm() {
         if (error) throw error
         setMessage('Check your email for verification link!')
       }
-    } catch (error: any) {
-      setMessage(error.message)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'An unexpected error occurred'
+      setMessage(message)
     } finally {
       setLoading(false)
     }

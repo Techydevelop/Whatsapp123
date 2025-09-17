@@ -4,6 +4,12 @@ import { useState, useEffect } from 'react'
 import { supabase, Database } from '@/lib/supabase'
 
 type Subaccount = Database['public']['Tables']['subaccounts']['Row']
+type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
+
+interface LocationToken {
+  token: string
+  expires_at: string
+}
 
 interface GHLIntegrationProps {
   subaccount: Subaccount | null
@@ -13,9 +19,9 @@ interface GHLIntegrationProps {
 export default function GHLIntegration({ subaccount, onSubaccountUpdate }: GHLIntegrationProps) {
   const [isConnecting, setIsConnecting] = useState(false)
   const [ghlLocationId, setGhlLocationId] = useState(subaccount?.ghl_location_id || '')
-  const [ghlAccount, setGhlAccount] = useState<any>(null)
+  const [ghlAccount, setGhlAccount] = useState<GhlAccount | null>(null)
   const [isGhlUser, setIsGhlUser] = useState(false)
-  const [locationToken, setLocationToken] = useState<any>(null)
+  const [locationToken, setLocationToken] = useState<LocationToken | null>(null)
   const [isMintingToken, setIsMintingToken] = useState(false)
 
   useEffect(() => {

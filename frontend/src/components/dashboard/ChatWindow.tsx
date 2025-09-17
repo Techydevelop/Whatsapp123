@@ -56,7 +56,7 @@ export default function ChatWindow({ session, subaccount }: ChatWindowProps) {
     }
 
     fetchMessages()
-  }, [session, subaccount])
+  }, [session, subaccount, recipientPhone])
 
   // Subscribe to real-time message updates
   useEffect(() => {
