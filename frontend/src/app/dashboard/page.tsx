@@ -59,13 +59,6 @@ export default function Dashboard() {
     init()
   }, [fetchSubaccounts])
 
-  useEffect(() => {
-    if (selectedSubaccount) {
-      fetchSessions(selectedSubaccount.id)
-      mintLocationToken(selectedSubaccount.id)
-    }
-  }, [selectedSubaccount, fetchSessions, mintLocationToken])
-
   const mintLocationToken = useCallback(async (subaccountId: string) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -94,6 +87,13 @@ export default function Dashboard() {
       console.error('Error minting location token:', error)
     }
   }, [])
+
+  useEffect(() => {
+    if (selectedSubaccount) {
+      fetchSessions(selectedSubaccount.id)
+      mintLocationToken(selectedSubaccount.id)
+    }
+  }, [selectedSubaccount, fetchSessions, mintLocationToken])
 
   const createSubaccount = async (name: string) => {
     try {
