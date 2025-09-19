@@ -1,7 +1,7 @@
 {
-  "name": "whatsapp-saas",
-  "version": "1.0.0",
-  "description": "WhatsApp SaaS Platform with Supabase and React",
+  "name": "whatsapp-ghl-backend-enhanced",
+  "version": "2.0.0",
+  "description": "Advanced WhatsApp-GoHighLevel Integration Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

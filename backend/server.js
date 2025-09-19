@@ -2,10 +2,16 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 const { createClient } = require('@supabase/supabase-js');
-const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const axios = require('axios');
+
+// Import utilities
+const { normalizeToE164, toWhatsAppJID, fromWhatsAppJID } = require('./lib/phone');
+const GHLClient = require('./lib/ghl');
+const WhatsAppManager = require('./lib/wa');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,9 +24,24 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
+// Initialize WhatsApp manager
+const waManager = new WhatsAppManager();
+
 // Middleware
-app.use(cors());
-app.use(bodyParser.json());
+app.use(helmet());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3001',
+  credentials: true
+}));
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Rate limiting
+const messageRateLimit = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 10, // limit each IP to 10 requests per windowMs
+  message: 'Too many messages sent, please try again later.'
+});
 
 // Auth middleware
 const requireAuth = async (req, res, next) => {
@@ -45,17 +66,25 @@ const requireAuth = async (req, res, next) => {
   }
 };
 
-// Store active WhatsApp clients
-const activeClients = new Map();
+// Health check
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'Backend up', 
+    timestamp: new Date().toISOString(),
+    version: '2.0.0'
+  });
+});
 
 // GHL OAuth routes
 app.get('/auth/ghl/connect', async (req, res) => {
   try {
+    const { return_url } = req.query;
     const clientId = process.env.GHL_CLIENT_ID;
     const redirectUri = process.env.GHL_REDIRECT_URI;
-    const scopes = 'locations.readonly users.readonly conversations.write';
+    const scopes = 'locations.readonly contacts.readonly conversations.read conversations.write';
     
-    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
+    const state = return_url ? encodeURIComponent(return_url) : '';
+    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code${state ? `&state=${state}` : ''}`;
     
     res.json({ authUrl });
   } catch (error) {
@@ -223,11 +252,10 @@ app.get('/auth/ghl/callback', async (req, res) => {
       .from('ghl_accounts')
       .upsert({
         user_id: targetUserId,
-        access_token,
-        refresh_token,
         company_id: companyId,
-        location_id: finalLocationId || 'default-location',
-        expires_at: expiresAt
+        user_type: 'Company',
+        access_token,
+        refresh_token
       })
       .select()
       .single();
@@ -292,11 +320,21 @@ app.get('/auth/ghl/callback', async (req, res) => {
     
     console.log('Created subaccount:', subaccount.name);
 
-    // Redirect back to frontend dashboard
-    console.log('Redirecting to dashboard...');
+    // Return HTML that posts message to parent window
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
-    console.log('Frontend URL:', frontendUrl);
-    res.redirect(`${frontendUrl}/dashboard?ghl=connected`);
+    const returnUrl = state ? decodeURIComponent(state) : `${frontendUrl}/dashboard?ghl=connected`;
+    
+    res.send(`
+      <html>
+        <body>
+          <script>
+            window.opener.postMessage('ghl:connected', '*');
+            window.close();
+          </script>
+          <p>Connected successfully! You can close this window.</p>
+        </body>
+      </html>
+    `);
     
   } catch (error) {
     console.error('GHL callback error:', error);
@@ -376,77 +414,99 @@ app.post('/admin/create-session', requireAuth, async (req, res) => {
 
     if (sessionError) throw sessionError;
 
-    // Initialize WhatsApp client
-    const client = new Client({
-      authStrategy: new LocalAuth({ clientId: `client_${session.id}` }),
-      puppeteer: {
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      }
-    });
+    // Create WhatsApp client
+    const client = waManager.createClient(
+      session.id,
+      async (qr) => {
+        try {
+          const qrDataUrl = await qrcode.toDataURL(qr);
+          await supabaseAdmin
+            .from('sessions')
+            .update({ qr: qrDataUrl, status: 'qr' })
+            .eq('id', session.id);
+        } catch (error) {
+          console.error('Error updating QR:', error);
+        }
+      },
+      async (info) => {
+        try {
+          await supabaseAdmin
+            .from('sessions')
+            .update({ 
+              status: 'ready', 
+              qr: null,
+              phone_number: info.wid.user
+            })
+            .eq('id', session.id);
 
-    client.on('qr', async (qr) => {
-      try {
-        const qrDataUrl = await qrcode.toDataURL(qr);
-        await supabaseAdmin
-          .from('sessions')
-          .update({ qr: qrDataUrl, status: 'qr' })
-          .eq('id', session.id);
-      } catch (error) {
-        console.error('Error updating QR:', error);
-      }
-    });
+          // Map session to location
+          await supabaseAdmin
+            .from('location_session_map')
+            .upsert({
+              user_id: req.user.id,
+              subaccount_id: subaccountId,
+              ghl_location_id: subaccount.ghl_location_id,
+              session_id: session.id
+            });
+        } catch (error) {
+          console.error('Error updating session ready:', error);
+        }
+      },
+      async (reason) => {
+        try {
+          await supabaseAdmin
+            .from('sessions')
+            .update({ status: 'disconnected' })
+            .eq('id', session.id);
+          waManager.removeClient(session.id);
+        } catch (error) {
+          console.error('Error updating session disconnected:', error);
+        }
+      },
+      async (message) => {
+        try {
+          const fromNumber = fromWhatsAppJID(message.from);
+          const toNumber = fromWhatsAppJID(message.to);
+          
+          // Insert message into database
+          const { data: messageRecord, error: messageError } = await supabaseAdmin
+            .from('messages')
+            .insert({
+              session_id: session.id,
+              user_id: req.user.id,
+              subaccount_id: subaccountId,
+              from_number: fromNumber,
+              to_number: toNumber,
+              body: message.body,
+              media_url: message.hasMedia ? message.mediaUrl : null,
+              media_mime: message.hasMedia ? message.mediaMimetype : null,
+              direction: 'in'
+            })
+            .select()
+            .single();
 
-    client.on('ready', async () => {
-      try {
-        const info = client.info;
-        await supabaseAdmin
-          .from('sessions')
-          .update({ 
-            status: 'ready', 
-            qr: null,
-            phone_number: info.wid.user
-          })
-          .eq('id', session.id);
-      } catch (error) {
-        console.error('Error updating session ready:', error);
-      }
-    });
+          if (messageError) throw messageError;
 
-    client.on('disconnected', async () => {
-      try {
-        await supabaseAdmin
-          .from('sessions')
-          .update({ status: 'disconnected' })
-          .eq('id', session.id);
-        activeClients.delete(session.id);
-      } catch (error) {
-        console.error('Error updating session disconnected:', error);
+          // Send to GHL as inbound message
+          try {
+            const ghlClient = new GHLClient(process.env.GHL_API_KEY, subaccount.ghl_location_id);
+            await ghlClient.addInboundMessage({
+              conversationProviderId: process.env.PROVIDER_ID,
+              locationId: subaccount.ghl_location_id,
+              phone: normalizeToE164(fromNumber),
+              message: message.body,
+              attachments: message.hasMedia ? [{ url: message.mediaUrl, mime: message.mediaMimetype }] : [],
+              altId: messageRecord.id
+            });
+          } catch (ghlError) {
+            console.error('Error sending to GHL:', ghlError);
+          }
+        } catch (error) {
+          console.error('Error handling incoming message:', error);
+        }
       }
-    });
+    );
 
-    client.on('message', async (message) => {
-      try {
-        const fromNumber = message.from.replace('@c.us', '');
-        const toNumber = message.to.replace('@c.us', '');
-        
-        await supabaseAdmin
-          .from('messages')
-          .insert({
-            session_id: session.id,
-            user_id: req.user.id,
-            subaccount_id: subaccountId,
-            from_number: fromNumber,
-            to_number: toNumber,
-            body: message.body,
-            direction: 'in'
-          });
-      } catch (error) {
-        console.error('Error handling incoming message:', error);
-      }
-    });
-
-    activeClients.set(session.id, client);
     await client.initialize();
 
     res.json({ sessionId: session.id });
@@ -503,9 +563,9 @@ app.get('/admin/sessions', requireAuth, async (req, res) => {
 });
 
 // Message routes
-app.post('/messages/send', requireAuth, async (req, res) => {
+app.post('/messages/send', requireAuth, messageRateLimit, async (req, res) => {
   try {
-    const { sessionId, to, body } = req.body;
+    const { sessionId, to, body, mediaUrl } = req.body;
     
     if (!sessionId || !to || !body) {
       return res.status(400).json({ error: 'sessionId, to, and body are required' });
@@ -527,20 +587,19 @@ app.post('/messages/send', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Session not ready' });
     }
 
-    const client = activeClients.get(sessionId);
-    if (!client) {
-      return res.status(400).json({ error: 'WhatsApp client not found' });
+    // Normalize phone number
+    const normalizedTo = normalizeToE164(to);
+    const waJid = toWhatsAppJID(normalizedTo);
+
+    let messageResult;
+    if (mediaUrl) {
+      messageResult = await waManager.sendMediaMessage(sessionId, waJid, mediaUrl, body);
+    } else {
+      messageResult = await waManager.sendTextMessage(sessionId, waJid, body);
     }
 
-    // Normalize phone number to E.164
-    const normalizedTo = to.replace(/\D/g, '');
-    const waJid = `${normalizedTo}@c.us`;
-
-    // Send message
-    await client.sendMessage(waJid, body);
-
     // Save to database
-    await supabaseAdmin
+    const { data: messageRecord, error: messageError } = await supabaseAdmin
       .from('messages')
       .insert({
         session_id: sessionId,
@@ -549,57 +608,114 @@ app.post('/messages/send', requireAuth, async (req, res) => {
         from_number: session.phone_number,
         to_number: normalizedTo,
         body,
+        media_url: mediaUrl || null,
+        media_mime: mediaUrl ? 'image/jpeg' : null,
         direction: 'out'
-      });
+      })
+      .select()
+      .single();
 
-    res.json({ success: true });
+    if (messageError) throw messageError;
+
+    res.json({ 
+      success: true, 
+      messageId: messageRecord.id,
+      whatsappId: messageResult.id._serialized
+    });
   } catch (error) {
     console.error('Error sending message:', error);
     res.status(500).json({ error: 'Failed to send message' });
   }
 });
 
-// GHL webhooks
-app.post('/webhooks/ghl', async (req, res) => {
+// GHL Conversations Provider - Outbound (GHL → Us → WhatsApp)
+app.post('/ghl/provider-outbound', async (req, res) => {
   try {
-    const { sessionId, subaccountId, name, phone, text } = req.body;
+    const { locationId, contactId, phone, message, attachments, userId, altId } = req.body;
     
-    let targetSessionId = sessionId;
+    console.log('GHL Provider Outbound:', { locationId, contactId, phone, message });
+
+    if (!locationId || !message) {
+      return res.status(400).json({ error: 'locationId and message are required' });
+    }
+
+    // Find session for this location
+    const { data: sessionMap, error: mapError } = await supabaseAdmin
+      .from('location_session_map')
+      .select('*, sessions!inner(*)')
+      .eq('ghl_location_id', locationId)
+      .eq('sessions.status', 'ready')
+      .single();
+
+    if (mapError || !sessionMap) {
+      return res.status(404).json({ error: 'No active session found for this location' });
+    }
+
+    const session = sessionMap.sessions;
+    const targetPhone = phone || contactId;
+
+    if (!targetPhone) {
+      return res.status(400).json({ error: 'phone or contactId is required' });
+    }
+
+    // Send message via WhatsApp
+    const normalizedPhone = normalizeToE164(targetPhone);
+    const waJid = toWhatsAppJID(normalizedPhone);
+
+    let messageResult;
+    if (attachments && attachments.length > 0) {
+      // Send media message
+      messageResult = await waManager.sendMediaMessage(session.id, waJid, attachments[0].url, message);
+    } else {
+      // Send text message
+      messageResult = await waManager.sendTextMessage(session.id, waJid, message);
+    }
+
+    // Save to database
+    const { data: messageRecord, error: messageError } = await supabaseAdmin
+      .from('messages')
+      .insert({
+        session_id: session.id,
+        user_id: session.user_id,
+        subaccount_id: sessionMap.subaccount_id,
+        from_number: session.phone_number,
+        to_number: normalizedPhone,
+        body: message,
+        media_url: attachments && attachments.length > 0 ? attachments[0].url : null,
+        media_mime: attachments && attachments.length > 0 ? attachments[0].mime : null,
+        direction: 'out'
+      })
+      .select()
+      .single();
+
+    if (messageError) throw messageError;
+
+    // Return provider response
+    res.json({
+      success: true,
+      messageId: messageRecord.id,
+      altId: altId || messageRecord.id,
+      status: 'sent'
+    });
+
+  } catch (error) {
+    console.error('Error processing GHL provider outbound:', error);
+    res.status(500).json({ error: 'Failed to process outbound message' });
+  }
+});
+
+// GHL message status endpoint (optional)
+app.post('/ghl/message-status', async (req, res) => {
+  try {
+    const { messageId, status } = req.body;
     
-    if (!targetSessionId && subaccountId) {
-      // Find a ready session for this subaccount
-      const { data: session } = await supabaseAdmin
-        .from('sessions')
-        .select('id')
-        .eq('subaccount_id', subaccountId)
-        .eq('status', 'ready')
-        .limit(1)
-        .single();
-      
-      if (session) {
-        targetSessionId = session.id;
-      }
-    }
-
-    if (!targetSessionId) {
-      return res.status(400).json({ error: 'No ready session found' });
-    }
-
-    const client = activeClients.get(targetSessionId);
-    if (!client) {
-      return res.status(400).json({ error: 'WhatsApp client not found' });
-    }
-
-    const normalizedPhone = phone.replace(/\D/g, '');
-    const waJid = `${normalizedPhone}@c.us`;
-    const message = text || `Hello ${name}, thank you for your interest!`;
-
-    await client.sendMessage(waJid, message);
-
+    // Update message status in database if needed
+    // This is a stub - implement based on GHL requirements
+    
     res.json({ success: true });
   } catch (error) {
-    console.error('Error processing GHL webhook:', error);
-    res.status(500).json({ error: 'Failed to process webhook' });
+    console.error('Error updating message status:', error);
+    res.status(500).json({ error: 'Failed to update message status' });
   }
 });
 
@@ -912,12 +1028,145 @@ app.get('/test/ghl', (req, res) => {
   });
 });
 
+// GHL Conversations API endpoints
+app.get('/admin/ghl/conversations', requireAuth, async (req, res) => {
+  try {
+    const { locationId, limit = 50 } = req.query;
+    
+    if (!locationId) {
+      return res.status(400).json({ error: 'locationId is required' });
+    }
+
+    // Get GHL access token for this user
+    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('access_token')
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (ghlError || !ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    const ghlClient = new GHLClient(ghlAccount.access_token);
+    const conversations = await ghlClient.getConversations(locationId, limit);
+
+    res.json(conversations);
+  } catch (error) {
+    console.error('Error fetching GHL conversations:', error);
+    res.status(500).json({ error: 'Failed to fetch conversations' });
+  }
+});
+
+app.get('/admin/ghl/conversation/:conversationId', requireAuth, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    // Get GHL access token for this user
+    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('access_token')
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (ghlError || !ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    const ghlClient = new GHLClient(ghlAccount.access_token);
+    const conversation = await ghlClient.getConversation(conversationId);
+
+    res.json(conversation);
+  } catch (error) {
+    console.error('Error fetching GHL conversation:', error);
+    res.status(500).json({ error: 'Failed to fetch conversation' });
+  }
+});
+
+app.get('/admin/ghl/conversation/:conversationId/messages', requireAuth, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { limit = 50 } = req.query;
+
+    // Get GHL access token for this user
+    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('access_token')
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (ghlError || !ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    const ghlClient = new GHLClient(ghlAccount.access_token);
+    const messages = await ghlClient.getMessages(conversationId, limit);
+
+    res.json(messages);
+  } catch (error) {
+    console.error('Error fetching GHL conversation messages:', error);
+    res.status(500).json({ error: 'Failed to fetch conversation messages' });
+  }
+});
+
+app.get('/admin/ghl/search-conversations', requireAuth, async (req, res) => {
+  try {
+    const { locationId, query } = req.query;
+    
+    if (!locationId || !query) {
+      return res.status(400).json({ error: 'locationId and query are required' });
+    }
+
+    // Get GHL access token for this user
+    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('access_token')
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (ghlError || !ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    const ghlClient = new GHLClient(ghlAccount.access_token);
+    const conversations = await ghlClient.searchConversations(locationId, query);
+
+    res.json(conversations);
+  } catch (error) {
+    console.error('Error searching GHL conversations:', error);
+    res.status(500).json({ error: 'Failed to search conversations' });
+  }
+});
+
+// Get messages for a session
+app.get('/messages/session/:sessionId', requireAuth, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+
+    const { data: messages, error } = await supabaseAdmin
+      .from('messages')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    res.json(messages || []);
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
 // Test GHL OAuth URL generation
 app.get('/test/ghl/auth-url', (req, res) => {
   try {
     const clientId = process.env.GHL_CLIENT_ID;
     const redirectUri = process.env.GHL_REDIRECT_URI;
-    const scopes = 'locations.readonly users.readonly conversations.write';
+    const scopes = 'locations.readonly contacts.readonly conversations.read conversations.write';
     
     if (!clientId || !redirectUri) {
       return res.status(400).json({ 
@@ -953,14 +1202,12 @@ app.listen(PORT, () => {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('Shutting down gracefully...');
-  
-  for (const [sessionId, client] of activeClients) {
-    try {
-      await client.destroy();
-    } catch (error) {
-      console.error(`Error destroying client ${sessionId}:`, error);
-    }
-  }
-  
+  await waManager.shutdown();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('Shutting down gracefully...');
+  await waManager.shutdown();
   process.exit(0);
 });
