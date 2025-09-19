@@ -8,14 +8,14 @@ type Subaccount = Database['public']['Tables']['subaccounts']['Row']
 interface SubaccountSelectorProps {
   subaccounts: Subaccount[]
   selectedSubaccount: Subaccount | null
-  onSelect: (subaccount: Subaccount) => void
-  onCreate: (name: string) => void
+  onSubaccountChange: (subaccount: Subaccount) => void
+  onCreate?: (name: string) => void
 }
 
 export default function SubaccountSelector({ 
   subaccounts, 
   selectedSubaccount, 
-  onSelect, 
+  onSubaccountChange, 
   onCreate 
 }: SubaccountSelectorProps) {
   const [isCreating, setIsCreating] = useState(false)
@@ -80,7 +80,7 @@ export default function SubaccountSelector({
           subaccounts.map((subaccount) => (
             <div
               key={subaccount.id}
-              onClick={() => onSelect(subaccount)}
+              onClick={() => onSubaccountChange(subaccount)}
               className={`p-3 rounded-md cursor-pointer transition-colors ${
                 selectedSubaccount?.id === subaccount.id
                   ? 'bg-indigo-50 border-2 border-indigo-200'

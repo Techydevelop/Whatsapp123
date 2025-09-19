@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabase, Database } from '@/lib/supabase';
 import SubaccountSelector from '@/components/dashboard/SubaccountSelector';
 import ConnectGHLButton from '@/components/integrations/ConnectGHLButton';
 import ProviderStatus from '@/components/dashboard/ProviderStatus';
@@ -11,12 +11,7 @@ import ChatPane from '@/components/dashboard/ChatPane';
 import ProviderTestForm from '@/components/dashboard/ProviderTestForm';
 import GHLConversations from '@/components/dashboard/GHLConversations';
 
-interface Subaccount {
-  id: string;
-  name: string;
-  ghl_location_id: string | null;
-  created_at: string;
-}
+type Subaccount = Database['public']['Tables']['subaccounts']['Row'];
 
 interface Session {
   id: string;
