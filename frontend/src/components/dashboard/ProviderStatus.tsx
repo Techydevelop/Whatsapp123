@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
 interface ProviderStatusProps {
@@ -21,9 +21,9 @@ export default function ProviderStatus({ subaccountId, ghlLocationId }: Provider
 
   useEffect(() => {
     fetchProviderStatus();
-  }, [subaccountId, ghlLocationId]);
+  }, [fetchProviderStatus]);
 
-  const fetchProviderStatus = async () => {
+  const fetchProviderStatus = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('provider_installations')
@@ -42,7 +42,7 @@ export default function ProviderStatus({ subaccountId, ghlLocationId }: Provider
     } finally {
       setLoading(false);
     }
-  };
+  }, [subaccountId, ghlLocationId]);
 
   if (loading) {
     return (

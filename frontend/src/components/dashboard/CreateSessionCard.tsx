@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 
 interface CreateSessionCardProps {
@@ -173,9 +174,11 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
                 Scan this QR code with your WhatsApp mobile app:
               </p>
               <div className="inline-block p-4 bg-white border-2 border-gray-200 rounded-lg">
-                <img 
+                <Image 
                   src={session.qr} 
                   alt="WhatsApp QR Code" 
+                  width={192}
+                  height={192}
                   className="w-48 h-48"
                 />
               </div>

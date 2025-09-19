@@ -199,7 +199,7 @@ export default function GHLIntegration({ subaccount, onSubaccountUpdate }: GHLIn
                 ) : (
                   <div className="flex items-center space-x-2">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                      ⚠ No Token
+                      &#9888; No Token
                     </span>
                     <button
                       onClick={mintLocationToken}

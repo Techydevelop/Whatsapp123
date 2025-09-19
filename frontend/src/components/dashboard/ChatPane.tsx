@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 
 interface Message {
@@ -173,9 +174,11 @@ export default function ChatPane({ sessionId, subaccountId }: ChatPaneProps) {
               >
                 {message.media_url && (
                   <div className="mb-2">
-                    <img
+                    <Image
                       src={message.media_url}
                       alt="Media"
+                      width={300}
+                      height={200}
                       className="max-w-full h-auto rounded"
                     />
                   </div>

@@ -7,7 +7,7 @@ interface ProviderTestFormProps {
   ghlLocationId: string;
 }
 
-export default function ProviderTestForm({ subaccountId, ghlLocationId }: ProviderTestFormProps) {
+export default function ProviderTestForm({ ghlLocationId }: ProviderTestFormProps) {
   const [testData, setTestData] = useState({
     phone: '923001234567',
     message: 'Test message from GHL integration',

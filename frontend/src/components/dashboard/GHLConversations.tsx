@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
 interface Conversation {
@@ -21,7 +21,7 @@ interface GHLConversationsProps {
 export default function GHLConversations({ locationId }: GHLConversationsProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  const [conversationMessages, setConversationMessages] = useState<any[]>([]);
+  const [conversationMessages, setConversationMessages] = useState<{ body: string; direction: string; createdAt: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -29,9 +29,9 @@ export default function GHLConversations({ locationId }: GHLConversationsProps) 
     if (locationId) {
       fetchConversations();
     }
-  }, [locationId]);
+  }, [locationId, fetchConversations]);
 
-  const fetchConversations = async () => {
+  const fetchConversations = useCallback(async () => {
     try {
       setLoading(true);
       const { data: { session: authSession } } = await supabase.auth.getSession();
@@ -52,7 +52,7 @@ export default function GHLConversations({ locationId }: GHLConversationsProps) 
     } finally {
       setLoading(false);
     }
-  };
+  }, [locationId]);
 
   const fetchConversationMessages = async (conversationId: string) => {
     try {
