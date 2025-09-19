@@ -386,6 +386,50 @@ app.get('/admin/sessions', requireAuth, async (req, res) => {
   }
 });
 
+// Subaccount management routes
+app.put('/admin/subaccount/:subaccountId', requireAuth, async (req, res) => {
+  try {
+    const { subaccountId } = req.params;
+    const { ghl_location_id, name } = req.body;
+    
+    if (!subaccountId) {
+      return res.status(400).json({ error: 'Subaccount ID is required' });
+    }
+
+    // Verify the subaccount belongs to the user
+    const { data: existingSubaccount, error: fetchError } = await supabaseAdmin
+      .from('subaccounts')
+      .select('*')
+      .eq('id', subaccountId)
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (fetchError || !existingSubaccount) {
+      return res.status(404).json({ error: 'Subaccount not found' });
+    }
+
+    // Update the subaccount
+    const updateData = {};
+    if (ghl_location_id !== undefined) updateData.ghl_location_id = ghl_location_id;
+    if (name !== undefined) updateData.name = name;
+
+    const { data: updatedSubaccount, error: updateError } = await supabaseAdmin
+      .from('subaccounts')
+      .update(updateData)
+      .eq('id', subaccountId)
+      .eq('user_id', req.user.id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    res.json(updatedSubaccount);
+  } catch (error) {
+    console.error('Error updating subaccount:', error);
+    res.status(500).json({ error: 'Failed to update subaccount' });
+  }
+});
+
 // Message routes
 app.post('/messages/send', requireAuth, messageRateLimit, async (req, res) => {
   try {

@@ -127,15 +127,25 @@ export default function GHLIntegration({ subaccount, onSubaccountUpdate }: GHLIn
     if (!subaccount || !ghlLocationId) return
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
+      const { data: { session: authSession } } = await supabase.auth.getSession()
+      if (!authSession) throw new Error('Not authenticated')
 
-      const { error } = await supabase
-        .from('subaccounts')
-        .update({ ghl_location_id: ghlLocationId })
-        .eq('id', subaccount.id)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/subaccount/${subaccount.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authSession.access_token}`,
+        },
+        body: JSON.stringify({
+          ghl_location_id: ghlLocationId
+        }),
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to update location ID')
+      }
+
       onSubaccountUpdate()
     } catch (error) {
       console.error('Error updating location ID:', error)
