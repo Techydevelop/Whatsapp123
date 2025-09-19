@@ -23,7 +23,7 @@ export default function SubaccountSelector({
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newName.trim()) return
+    if (!newName.trim() || !onCreate) return
     
     await onCreate(newName.trim())
     setNewName('')

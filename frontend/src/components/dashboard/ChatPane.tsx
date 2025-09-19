@@ -28,18 +28,9 @@ export default function ChatPane({ sessionId }: ChatPaneProps) {
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    fetchMessages();
-    setupRealtimeSubscription();
-  }, [fetchMessages, setupRealtimeSubscription]);
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -86,6 +77,15 @@ export default function ChatPane({ sessionId }: ChatPaneProps) {
       subscription.unsubscribe();
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    fetchMessages();
+    setupRealtimeSubscription();
+  }, [fetchMessages, setupRealtimeSubscription]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   const sendMessage = async () => {
     if (!newMessage.trim() && !mediaUrl.trim()) return;

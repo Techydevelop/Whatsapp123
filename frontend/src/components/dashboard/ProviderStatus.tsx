@@ -19,10 +19,6 @@ export default function ProviderStatus({ subaccountId, ghlLocationId }: Provider
   const [provider, setProvider] = useState<ProviderInstallation | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchProviderStatus();
-  }, [fetchProviderStatus]);
-
   const fetchProviderStatus = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -43,6 +39,10 @@ export default function ProviderStatus({ subaccountId, ghlLocationId }: Provider
       setLoading(false);
     }
   }, [subaccountId, ghlLocationId]);
+
+  useEffect(() => {
+    fetchProviderStatus();
+  }, [fetchProviderStatus]);
 
   if (loading) {
     return (

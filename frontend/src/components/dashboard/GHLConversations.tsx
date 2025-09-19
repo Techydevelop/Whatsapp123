@@ -25,12 +25,6 @@ export default function GHLConversations({ locationId }: GHLConversationsProps) 
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    if (locationId) {
-      fetchConversations();
-    }
-  }, [locationId, fetchConversations]);
-
   const fetchConversations = useCallback(async () => {
     try {
       setLoading(true);
@@ -53,6 +47,12 @@ export default function GHLConversations({ locationId }: GHLConversationsProps) 
       setLoading(false);
     }
   }, [locationId]);
+
+  useEffect(() => {
+    if (locationId) {
+      fetchConversations();
+    }
+  }, [locationId, fetchConversations]);
 
   const fetchConversationMessages = async (conversationId: string) => {
     try {
