@@ -351,7 +351,7 @@ export default function Dashboard() {
       <SubaccountSelector
         subaccounts={subaccounts}
         selectedSubaccount={selectedSubaccount}
-        onSelect={setSelectedSubaccount}
+        onSubaccountChange={setSelectedSubaccount}
         onCreate={createSubaccount}
       />
 

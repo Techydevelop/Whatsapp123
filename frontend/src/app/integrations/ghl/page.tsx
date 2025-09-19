@@ -17,9 +17,22 @@ export default function GHLIntegrationPage() {
   const [ghlAccount, setGhlAccount] = useState<GHLAccount | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    checkAuthAndFetchAccount();
-  }, [checkAuthAndFetchAccount]);
+  const fetchGHLAccount = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('ghl_accounts')
+        .select('*')
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching GHL account:', error);
+      } else {
+        setGhlAccount(data);
+      }
+    } catch (error) {
+      console.error('Error fetching GHL account:', error);
+    }
+  };
 
   const checkAuthAndFetchAccount = useCallback(async () => {
     try {
@@ -38,22 +51,9 @@ export default function GHLIntegrationPage() {
     }
   }, [router]);
 
-  const fetchGHLAccount = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('ghl_accounts')
-        .select('*')
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching GHL account:', error);
-      } else {
-        setGhlAccount(data);
-      }
-    } catch (error) {
-      console.error('Error fetching GHL account:', error);
-    }
-  };
+  useEffect(() => {
+    checkAuthAndFetchAccount();
+  }, [checkAuthAndFetchAccount]);
 
   const handleGHLConnected = () => {
     fetchGHLAccount();

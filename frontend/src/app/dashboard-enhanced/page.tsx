@@ -30,6 +30,20 @@ export default function DashboardEnhanced() {
   const [loading, setLoading] = useState(true);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
+  const fetchSubaccounts = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('subaccounts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setSubaccounts(data || []);
+    } catch (error) {
+      console.error('Error fetching subaccounts:', error);
+    }
+  }, []);
+
   // Check authentication
   useEffect(() => {
     const checkAuth = async () => {
@@ -42,7 +56,7 @@ export default function DashboardEnhanced() {
       setLoading(false);
     };
     checkAuth();
-  }, [router]);
+  }, [router, fetchSubaccounts]);
 
   // Check for GHL connection success
   useEffect(() => {
@@ -53,20 +67,6 @@ export default function DashboardEnhanced() {
       setTimeout(() => setShowSuccessMessage(false), 5000);
       // Clean up URL
       window.history.replaceState({}, '', '/dashboard-enhanced');
-    }
-  }, []);
-
-  const fetchSubaccounts = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('subaccounts')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setSubaccounts(data || []);
-    } catch (error) {
-      console.error('Error fetching subaccounts:', error);
     }
   }, []);
 
@@ -107,7 +107,7 @@ export default function DashboardEnhanced() {
     }
   };
 
-  const handleSessionCreated = (sessionId: string) => {
+  const handleSessionCreated = () => {
     if (selectedSubaccount) {
       fetchSessions(selectedSubaccount.id);
     }
