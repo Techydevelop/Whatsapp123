@@ -109,14 +109,14 @@ app.get('/auth/ghl/callback', async (req, res) => {
       client_secret: process.env.GHL_CLIENT_SECRET ? 'Set' : 'Missing',
       redirect_uri: process.env.GHL_REDIRECT_URI || 'Missing'
     });
-    
+
     // Exchange code for agency/company-level tokens
     const tokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', 
       new URLSearchParams({
-        client_id: process.env.GHL_CLIENT_ID,
-        client_secret: process.env.GHL_CLIENT_SECRET,
-        redirect_uri: process.env.GHL_REDIRECT_URI,
-        code,
+      client_id: process.env.GHL_CLIENT_ID,
+      client_secret: process.env.GHL_CLIENT_SECRET,
+      redirect_uri: process.env.GHL_REDIRECT_URI,
+      code,
         grant_type: 'authorization_code',
         user_type: 'Company'
       }),
@@ -133,7 +133,7 @@ app.get('/auth/ghl/callback', async (req, res) => {
     if (!tokenResponse.data || !tokenResponse.data.access_token) {
       throw new Error('Invalid token response from GHL');
     }
-    
+
     const { access_token, refresh_token, expires_in } = tokenResponse.data;
     
     // Get company and user info from token response
@@ -164,7 +164,7 @@ app.get('/auth/ghl/callback', async (req, res) => {
     if (!userResponse.data || !userResponse.data.id) {
       throw new Error('Invalid user response from GHL');
     }
-    
+
     const companyId = companyResponse.data.companyId;
     const userInfo = userResponse.data;
     const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
@@ -276,13 +276,13 @@ app.get('/auth/ghl/callback', async (req, res) => {
     const selectedLocation = locations.find(loc => loc.id === finalLocationId) || locations[0];
     
     const { data: subaccount, error: subaccountError } = await supabaseAdmin
-      .from('subaccounts')
-      .upsert({
-        user_id: targetUserId,
+        .from('subaccounts')
+        .upsert({
+          user_id: targetUserId,
         ghl_location_id: selectedLocation.id,
         name: selectedLocation.name || `Location ${selectedLocation.id}`
-      })
-      .select()
+        })
+        .select()
       .single();
 
     if (subaccountError) {
@@ -717,9 +717,9 @@ app.post('/admin/mint-location-token', requireAuth, async (req, res) => {
     if (new Date(ghlAccount.expires_at) <= new Date()) {
       const refreshResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', 
         new URLSearchParams({
-          client_id: process.env.GHL_CLIENT_ID,
-          client_secret: process.env.GHL_CLIENT_SECRET,
-          refresh_token: ghlAccount.refresh_token,
+        client_id: process.env.GHL_CLIENT_ID,
+        client_secret: process.env.GHL_CLIENT_SECRET,
+        refresh_token: ghlAccount.refresh_token,
           grant_type: 'refresh_token',
           user_type: 'Company',
           redirect_uri: process.env.GHL_REDIRECT_URI

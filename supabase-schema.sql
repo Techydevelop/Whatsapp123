@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS messages (
   from_number TEXT NOT NULL,
   to_number TEXT NOT NULL,
   body TEXT NOT NULL,
+  media_url TEXT,
+  media_mime TEXT,
   direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -38,25 +40,34 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS ghl_accounts (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  company_id TEXT NOT NULL,
+  user_type TEXT NOT NULL CHECK (user_type IN ('Company', 'Location')),
   access_token TEXT NOT NULL,
   refresh_token TEXT NOT NULL,
-  company_id TEXT NOT NULL,
-  location_id TEXT,
-  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create provider installations table (mapping per location)
+CREATE TABLE IF NOT EXISTS provider_installations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  subaccount_id UUID REFERENCES subaccounts(id) ON DELETE CASCADE NOT NULL,
+  ghl_location_id TEXT NOT NULL,
+  conversation_provider_id TEXT NOT NULL,
+  ghl_access_token TEXT NOT NULL,
+  ghl_refresh_token TEXT NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create GHL location tokens table (location-specific)
-CREATE TABLE IF NOT EXISTS ghl_location_tokens (
+-- Create location session map table (which WA session handles which location)
+CREATE TABLE IF NOT EXISTS location_session_map (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-  ghl_account_id UUID REFERENCES ghl_accounts(id) ON DELETE CASCADE NOT NULL,
-  location_id TEXT NOT NULL,
-  access_token TEXT NOT NULL,
-  refresh_token TEXT NOT NULL,
-  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(user_id, location_id)
+  subaccount_id UUID REFERENCES subaccounts(id) ON DELETE CASCADE NOT NULL,
+  ghl_location_id TEXT NOT NULL,
+  session_id UUID REFERENCES sessions(id) ON DELETE CASCADE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Enable RLS on all tables
@@ -64,7 +75,8 @@ ALTER TABLE subaccounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ghl_accounts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ghl_location_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE provider_installations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE location_session_map ENABLE ROW LEVEL SECURITY;
 
 -- Create RLS policies (with IF NOT EXISTS)
 DO $$ 
@@ -125,21 +137,38 @@ BEGIN
     CREATE POLICY "Users can update their own GHL accounts" ON ghl_accounts FOR UPDATE USING (auth.uid() = user_id);
   END IF;
 
-  -- GHL location tokens policies
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_location_tokens' AND policyname = 'Users can view their own GHL location tokens') THEN
-    CREATE POLICY "Users can view their own GHL location tokens" ON ghl_location_tokens FOR SELECT USING (auth.uid() = user_id);
+  -- Provider installations policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'provider_installations' AND policyname = 'Users can view their own provider installations') THEN
+    CREATE POLICY "Users can view their own provider installations" ON provider_installations FOR SELECT USING (auth.uid() = user_id);
   END IF;
   
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_location_tokens' AND policyname = 'Users can insert their own GHL location tokens') THEN
-    CREATE POLICY "Users can insert their own GHL location tokens" ON ghl_location_tokens FOR INSERT WITH CHECK (auth.uid() = user_id);
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'provider_installations' AND policyname = 'Users can insert their own provider installations') THEN
+    CREATE POLICY "Users can insert their own provider installations" ON provider_installations FOR INSERT WITH CHECK (auth.uid() = user_id);
   END IF;
   
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_location_tokens' AND policyname = 'Users can update their own GHL location tokens') THEN
-    CREATE POLICY "Users can update their own GHL location tokens" ON ghl_location_tokens FOR UPDATE USING (auth.uid() = user_id);
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'provider_installations' AND policyname = 'Users can update their own provider installations') THEN
+    CREATE POLICY "Users can update their own provider installations" ON provider_installations FOR UPDATE USING (auth.uid() = user_id);
   END IF;
   
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ghl_location_tokens' AND policyname = 'Users can delete their own GHL location tokens') THEN
-    CREATE POLICY "Users can delete their own GHL location tokens" ON ghl_location_tokens FOR DELETE USING (auth.uid() = user_id);
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'provider_installations' AND policyname = 'Users can delete their own provider installations') THEN
+    CREATE POLICY "Users can delete their own provider installations" ON provider_installations FOR DELETE USING (auth.uid() = user_id);
+  END IF;
+
+  -- Location session map policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'location_session_map' AND policyname = 'Users can view their own location session map') THEN
+    CREATE POLICY "Users can view their own location session map" ON location_session_map FOR SELECT USING (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'location_session_map' AND policyname = 'Users can insert their own location session map') THEN
+    CREATE POLICY "Users can insert their own location session map" ON location_session_map FOR INSERT WITH CHECK (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'location_session_map' AND policyname = 'Users can update their own location session map') THEN
+    CREATE POLICY "Users can update their own location session map" ON location_session_map FOR UPDATE USING (auth.uid() = user_id);
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'location_session_map' AND policyname = 'Users can delete their own location session map') THEN
+    CREATE POLICY "Users can delete their own location session map" ON location_session_map FOR DELETE USING (auth.uid() = user_id);
   END IF;
 END $$;
 
@@ -151,7 +180,7 @@ BEGIN
     SELECT 1 FROM pg_publication_tables 
     WHERE pubname = 'supabase_realtime' AND tablename = 'messages'
   ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE messages;
   END IF;
   
   -- Add sessions table to realtime publication if not already added
@@ -159,6 +188,6 @@ BEGIN
     SELECT 1 FROM pg_publication_tables 
     WHERE pubname = 'supabase_realtime' AND tablename = 'sessions'
   ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE sessions;
+ALTER PUBLICATION supabase_realtime ADD TABLE sessions;
   END IF;
 END $$;
