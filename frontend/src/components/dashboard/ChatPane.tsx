@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 
@@ -20,7 +20,7 @@ interface ChatPaneProps {
   subaccountId: string;
 }
 
-export default function ChatPane({ sessionId, subaccountId }: ChatPaneProps) {
+export default function ChatPane({ sessionId }: ChatPaneProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [mediaUrl, setMediaUrl] = useState('');
@@ -31,7 +31,7 @@ export default function ChatPane({ sessionId, subaccountId }: ChatPaneProps) {
   useEffect(() => {
     fetchMessages();
     setupRealtimeSubscription();
-  }, [sessionId]);
+  }, [fetchMessages, setupRealtimeSubscription]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -41,7 +41,7 @@ export default function ChatPane({ sessionId, subaccountId }: ChatPaneProps) {
     scrollToBottom();
   }, [messages]);
 
-  const fetchMessages = async () => {
+  const fetchMessages = useCallback(async () => {
     try {
       setIsLoading(true);
       const { data: { session: authSession } } = await supabase.auth.getSession();
@@ -62,9 +62,9 @@ export default function ChatPane({ sessionId, subaccountId }: ChatPaneProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [sessionId]);
 
-  const setupRealtimeSubscription = () => {
+  const setupRealtimeSubscription = useCallback(() => {
     const subscription = supabase
       .channel('messages')
       .on(
@@ -85,7 +85,7 @@ export default function ChatPane({ sessionId, subaccountId }: ChatPaneProps) {
     return () => {
       subscription.unsubscribe();
     };
-  };
+  }, [sessionId]);
 
   const sendMessage = async () => {
     if (!newMessage.trim() && !mediaUrl.trim()) return;

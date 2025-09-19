@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import ConnectGHLButton from '@/components/integrations/ConnectGHLButton';
@@ -19,9 +19,9 @@ export default function GHLIntegrationPage() {
 
   useEffect(() => {
     checkAuthAndFetchAccount();
-  }, []);
+  }, [checkAuthAndFetchAccount]);
 
-  const checkAuthAndFetchAccount = async () => {
+  const checkAuthAndFetchAccount = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
@@ -36,7 +36,7 @@ export default function GHLIntegrationPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
   const fetchGHLAccount = async () => {
     try {

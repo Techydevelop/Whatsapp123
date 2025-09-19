@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 
@@ -55,7 +55,7 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
     }
   };
 
-  const pollSessionStatus = async (sessionId: string) => {
+  const pollSessionStatus = useCallback(async (sessionId: string) => {
     try {
       const { data: { session: authSession } } = await supabase.auth.getSession();
       if (!authSession) return;
@@ -82,14 +82,14 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
     if (session?.status !== 'ready') {
       setTimeout(() => pollSessionStatus(sessionId), 2000);
     }
-  };
+  }, [session]);
 
   useEffect(() => {
     if (session && session.status !== 'ready') {
       const timer = setTimeout(() => pollSessionStatus(session.id), 2000);
       return () => clearTimeout(timer);
     }
-  }, [session]);
+  }, [session, pollSessionStatus]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -118,7 +118,7 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
       {!session ? (
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
-            Create a new WhatsApp session to start messaging. You'll need to scan a QR code with your phone.
+            Create a new WhatsApp session to start messaging. You&apos;ll need to scan a QR code with your phone.
           </p>
           
           {error && (
