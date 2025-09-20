@@ -30,7 +30,7 @@ A production-ready, multi-tenant WhatsApp integration that plugs into GoHighLeve
 ```env
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-NEXT_PUBLIC_API_URL=https://your-backend-domain.onrender.com
+NEXT_PUBLIC_API_URL=https://whatsapp123-dhn1.onrender.com
 ```
 
 ### Backend (Render/Railway)
@@ -49,7 +49,7 @@ FRONTEND_URL=https://your-frontend-domain.vercel.app
 # GoHighLevel
 GHL_CLIENT_ID=your_ghl_client_id
 GHL_CLIENT_SECRET=your_ghl_client_secret
-GHL_REDIRECT_URI=https://your-backend-domain.onrender.com/auth/ghl/callback
+GHL_REDIRECT_URI=https://whatsapp123-dhn1.onrender.com/oauth/callback
 GHL_API_KEY=your_ghl_api_key
 PROVIDER_ID=your_conversation_provider_id
 
@@ -94,7 +94,7 @@ WA_DATA_DIR=/data/wa
 1. Go to [GoHighLevel Marketplace](https://marketplace.leadconnectorhq.com/)
 2. Create new app with these settings:
    - **App Name**: WhatsApp Integration
-   - **Redirect URI**: `https://your-backend-domain.onrender.com/auth/ghl/callback`
+   - **Redirect URI**: `https://whatsapp123-dhn1.onrender.com/oauth/callback`
    - **Scopes**: 
      - `locations.readonly`
      - `contacts.readonly` 
@@ -108,7 +108,7 @@ WA_DATA_DIR=/data/wa
    - **Provider Name**: WhatsApp Integration
    - **Provider Type**: Custom
    - **Always Show**: Yes
-   - **Delivery URL**: `https://your-backend-domain.onrender.com/ghl/provider-outbound`
+   - **Delivery URL**: `https://whatsapp123-dhn1.onrender.com/ghl/provider-outbound`
 
 ### 3. Get Provider ID
 
@@ -146,12 +146,12 @@ WA_DATA_DIR=/data/wa
 
 ### 1. Test OAuth Flow
 ```bash
-curl -X GET "https://your-backend-domain.onrender.com/auth/ghl/connect"
+curl -X GET "https://whatsapp123-dhn1.onrender.com/auth/ghl/connect"
 ```
 
 ### 2. Test Session Creation
 ```bash
-curl -X POST "https://your-backend-domain.onrender.com/admin/create-session" \
+curl -X POST "https://whatsapp123-dhn1.onrender.com/admin/create-session" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"subaccountId": "your-subaccount-id"}'
@@ -159,7 +159,7 @@ curl -X POST "https://your-backend-domain.onrender.com/admin/create-session" \
 
 ### 3. Test Message Sending
 ```bash
-curl -X POST "https://your-backend-domain.onrender.com/messages/send" \
+curl -X POST "https://whatsapp123-dhn1.onrender.com/messages/send" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -172,7 +172,7 @@ curl -X POST "https://your-backend-domain.onrender.com/messages/send" \
 
 ### 4. Test GHL Provider Outbound
 ```bash
-curl -X POST "https://your-backend-domain.onrender.com/ghl/provider-outbound" \
+curl -X POST "https://whatsapp123-dhn1.onrender.com/ghl/provider-outbound" \
   -H "Content-Type: application/json" \
   -d '{
     "locationId": "your-location-id",
