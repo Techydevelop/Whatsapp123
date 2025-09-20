@@ -120,7 +120,7 @@ export default function DashboardEnhanced() {
     setTimeout(() => setShowSuccessMessage(false), 5000);
   };
 
-  const handleGHLLocationSelect = async (location: any) => {
+  const handleGHLLocationSelect = async (location: { id: string; name: string }) => {
     try {
       const { data: { session: authSession } } = await supabase.auth.getSession();
       if (!authSession) throw new Error('Not authenticated');
@@ -157,7 +157,7 @@ export default function DashboardEnhanced() {
       });
 
       if (sessionResponse.ok) {
-        const { sessionId } = await sessionResponse.json();
+        await sessionResponse.json();
         // Refresh sessions list
         await fetchSessions(subaccount.id);
       }
