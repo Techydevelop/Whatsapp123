@@ -93,6 +93,82 @@ app.get('/auth/ghl/connect', async (req, res) => {
   }
 });
 
+// Direct login redirect endpoint
+app.get('/auth/ghl/login', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const clientId = process.env.GHL_CLIENT_ID;
+    const redirectUri = process.env.GHL_REDIRECT_URI;
+    const scopes = 'locations.readonly contacts.readonly conversations.read conversations.write';
+    
+    const state = userId ? encodeURIComponent(userId) : '';
+    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code${state ? `&state=${state}` : ''}`;
+    
+    res.redirect(authUrl);
+  } catch (error) {
+    console.error('GHL login error:', error);
+    res.status(500).json({ error: 'Failed to redirect to GHL login' });
+  }
+});
+
+// OAuth callback endpoint (for GHL marketplace)
+app.get('/oauth/callback', async (req, res) => {
+  try {
+    const { code, locationId, state } = req.query;
+    
+    console.log('OAuth Callback received:', { code: !!code, locationId, state });
+    
+    if (!code) {
+      return res.status(400).send('Authorization code is required');
+    }
+
+    // Exchange code for tokens
+    const tokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', 
+      new URLSearchParams({
+        client_id: process.env.GHL_CLIENT_ID,
+        client_secret: process.env.GHL_CLIENT_SECRET,
+        code: code,
+        grant_type: 'authorization_code',
+        user_type: 'Company',
+        redirect_uri: process.env.GHL_REDIRECT_URI
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
+        }
+      }
+    );
+
+    const { access_token, refresh_token, expires_in, companyId } = tokenResponse.data;
+    
+    // Store tokens in database
+    const { error: insertError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .upsert({
+        user_id: state || 'anonymous',
+        access_token,
+        refresh_token,
+        company_id: companyId,
+        location_id: locationId,
+        expires_at: new Date(Date.now() + expires_in * 1000).toISOString()
+      });
+
+    if (insertError) {
+      console.error('Error storing GHL account:', insertError);
+      return res.status(500).send('Failed to store account information');
+    }
+
+    // Redirect to frontend with success
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    res.redirect(`${frontendUrl}/dashboard-enhanced?ghl=connected`);
+    
+  } catch (error) {
+    console.error('OAuth callback error:', error);
+    res.status(500).send('Authentication failed');
+  }
+});
+
 app.get('/auth/ghl/callback', async (req, res) => {
   try {
     const { code, locationId, state } = req.query;
