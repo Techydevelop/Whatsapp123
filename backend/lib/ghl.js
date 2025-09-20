@@ -44,6 +44,13 @@ class GHLClient {
   }
 
   /**
+   * Get all locations for the company
+   */
+  async getLocations() {
+    return this.request('GET', '/locations');
+  }
+
+  /**
    * Get contacts for a location
    */
   async getContacts(limit = 50) {

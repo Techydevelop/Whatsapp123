@@ -430,6 +430,30 @@ app.put('/admin/subaccount/:subaccountId', requireAuth, async (req, res) => {
   }
 });
 
+// GHL Locations endpoint
+app.get('/admin/ghl/locations', requireAuth, async (req, res) => {
+  try {
+    // Get GHL access token for this user
+    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('access_token')
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (ghlError || !ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    const ghlClient = new GHLClient(ghlAccount.access_token);
+    const locations = await ghlClient.getLocations();
+
+    res.json({ locations });
+  } catch (error) {
+    console.error('Error fetching GHL locations:', error);
+    res.status(500).json({ error: 'Failed to fetch GHL locations' });
+  }
+});
+
 // Message routes
 app.post('/messages/send', requireAuth, messageRateLimit, async (req, res) => {
   try {

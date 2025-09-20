@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase, Database } from '@/lib/supabase';
 import SubaccountSelector from '@/components/dashboard/SubaccountSelector';
+import GHLLocationSelector from '@/components/dashboard/GHLLocationSelector';
 import ConnectGHLButton from '@/components/integrations/ConnectGHLButton';
 import ProviderStatus from '@/components/dashboard/ProviderStatus';
 import CreateSessionCard from '@/components/dashboard/CreateSessionCard';
@@ -119,6 +120,52 @@ export default function DashboardEnhanced() {
     setTimeout(() => setShowSuccessMessage(false), 5000);
   };
 
+  const handleGHLLocationSelect = async (location: any) => {
+    try {
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      if (!authSession) throw new Error('Not authenticated');
+
+      // Create subaccount for this GHL location
+      const { data: subaccount, error: subaccountError } = await supabase
+        .from('subaccounts')
+        .insert({
+          name: location.name,
+          ghl_location_id: location.id,
+          user_id: authSession.user.id
+        })
+        .select()
+        .single();
+
+      if (subaccountError) throw subaccountError;
+
+      // Refresh subaccounts list
+      await fetchSubaccounts();
+      
+      // Select the newly created subaccount
+      setSelectedSubaccount(subaccount);
+      
+      // Auto-create WhatsApp session for this location
+      const sessionResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/create-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authSession.access_token}`,
+        },
+        body: JSON.stringify({
+          subaccountId: subaccount.id
+        }),
+      });
+
+      if (sessionResponse.ok) {
+        const { sessionId } = await sessionResponse.json();
+        // Refresh sessions list
+        await fetchSessions(subaccount.id);
+      }
+    } catch (error) {
+      console.error('Error creating subaccount and session:', error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -169,15 +216,20 @@ export default function DashboardEnhanced() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column - Configuration */}
           <div className="space-y-6">
+            {/* GHL Location Selector */}
+            <GHLLocationSelector onLocationSelect={handleGHLLocationSelect} />
+
             {/* Subaccount Selector */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">Subaccount</h2>
-              <SubaccountSelector
-                subaccounts={subaccounts}
-                selectedSubaccount={selectedSubaccount}
-                onSubaccountChange={handleSubaccountChange}
-              />
-            </div>
+            {subaccounts.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h2 className="text-lg font-medium text-gray-900 mb-4">Connected Subaccounts</h2>
+                <SubaccountSelector
+                  subaccounts={subaccounts}
+                  selectedSubaccount={selectedSubaccount}
+                  onSubaccountChange={handleSubaccountChange}
+                />
+              </div>
+            )}
 
             {/* Provider Status */}
             {selectedSubaccount && selectedSubaccount.ghl_location_id && (
