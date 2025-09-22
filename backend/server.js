@@ -171,8 +171,7 @@ app.get('/oauth/callback', async (req, res) => {
         company_id: companyId,
         user_type: 'Company',
         access_token,
-        refresh_token,
-        updated_at: new Date().toISOString()
+        refresh_token
       });
 
     if (insertError) {
