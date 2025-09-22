@@ -148,20 +148,19 @@ app.get('/oauth/callback', async (req, res) => {
     }
 
     // Store tokens in database for this user
-    if (!locationId) {
-      console.error('Missing locationId in oauth/callback query. Launch the flow from the GHL location chooser.');
-      return res.status(400).send('Missing locationId from GHL. Start install via the location chooser so it includes locationId.');
+    const upsertPayload = {
+      user_id: targetUserId,
+      company_id: companyId,
+      access_token,
+      refresh_token
+    };
+    if (locationId) {
+      upsertPayload.location_id = locationId;
     }
 
     const { error: insertError } = await supabaseAdmin
       .from('ghl_accounts')
-      .upsert({
-        user_id: targetUserId,
-        company_id: companyId,
-        access_token,
-        refresh_token,
-        location_id: locationId
-      });
+      .upsert(upsertPayload);
 
     if (insertError) {
       console.error('Error storing GHL account:', insertError);
