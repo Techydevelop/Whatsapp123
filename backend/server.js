@@ -76,22 +76,6 @@ app.get('/', (req, res) => {
 });
 
 // GHL OAuth routes
-app.get('/auth/ghl/connect', async (req, res) => {
-  try {
-    const { return_url } = req.query;
-    const clientId = process.env.GHL_CLIENT_ID;
-    const redirectUri = process.env.GHL_REDIRECT_URI;
-    const scopes = process.env.GHL_SCOPES || 'locations.readonly conversations.write users.readonly conversations.readonly conversations/message.readonly conversations/message.write conversations/reports.readonly conversations/livechat.write contacts.readonly';
-    
-    const state = return_url ? encodeURIComponent(return_url) : '';
-    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code${state ? `&state=${state}` : ''}`;
-    
-    res.json({ authUrl });
-  } catch (error) {
-    console.error('GHL connect error:', error);
-    res.status(500).json({ error: 'Failed to generate auth URL' });
-  }
-});
 
 // Direct login redirect endpoint
 app.get('/auth/ghl/login', async (req, res) => {
@@ -176,6 +160,11 @@ app.get('/oauth/callback', async (req, res) => {
     }
 
     // Store tokens in database for this user
+    if (!effectiveLocationId) {
+      console.error('No locationId resolved during oauth/callback. Ensure GHL_REDIRECT_URI points to /oauth/callback or that chooselocation returns a locationId.');
+      return res.status(400).send('Missing locationId from GHL. Set GHL_REDIRECT_URI to your /oauth/callback endpoint and try again.');
+    }
+
     const { error: insertError } = await supabaseAdmin
       .from('ghl_accounts')
       .upsert({
@@ -201,127 +190,9 @@ app.get('/oauth/callback', async (req, res) => {
   }
 });
 
-app.get('/auth/ghl/callback', async (req, res) => {
-  try {
-    const { code, locationId, state } = req.query;
-    
-    console.log('GHL Callback received:', { code: !!code, locationId, state });
-    
-    if (!code) {
-      console.error('GHL callback error: Missing code');
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
-      return res.redirect(`${frontendUrl}/login?error=missing_code`);
-    }
-
-    // Exchange code for tokens
-    const tokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', 
-      new URLSearchParams({
-        client_id: process.env.GHL_CLIENT_ID,
-        client_secret: process.env.GHL_CLIENT_SECRET,
-        redirect_uri: process.env.GHL_REDIRECT_URI,
-        code,
-        grant_type: 'authorization_code',
-        user_type: 'Company'
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json'
-        }
-      }
-    );
-
-    const { access_token, refresh_token, expires_in, companyId, userId } = tokenResponse.data;
-
-    // Determine a valid location id
-    let effectiveLocationId2 = locationId;
-    if (!effectiveLocationId2) {
-      try {
-        const ghlClient2 = new GHLClient(access_token);
-        const locs2 = await ghlClient2.getLocations();
-        effectiveLocationId2 = locs2?.locations?.[0]?.id || locs2?.[0]?.id || null;
-      } catch (e) {
-        console.warn('Failed to fetch locations during auth/ghl/callback');
-      }
-    }
-    
-    // Create or update user
-    let targetUserId = state;
-    if (!targetUserId) {
-      // Try to find existing user by GHL user ID
-      const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
-      const found = existingUser.users.find(u => u.user_metadata?.ghl_user_id === userId);
-      targetUserId = found?.id;
-    }
-
-    if (!targetUserId) {
-      // Create new user
-      const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-        email: `${userId}@ghl.user`,
-        user_metadata: {
-          ghl_user_id: userId,
-          ghl_company_id: companyId
-        }
-      });
-      if (createErr) throw createErr;
-      targetUserId = created.user?.id;
-    }
-
-    // Store GHL account
-    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
-      .from('ghl_accounts')
-      .upsert({
-        user_id: targetUserId,
-        company_id: companyId,
-        access_token,
-        refresh_token,
-        location_id: effectiveLocationId2
-      })
-      .select()
-      .single();
-
-    if (ghlError) throw ghlError;
-
-    // Get locations
-    const ghlClient = new GHLClient(access_token);
-    const locations = await ghlClient.getLocations();
-
-    // Create subaccount for selected location
-    if (locationId) {
-      const { data: subaccount, error: subaccountError } = await supabaseAdmin
-        .from('subaccounts')
-        .upsert({
-          user_id: targetUserId,
-          ghl_location_id: locationId,
-          name: `Location ${locationId}`
-        })
-        .select()
-        .single();
-
-      if (subaccountError) throw subaccountError;
-    }
-
-    // Return HTML that posts message to parent window
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
-    const returnUrl = state ? decodeURIComponent(state) : `${frontendUrl}/dashboard?ghl=connected`;
-    
-    res.send(`
-      <html>
-        <body>
-          <script>
-            window.opener.postMessage('ghl:connected', '*');
-            window.close();
-          </script>
-          <p>Connected successfully! You can close this window.</p>
-        </body>
-      </html>
-    `);
-    
-  } catch (error) {
-    console.error('GHL callback error:', error);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
-    res.redirect(`${frontendUrl}/login?error=ghl_auth_failed`);
-  }
+app.get('/auth/ghl/callback', (req, res) => {
+  const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+  return res.redirect(301, `/oauth/callback${query}`);
 });
 
 // Session management routes
