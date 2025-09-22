@@ -125,18 +125,6 @@ app.get('/oauth/callback', async (req, res) => {
     );
 
     const { access_token, refresh_token, expires_in, companyId } = tokenResponse.data;
-
-    // Determine a valid location id
-    let effectiveLocationId = locationId;
-    if (!effectiveLocationId) {
-      try {
-        const ghlClient = new GHLClient(access_token);
-        const locs = await ghlClient.getLocations();
-        effectiveLocationId = locs?.locations?.[0]?.id || locs?.[0]?.id || null;
-      } catch (e) {
-        console.warn('Failed to fetch locations during oauth/callback');
-      }
-    }
     
     // Determine target user id (use state if present, otherwise create/find a service user)
     let targetUserId = state;
@@ -160,9 +148,9 @@ app.get('/oauth/callback', async (req, res) => {
     }
 
     // Store tokens in database for this user
-    if (!effectiveLocationId) {
-      console.error('No locationId resolved during oauth/callback. Ensure GHL_REDIRECT_URI points to /oauth/callback or that chooselocation returns a locationId.');
-      return res.status(400).send('Missing locationId from GHL. Set GHL_REDIRECT_URI to your /oauth/callback endpoint and try again.');
+    if (!locationId) {
+      console.error('Missing locationId in oauth/callback query. Launch the flow from the GHL location chooser.');
+      return res.status(400).send('Missing locationId from GHL. Start install via the location chooser so it includes locationId.');
     }
 
     const { error: insertError } = await supabaseAdmin
@@ -172,7 +160,7 @@ app.get('/oauth/callback', async (req, res) => {
         company_id: companyId,
         access_token,
         refresh_token,
-        location_id: effectiveLocationId
+        location_id: locationId
       });
 
     if (insertError) {
