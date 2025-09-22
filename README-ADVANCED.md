@@ -97,7 +97,6 @@ WA_DATA_DIR=/data/wa
    - **Redirect URI**: `https://whatsapp123-dhn1.onrender.com/oauth/callback`
    - **Scopes**: 
      - `locations.readonly`
-     - `contacts.readonly` 
      - `conversations.readonly`  // ✅ Read conversations
      - `conversations.write`     // ✅ Write conversations
 

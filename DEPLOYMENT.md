@@ -31,7 +31,7 @@
 
 ### 3. GoHighLevel Marketplace
 1. Update Redirect URI to: `https://your-backend.onrender.com/oauth/callback`
-2. Set scopes: `locations.readonly users.readonly conversations.write`
+2. Set scopes: `locations.readonly conversations.readonly conversations.write`
 3. Set webhooks:
    - Lead: `https://your-backend.onrender.com/webhooks/ghl`
    - Agent Reply: `https://your-backend.onrender.com/webhooks/ghl-agent`

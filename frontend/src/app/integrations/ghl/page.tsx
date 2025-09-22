@@ -161,7 +161,7 @@ export default function GHLIntegrationPage() {
                   </p>
                   <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
                     <li><strong>Redirect URI:</strong> <code className="bg-gray-200 px-1 rounded">{process.env.NEXT_PUBLIC_API_URL}/oauth/callback</code></li>
-                    <li><strong>Scopes:</strong> locations.readonly, contacts.readonly, conversations.write</li>
+                    <li><strong>Scopes:</strong> locations.readonly, conversations.readonly, conversations.write</li>
                     <li><strong>Provider Type:</strong> Custom Conversations Provider</li>
                   </ul>
                 </div>
