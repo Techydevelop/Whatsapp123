@@ -98,7 +98,7 @@ WA_DATA_DIR=/data/wa
    - **Scopes**: 
      - `locations.readonly`
      - `contacts.readonly` 
-     - `conversations.read`      // ✅ Read conversations
+     - `conversations.readonly`  // ✅ Read conversations
      - `conversations.write`     // ✅ Write conversations
 
 ### 2. Configure Conversations Provider

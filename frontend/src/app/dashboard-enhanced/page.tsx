@@ -221,14 +221,14 @@ export default function DashboardEnhanced() {
 
             {/* Subaccount Selector */}
             {subaccounts.length > 0 && (
-              <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-lg font-medium text-gray-900 mb-4">Connected Subaccounts</h2>
-                <SubaccountSelector
-                  subaccounts={subaccounts}
-                  selectedSubaccount={selectedSubaccount}
-                  onSubaccountChange={handleSubaccountChange}
-                />
-              </div>
+              <SubaccountSelector
+                subaccounts={subaccounts}
+                selectedSubaccount={selectedSubaccount}
+                onSubaccountChange={handleSubaccountChange}
+              />
+            </div>
             )}
 
             {/* Provider Status */}

@@ -81,7 +81,7 @@ app.get('/auth/ghl/connect', async (req, res) => {
     const { return_url } = req.query;
     const clientId = process.env.GHL_CLIENT_ID;
     const redirectUri = process.env.GHL_REDIRECT_URI;
-    const scopes = 'locations.readonly contacts.readonly conversations.read conversations.write';
+    const scopes = 'locations.readonly contacts.readonly conversations.readonly conversations.write';
     
     const state = return_url ? encodeURIComponent(return_url) : '';
     const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code${state ? `&state=${state}` : ''}`;
@@ -99,7 +99,7 @@ app.get('/auth/ghl/login', async (req, res) => {
     const { userId } = req.query;
     const clientId = process.env.GHL_CLIENT_ID;
     const redirectUri = process.env.GHL_REDIRECT_URI;
-    const scopes = 'locations.readonly contacts.readonly conversations.read conversations.write';
+    const scopes = 'locations.readonly contacts.readonly conversations.readonly conversations.write';
     
     const state = userId ? encodeURIComponent(userId) : '';
     const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code${state ? `&state=${state}` : ''}`;
