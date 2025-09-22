@@ -141,17 +141,38 @@ app.get('/oauth/callback', async (req, res) => {
     );
 
     const { access_token, refresh_token, expires_in, companyId } = tokenResponse.data;
-    
-    // Store tokens in database
+
+    // Determine target user id (use state if present, otherwise create/find a service user)
+    let targetUserId = state;
+    if (!targetUserId) {
+      // Try to find an existing service user for this companyId
+      const serviceEmail = `${companyId || 'ghl'}@company.oauth`;
+      const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
+      const existing = usersList?.users?.find(u => u.email === serviceEmail);
+      if (existing) {
+        targetUserId = existing.id;
+      } else {
+        // Create a new service user (no password, confirmed)
+        const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+          email: serviceEmail,
+          email_confirm: true,
+          user_metadata: { ghl_company_id: companyId }
+        });
+        if (createErr) throw createErr;
+        targetUserId = created.user?.id;
+      }
+    }
+
+    // Store tokens in database for this user
     const { error: insertError } = await supabaseAdmin
       .from('ghl_accounts')
       .upsert({
-        user_id: state || 'anonymous',
+        user_id: targetUserId,
+        company_id: companyId,
+        user_type: 'Company',
         access_token,
         refresh_token,
-        company_id: companyId,
-        location_id: locationId,
-        expires_at: new Date(Date.now() + expires_in * 1000).toISOString()
+        updated_at: new Date().toISOString()
       });
 
     if (insertError) {
