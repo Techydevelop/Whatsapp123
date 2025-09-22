@@ -141,6 +141,18 @@ app.get('/oauth/callback', async (req, res) => {
     );
 
     const { access_token, refresh_token, expires_in, companyId } = tokenResponse.data;
+
+    // Determine a valid location id
+    let effectiveLocationId = locationId;
+    if (!effectiveLocationId) {
+      try {
+        const ghlClient = new GHLClient(access_token);
+        const locs = await ghlClient.getLocations();
+        effectiveLocationId = locs?.locations?.[0]?.id || locs?.[0]?.id || null;
+      } catch (e) {
+        console.warn('Failed to fetch locations during oauth/callback');
+      }
+    }
     
     // Determine target user id (use state if present, otherwise create/find a service user)
     let targetUserId = state;
@@ -170,7 +182,8 @@ app.get('/oauth/callback', async (req, res) => {
         user_id: targetUserId,
         company_id: companyId,
         access_token,
-        refresh_token
+        refresh_token,
+        location_id: effectiveLocationId
       });
 
     if (insertError) {
@@ -219,6 +232,18 @@ app.get('/auth/ghl/callback', async (req, res) => {
     );
 
     const { access_token, refresh_token, expires_in, companyId, userId } = tokenResponse.data;
+
+    // Determine a valid location id
+    let effectiveLocationId2 = locationId;
+    if (!effectiveLocationId2) {
+      try {
+        const ghlClient2 = new GHLClient(access_token);
+        const locs2 = await ghlClient2.getLocations();
+        effectiveLocationId2 = locs2?.locations?.[0]?.id || locs2?.[0]?.id || null;
+      } catch (e) {
+        console.warn('Failed to fetch locations during auth/ghl/callback');
+      }
+    }
     
     // Create or update user
     let targetUserId = state;
@@ -249,7 +274,8 @@ app.get('/auth/ghl/callback', async (req, res) => {
         user_id: targetUserId,
         company_id: companyId,
         access_token,
-        refresh_token
+        refresh_token,
+        location_id: effectiveLocationId2
       })
       .select()
       .single();
