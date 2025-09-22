@@ -81,7 +81,7 @@ app.get('/auth/ghl/connect', async (req, res) => {
     const { return_url } = req.query;
     const clientId = process.env.GHL_CLIENT_ID;
     const redirectUri = process.env.GHL_REDIRECT_URI;
-    const scopes = 'locations.readonly conversations.write users.readonly conversations.readonly conversations/message.readonly conversations/message.write conversations/reports.readonly conversations/livechat.write contacts.readonly';
+    const scopes = process.env.GHL_SCOPES || 'locations.readonly conversations.write users.readonly conversations.readonly conversations/message.readonly conversations/message.write conversations/reports.readonly conversations/livechat.write contacts.readonly';
     
     const state = return_url ? encodeURIComponent(return_url) : '';
     const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code${state ? `&state=${state}` : ''}`;
@@ -99,7 +99,7 @@ app.get('/auth/ghl/login', async (req, res) => {
     const { userId } = req.query;
     const clientId = process.env.GHL_CLIENT_ID;
     const redirectUri = process.env.GHL_REDIRECT_URI;
-    const scopes = 'locations.readonly conversations.write users.readonly conversations.readonly conversations/message.readonly conversations/message.write conversations/reports.readonly conversations/livechat.write contacts.readonly';
+    const scopes = process.env.GHL_SCOPES || 'locations.readonly conversations.write users.readonly conversations.readonly conversations/message.readonly conversations/message.write conversations/reports.readonly conversations/livechat.write contacts.readonly';
     
     const state = userId ? encodeURIComponent(userId) : '';
     const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code${state ? `&state=${state}` : ''}`;
@@ -169,7 +169,6 @@ app.get('/oauth/callback', async (req, res) => {
       .upsert({
         user_id: targetUserId,
         company_id: companyId,
-        user_type: 'Company',
         access_token,
         refresh_token
       });
@@ -249,7 +248,6 @@ app.get('/auth/ghl/callback', async (req, res) => {
       .upsert({
         user_id: targetUserId,
         company_id: companyId,
-        user_type: 'Company',
         access_token,
         refresh_token
       })
