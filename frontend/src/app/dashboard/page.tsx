@@ -175,7 +175,6 @@ export default function Dashboard() {
               </svg>
               <span className="text-sm font-medium text-green-800">GHL Account Connected</span>
             </div>
-            <p className="text-sm text-green-700 mt-1">Company ID: {ghlAccount.company_id}</p>
           </div>
         ) : (
           <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
