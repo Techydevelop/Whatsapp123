@@ -390,7 +390,31 @@ app.put('/admin/ghl/location', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/admin/ghl/mint-token', requireAuth, async (req, res) => {
+app.put('/admin/ghl/update-location', requireAuth, async (req, res) => {
+  try {
+    const { location_id } = req.body;
+    
+    if (!location_id) {
+      return res.status(400).json({ error: 'location_id is required' });
+    }
+
+    const { data: updatedAccount, error: updateError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .update({ location_id })
+      .eq('user_id', req.user.id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    res.json(updatedAccount);
+  } catch (error) {
+    console.error('Error updating GHL location:', error);
+    res.status(500).json({ error: 'Failed to update GHL location' });
+  }
+});
+
+app.post('/admin/ghl/mint-location-token', requireAuth, async (req, res) => {
   try {
     // Get GHL account
     const { data: ghlAccount, error: ghlError } = await supabaseAdmin
