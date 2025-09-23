@@ -28,7 +28,29 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 const waManager = new WhatsAppManager();
 
 // Middleware
-app.use(helmet());
+// Allow embedding provider UI inside GHL/LeadConnector iframes
+app.use(helmet({
+  frameguard: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: false,
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'", "data:", "blob:"],
+      "img-src": ["'self'", "data:", "blob:"],
+      "script-src": ["'self'", "'unsafe-inline'"],
+      "style-src": ["'self'", "'unsafe-inline'"],
+      // Critical: permit GHL/LeadConnector to embed this app
+      "frame-ancestors": [
+        "'self'",
+        "https://app.gohighlevel.com",
+        "https://*.gohighlevel.com",
+        "https://app.leadconnectorhq.com",
+        "https://*.leadconnectorhq.com"
+      ]
+    }
+  }
+}));
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3001',
   credentials: true
@@ -834,17 +856,16 @@ app.get('/ghl/provider', async (req, res) => {
             <div class="center" style="margin-top:12px;"><button id="reset">Reset QR</button></div>
           </div>
           <script>
-            const locationId = ${JSON.stringify(String().concat())} || '${String()}';
-          </script>
-          <script>
-            const locId = new URLSearchParams(window.location.search).get('locationId');
+            const qs = new URLSearchParams(window.location.search);
+            const locId = qs.get('locationId');
+            const companyId = qs.get('companyId');
             const info = document.getElementById('info');
             const qr = document.getElementById('qr');
             const resetBtn = document.getElementById('reset');
 
             async function create() {
               try {
-                const r = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session', { method: 'POST' });
+                const r = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session' + (companyId ? ('?companyId=' + encodeURIComponent(companyId)) : ''), { method: 'POST' });
                 const j = await r.json().catch(() => ({}));
                 if (j.qr) qr.innerHTML = '<img src="' + j.qr + '" alt="QR" />';
                 info.textContent = 'Status: ' + (j.status || r.status);
@@ -892,6 +913,7 @@ app.get('/ghl/provider', async (req, res) => {
 app.post('/ghl/location/:locationId/session', async (req, res) => {
   try {
     const { locationId } = req.params;
+    const { companyId } = req.query;
 
     // Find subaccount for this location
     const { data: subaccount, error: subErr } = await supabaseAdmin
@@ -901,7 +923,8 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       .maybeSingle();
 
     if (subErr || !subaccount) {
-      return res.status(404).json({ error: 'Subaccount for location not found' });
+      // If subaccount doesn't exist yet but we know the companyId, try to link the ghl_account to the active user later via the link endpoint (manual) and short-circuit here
+      return res.status(404).json({ error: 'Subaccount for location not found. Ensure OAuth callback stored this locationId.' });
     }
 
     // Check for latest session
