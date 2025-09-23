@@ -46,18 +46,21 @@ export default function Dashboard() {
         .single()
 
       if (ghlAccount) {
-        // Create a default subaccount with company ID
-        const defaultSubaccount = {
-          id: ghlAccount.company_id,
-          name: `GHL Company (${ghlAccount.company_id})`,
-          ghl_location_id: ghlAccount.location_id || ghlAccount.company_id,
-          status: 'available'
-        }
-        
-        setSubaccounts([defaultSubaccount])
-        
-        if (!selectedSubaccount) {
-          setSelectedSubaccount(defaultSubaccount)
+        // Check if we have actual subaccounts in database
+        const { data: existingSubaccounts } = await supabase
+        .from('subaccounts')
+        .select('*')
+          .eq('user_id', user.id)
+
+        if (existingSubaccounts && existingSubaccounts.length > 0) {
+          // Use actual subaccounts from database
+          setSubaccounts(existingSubaccounts)
+          if (!selectedSubaccount) {
+            setSelectedSubaccount(existingSubaccounts[0])
+          }
+        } else {
+          // No subaccounts yet, show empty state
+          setSubaccounts([])
         }
       } else {
         setSubaccounts([])

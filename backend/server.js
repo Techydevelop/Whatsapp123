@@ -154,10 +154,10 @@ app.get('/oauth/callback', async (req, res) => {
 
     // Store tokens in database for this user
     const upsertPayload = {
-      user_id: targetUserId,
-      company_id: companyId,
-      access_token,
-      refresh_token,
+        user_id: targetUserId,
+        company_id: companyId,
+        access_token,
+        refresh_token,
       expires_at: new Date(Date.now() + (expires_in * 1000)).toISOString()
     };
     if (locationId) {
@@ -567,6 +567,52 @@ app.get('/admin/ghl/subaccounts', requireAuth, async (req, res) => {
   }
 });
 
+// Link an existing GHL company account (created without state) to the current user
+app.post('/admin/ghl/link-company', requireAuth, async (req, res) => {
+  try {
+    const { company_id, location_id } = req.body || {};
+
+    if (!company_id) {
+      return res.status(400).json({ error: 'company_id is required' });
+    }
+
+    // Find any GHL account by company_id (regardless of user)
+    const { data: existingAccount, error: findErr } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('company_id', company_id)
+      .maybeSingle();
+
+    if (findErr || !existingAccount) {
+      return res.status(404).json({ error: 'GHL company not found' });
+    }
+
+    // Reassign to current user
+    const { error: updateErr } = await supabaseAdmin
+      .from('ghl_accounts')
+      .update({ user_id: req.user.id })
+      .eq('company_id', company_id);
+
+    if (updateErr) throw updateErr;
+
+    // Optionally ensure a subaccount exists for the provided location
+    if (location_id) {
+      await supabaseAdmin
+        .from('subaccounts')
+        .upsert({
+          user_id: req.user.id,
+          ghl_location_id: location_id,
+          name: `Location ${location_id}`
+        });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error linking GHL company to user:', error);
+    res.status(500).json({ error: 'Failed to link GHL company to user' });
+  }
+});
+
 // Connect GHL subaccount endpoint
 app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
   try {
@@ -750,6 +796,203 @@ app.post('/ghl/message-status', async (req, res) => {
   } catch (error) {
     console.error('Error updating message status:', error);
     res.status(500).json({ error: 'Failed to update message status' });
+  }
+});
+
+// Provider UI (embedded in GHL custom menu link) - shows QR for a specific location
+app.get('/ghl/provider', async (req, res) => {
+  try {
+    const { locationId } = req.query;
+    if (!locationId) {
+      return res.status(400).send('Missing locationId');
+    }
+
+    // Simple HTML that calls the public endpoints to create/poll the session
+    res.send(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>WhatsApp Provider</title>
+          <style>
+            body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 16px; }
+            .card { max-width: 520px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; }
+            .muted { color: #6b7280; font-size: 14px; }
+            .center { text-align: center; }
+            img { max-width: 100%; }
+            .status { margin-top: 8px; }
+            button { padding: 8px 12px; border-radius: 6px; border: 1px solid #d1d5db; background:#fff; cursor:pointer; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2 class="center">Connect WhatsApp</h2>
+            <p class="muted center">Location: ${locationId}</p>
+            <div id="qr" class="center" style="margin-top:12px;"></div>
+            <div id="info" class="center status muted">Preparing session…</div>
+            <div class="center" style="margin-top:12px;"><button id="reset">Reset QR</button></div>
+          </div>
+          <script>
+            const locationId = ${JSON.stringify(String().concat())} || '${String()}';
+          </script>
+          <script>
+            const locId = new URLSearchParams(window.location.search).get('locationId');
+            const info = document.getElementById('info');
+            const qr = document.getElementById('qr');
+            const resetBtn = document.getElementById('reset');
+
+            async function create() {
+              try {
+                const r = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session', { method: 'POST' });
+                const j = await r.json().catch(() => ({}));
+                if (j.qr) qr.innerHTML = '<img src="' + j.qr + '" alt="QR" />';
+                info.textContent = 'Status: ' + (j.status || r.status);
+              } catch (e) {
+                info.textContent = 'Error creating session';
+              }
+            }
+
+            async function poll() {
+              try {
+                const r = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session');
+                const j = await r.json().catch(() => ({}));
+                if (j.qr) qr.innerHTML = '<img src="' + j.qr + '" alt="QR" />';
+                if (j.status === 'ready') {
+                  info.textContent = 'Connected: ' + (j.phone_number || 'OK');
+                  return;
+                } else {
+                  info.textContent = 'Status: ' + (j.status || r.status);
+                }
+              } catch (e) {
+                // ignore
+              }
+              setTimeout(poll, 1500);
+            }
+
+            resetBtn.addEventListener('click', async () => {
+              await create();
+            });
+
+            (async () => {
+              await create();
+              poll();
+            })();
+          </script>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('Provider UI error:', error);
+    res.status(500).send('Failed to render provider');
+  }
+});
+
+// Create or reuse WhatsApp session for a specific GHL location (no auth; called from GHL embedded page)
+app.post('/ghl/location/:locationId/session', async (req, res) => {
+  try {
+    const { locationId } = req.params;
+
+    // Find subaccount for this location
+    const { data: subaccount, error: subErr } = await supabaseAdmin
+      .from('subaccounts')
+      .select('*')
+      .eq('ghl_location_id', locationId)
+      .maybeSingle();
+
+    if (subErr || !subaccount) {
+      return res.status(404).json({ error: 'Subaccount for location not found' });
+    }
+
+    // Check for latest session
+    const { data: existing } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', subaccount.id)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (existing && existing.length > 0 && existing[0].status !== 'disconnected') {
+      return res.json({ status: existing[0].status, qr: existing[0].qr, phone_number: existing[0].phone_number });
+    }
+
+    // Create a new session
+    const { data: session, error: sessionError } = await supabaseAdmin
+      .from('sessions')
+      .insert({ user_id: subaccount.user_id, subaccount_id: subaccount.id, status: 'initializing' })
+      .select()
+      .single();
+
+    if (sessionError) throw sessionError;
+
+    const client = waManager.createClient(
+      session.id,
+      async (qrValue) => {
+        try {
+          const qrDataUrl = await qrcode.toDataURL(qrValue);
+          await supabaseAdmin.from('sessions').update({ qr: qrDataUrl, status: 'qr' }).eq('id', session.id);
+        } catch (e) { console.error('QR update error:', e); }
+      },
+      async (info) => {
+        try {
+          await supabaseAdmin
+            .from('sessions')
+            .update({ status: 'ready', qr: null, phone_number: info.wid.user })
+            .eq('id', session.id);
+          await supabaseAdmin
+            .from('location_session_map')
+            .upsert({ user_id: subaccount.user_id, subaccount_id: subaccount.id, ghl_location_id: locationId, session_id: session.id });
+        } catch (e) { console.error('Session ready update error:', e); }
+      },
+      async () => {
+        try {
+          await supabaseAdmin.from('sessions').update({ status: 'disconnected' }).eq('id', session.id);
+          waManager.removeClient(session.id);
+        } catch (e) { console.error('Session disconnect update error:', e); }
+      },
+      async () => {}
+    );
+
+    // Initialize asynchronously
+    client.initialize().catch((e) => console.error('WA init error:', e));
+
+    return res.json({ status: 'initializing' });
+  } catch (error) {
+    console.error('Create location session error:', error);
+    res.status(500).json({ error: 'Failed to create session' });
+  }
+});
+
+// Get session status for a specific GHL location (no auth; called from GHL embedded page)
+app.get('/ghl/location/:locationId/session', async (req, res) => {
+  try {
+    const { locationId } = req.params;
+    const { data: subaccount, error: subErr } = await supabaseAdmin
+      .from('subaccounts')
+      .select('id')
+      .eq('ghl_location_id', locationId)
+      .maybeSingle();
+
+    if (subErr || !subaccount) {
+      return res.status(404).json({ error: 'Subaccount for location not found' });
+    }
+
+    const { data: existing } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', subaccount.id)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!existing || existing.length === 0) {
+      return res.json({ status: 'none' });
+    }
+
+    const s = existing[0];
+    return res.json({ status: s.status, qr: s.qr, phone_number: s.phone_number });
+  } catch (error) {
+    console.error('Get location session error:', error);
+    res.status(500).json({ error: 'Failed to fetch session status' });
   }
 });
 
