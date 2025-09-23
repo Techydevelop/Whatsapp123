@@ -681,18 +681,31 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'ghl_location_id is required' });
     }
 
-    // Create or update subaccount in database
-    const { data: subaccount, error: subaccountError } = await supabaseAdmin
+    // Check if subaccount already exists
+    const { data: existingSubaccount } = await supabaseAdmin
       .from('subaccounts')
-      .upsert({
-        user_id: req.user.id,
-        ghl_location_id,
-        name: name || `Location ${ghl_location_id}`
-      })
-      .select()
+      .select('*')
+      .eq('user_id', req.user.id)
+      .eq('ghl_location_id', ghl_location_id)
       .single();
 
-    if (subaccountError) throw subaccountError;
+    let subaccount = existingSubaccount;
+    
+    // Only create if it doesn't exist
+    if (!subaccount) {
+      const { data: newSubaccount, error: subaccountError } = await supabaseAdmin
+        .from('subaccounts')
+        .insert({
+          user_id: req.user.id,
+          ghl_location_id,
+          name: name || `Location ${ghl_location_id}`
+        })
+        .select()
+        .single();
+
+      if (subaccountError) throw subaccountError;
+      subaccount = newSubaccount;
+    }
 
     // Generate GHL OAuth URL for this specific location
     const scopes = process.env.GHL_SCOPES || 'locations.readonly conversations.write users.readonly conversations.readonly conversations/message.readonly conversations/message.write conversations/reports.readonly conversations/livechat.write contacts.readonly';

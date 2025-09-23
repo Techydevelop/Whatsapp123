@@ -129,6 +129,8 @@ export default function Dashboard() {
 
   const openQR = async (locationId: string) => {
     try {
+      console.log(`Creating session for locationId: ${locationId}`)
+      
       // First create session if it doesn't exist
       const createResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ghl/location/${locationId}/session`, {
         method: 'POST',
@@ -140,11 +142,18 @@ export default function Dashboard() {
 
       if (createResponse.ok) {
         console.log('Session created successfully')
+        // Refresh the subaccount statuses to show updated status
+        await fetchSubaccounts()
       } else {
-        console.error('Failed to create session')
+        const errorData = await createResponse.json()
+        console.error('Failed to create session:', errorData)
+        alert(`Failed to create session: ${errorData.error || 'Unknown error'}`)
+        return
       }
     } catch (error) {
       console.error('Error creating session:', error)
+      alert(`Error creating session: ${error}`)
+      return
     }
 
     // Then open the provider page
