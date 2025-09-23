@@ -168,6 +168,17 @@ app.get('/oauth/callback', async (req, res) => {
       .from('ghl_accounts')
       .upsert(upsertPayload);
 
+    // If locationId is provided, also create/update subaccount
+    if (locationId && !insertError) {
+      await supabaseAdmin
+        .from('subaccounts')
+        .upsert({
+          user_id: targetUserId,
+          ghl_location_id: locationId,
+          name: `Location ${locationId}`
+        });
+    }
+
     if (insertError) {
       console.error('Error storing GHL account:', insertError);
       return res.status(500).send('Failed to store account information');
@@ -527,15 +538,27 @@ app.get('/admin/ghl/subaccounts', requireAuth, async (req, res) => {
     }
 
     const ghlClient = new GHLClient(ghlAccount.access_token);
-    const locations = await ghlClient.getLocations();
+    const locationsResponse = await ghlClient.getLocations();
+
+    console.log('GHL Locations Response:', JSON.stringify(locationsResponse, null, 2));
+
+    // Handle different response formats from GHL API
+    let locations = [];
+    if (locationsResponse.locations) {
+      locations = locationsResponse.locations;
+    } else if (Array.isArray(locationsResponse)) {
+      locations = locationsResponse;
+    } else if (locationsResponse.data) {
+      locations = locationsResponse.data;
+    }
 
     // Transform locations to subaccounts format
-    const subaccounts = locations.locations?.map(location => ({
+    const subaccounts = locations.map(location => ({
       id: location.id,
       name: location.name || `Location ${location.id}`,
       ghl_location_id: location.id,
       status: 'available'
-    })) || [];
+    }));
 
     res.json({ subaccounts });
   } catch (error) {

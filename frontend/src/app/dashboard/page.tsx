@@ -38,22 +38,28 @@ export default function Dashboard() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Fetch existing subaccounts from GHL
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/subaccounts`, {
-        headers: {
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-      })
+      // Get GHL account info to show company ID
+      const { data: ghlAccount } = await supabase
+        .from('ghl_accounts')
+        .select('company_id, location_id')
+        .eq('user_id', user.id)
+        .single()
 
-      if (response.ok) {
-        const { subaccounts: ghlSubaccounts } = await response.json()
-        setSubaccounts(ghlSubaccounts || [])
+      if (ghlAccount) {
+        // Create a default subaccount with company ID
+        const defaultSubaccount = {
+          id: ghlAccount.company_id,
+          name: `GHL Company (${ghlAccount.company_id})`,
+          ghl_location_id: ghlAccount.location_id || ghlAccount.company_id,
+          status: 'available'
+        }
         
-        if (ghlSubaccounts && ghlSubaccounts.length > 0 && !selectedSubaccount) {
-          setSelectedSubaccount(ghlSubaccounts[0])
+        setSubaccounts([defaultSubaccount])
+        
+        if (!selectedSubaccount) {
+          setSelectedSubaccount(defaultSubaccount)
         }
       } else {
-        console.error('Failed to fetch GHL subaccounts')
         setSubaccounts([])
       }
     } catch (error) {

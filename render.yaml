@@ -4,8 +4,9 @@ services:
     env: node
     plan: free
     region: oregon
-    buildCommand: cd backend && npm ci
-    startCommand: cd backend && node server.js
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: node server.js
     autoDeploy: true
     envVars:
       - key: NODE_ENV
