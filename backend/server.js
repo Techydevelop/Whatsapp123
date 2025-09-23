@@ -170,7 +170,7 @@ app.get('/oauth/callback', async (req, res) => {
 
     // Redirect to frontend with success
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/dashboard-enhanced?ghl=connected`);
+    res.redirect(`${frontendUrl}/dashboard`);
     
   } catch (error) {
     console.error('OAuth callback error:', error);
@@ -362,6 +362,79 @@ app.get('/admin/sessions', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error fetching sessions:', error);
     res.status(500).json({ error: 'Failed to fetch sessions' });
+  }
+});
+
+// GHL account management routes
+app.put('/admin/ghl/location', requireAuth, async (req, res) => {
+  try {
+    const { location_id } = req.body;
+    
+    if (!location_id) {
+      return res.status(400).json({ error: 'location_id is required' });
+    }
+
+    const { data: updatedAccount, error: updateError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .update({ location_id })
+      .eq('user_id', req.user.id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    res.json(updatedAccount);
+  } catch (error) {
+    console.error('Error updating GHL location:', error);
+    res.status(500).json({ error: 'Failed to update GHL location' });
+  }
+});
+
+app.post('/admin/ghl/mint-token', requireAuth, async (req, res) => {
+  try {
+    // Get GHL account
+    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('access_token, company_id, location_id')
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (ghlError || !ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    if (!ghlAccount.location_id) {
+      return res.status(400).json({ error: 'Location ID not set' });
+    }
+
+    // Mint location-specific token
+    const locationToken = await GHLClient.mintLocationToken(
+      ghlAccount.access_token,
+      ghlAccount.company_id,
+      ghlAccount.location_id
+    );
+
+    // Update account with location token
+    const { data: updatedAccount, error: updateError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .update({ 
+        location_token: locationToken.access_token,
+        location_token_expires: new Date(Date.now() + (locationToken.expires_in * 1000)).toISOString()
+      })
+      .eq('user_id', req.user.id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    res.json({ 
+      success: true, 
+      location_token: locationToken.access_token,
+      expires_in: locationToken.expires_in
+    });
+  } catch (error) {
+    console.error('Error minting location token:', error);
+    res.status(500).json({ error: 'Failed to mint location token' });
   }
 });
 
