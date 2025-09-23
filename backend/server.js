@@ -52,7 +52,12 @@ app.use(helmet({
   }
 }));
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3001',
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:3001',
+    'https://whatsappghl.vercel.app',
+    'https://whatsapp123-tss8-2j8uzmt9q-techydevelops-projects.vercel.app',
+    /^https:\/\/.*\.vercel\.app$/
+  ],
   credentials: true
 }));
 app.use(bodyParser.json({ limit: '10mb' }));
@@ -657,7 +662,23 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
 
     if (subaccountError) throw subaccountError;
 
-    res.json({ success: true, subaccount });
+    // Generate GHL OAuth URL for this specific location
+    const scopes = process.env.GHL_SCOPES || 'locations.readonly conversations.write users.readonly conversations.readonly conversations/message.readonly conversations/message.write conversations/reports.readonly conversations/livechat.write contacts.readonly';
+    const clientId = process.env.GHL_CLIENT_ID;
+    const redirectUri = process.env.GHL_REDIRECT_URI || `${process.env.BACKEND_URL}/oauth/callback`;
+    
+    if (!clientId) {
+      return res.status(500).json({ error: 'GHL_CLIENT_ID not configured' });
+    }
+
+    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${req.user.id}&locationId=${ghl_location_id}`;
+
+    res.json({ 
+      success: true, 
+      subaccount,
+      authUrl: authUrl,
+      message: 'Sub-account created. Redirecting to GHL...'
+    });
   } catch (error) {
     console.error('Error connecting GHL subaccount:', error);
     res.status(500).json({ error: 'Failed to connect GHL subaccount' });

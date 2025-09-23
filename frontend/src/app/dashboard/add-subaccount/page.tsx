@@ -39,14 +39,21 @@ export default function AddSubAccount() {
         throw new Error(errorData.error || 'Failed to connect subaccount')
       }
 
-      setSuccess('Sub-account connected successfully!')
-      setName('')
-      setGhlLocationId('')
+      const result = await response.json()
       
-      // Redirect to Users page after 2 seconds
-      setTimeout(() => {
-        router.push('/dashboard')
-      }, 2000)
+      if (result.authUrl) {
+        // Redirect to GHL OAuth
+        window.location.href = result.authUrl
+      } else {
+        setSuccess('Sub-account connected successfully!')
+        setName('')
+        setGhlLocationId('')
+        
+        // Redirect to Users page after 2 seconds
+        setTimeout(() => {
+          router.push('/dashboard')
+        }, 2000)
+      }
 
     } catch (error) {
       console.error('Error connecting subaccount:', error)
