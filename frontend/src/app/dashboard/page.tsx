@@ -5,7 +5,6 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
 
-type Subaccount = Database['public']['Tables']['subaccounts']['Row']
 type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
 
 interface SubaccountStatus {
@@ -165,7 +164,7 @@ export default function Dashboard() {
       )}
 
       {/* User Info */}
-      <div className="bg-white shadow rounded-lg p-6">
+        <div className="bg-white shadow rounded-lg p-6">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">Users</h2>
         
         {ghlAccount ? (
@@ -193,8 +192,8 @@ export default function Dashboard() {
         {/* Subaccounts Table */}
         <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
           <table className="min-w-full divide-y divide-gray-300">
-            <thead className="bg-gray-50">
-              <tr>
+                <thead className="bg-gray-50">
+                  <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Sub-Account
                 </th>
@@ -210,9 +209,9 @@ export default function Dashboard() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
               {subaccountStatuses.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
@@ -222,20 +221,20 @@ export default function Dashboard() {
               ) : (
                 subaccountStatuses.map((subaccount) => (
                   <tr key={subaccount.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {subaccount.name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {subaccount.ghl_location_id}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(subaccount.status)}`}>
                         {getStatusText(subaccount.status)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {subaccount.phone_number ? `+${subaccount.phone_number}` : '-'}
-                    </td>
+                      </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                       <button
                         onClick={() => openQR(subaccount.ghl_location_id)}
@@ -249,13 +248,13 @@ export default function Dashboard() {
                       >
                         Copy Link
                       </button>
-                    </td>
-                  </tr>
+                      </td>
+                    </tr>
                 ))
               )}
-            </tbody>
-          </table>
-        </div>
+                </tbody>
+              </table>
+            </div>
 
         {/* Instructions */}
         <div className="mt-6 p-4 bg-blue-50 rounded-lg">
