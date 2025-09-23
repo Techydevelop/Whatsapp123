@@ -14,8 +14,8 @@ GHL_CLIENT_SECRET=your_ghl_client_secret
 GHL_REDIRECT_URI=https://your-backend-url.com/oauth/callback
 GHL_SCOPES=locations.readonly conversations.write users.readonly conversations.readonly conversations/message.readonly conversations/message.write conversations/reports.readonly conversations/livechat.write contacts.readonly
 
-# GHL Webhook Configuration
-GHL_WEBHOOK_SECRET=your_webhook_secret_key
+# GHL Webhook Configuration (Optional - GHL doesn't provide webhook secret)
+# GHL_WEBHOOK_SECRET=not_required_for_ghl
 
 # Provider Configuration
 PROVIDER_ID=your_ghl_provider_id
@@ -53,14 +53,25 @@ The following webhook endpoints are available:
 3. Go to the "Webhooks" section
 4. Enter your webhook URL: `https://your-backend-url.com/ghl/webhook`
 5. Use the toggle switches to subscribe to events:
-   - ✅ App Install (required)
-   - ✅ Message Status
-   - ✅ Conversation
+   - ✅ InboundMessage (Most Important!)
+   - ✅ OutboundMessage (Most Important!)
+   - ✅ ContactCreate
+   - ✅ ContactUpdate
+   - ✅ ConversationUnreadUpdate
 
-### Step 2: Set Webhook Secret
-1. Generate a secure random string for `GHL_WEBHOOK_SECRET`
-2. Add it to your environment variables
-3. The webhook signature verification will use this secret
+### Step 2: Enable Essential Webhook Events
+Enable these critical webhook events in GHL Marketplace:
+
+```
+✅ InboundMessage - (Most Important for WhatsApp!)
+✅ OutboundMessage - (Most Important for WhatsApp!)
+✅ ContactCreate - For new contacts
+✅ ContactUpdate - For contact changes
+✅ ConversationUnreadUpdate - For conversation status
+```
+
+### Step 3: Webhook Security (Optional)
+**Note:** GHL Marketplace doesn't provide webhook secret configuration, so signature verification is optional. The webhook endpoints will still work without it.
 
 ## Database Setup
 
