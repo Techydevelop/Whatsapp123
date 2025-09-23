@@ -130,7 +130,7 @@ export default function AddSubAccount() {
           <ol className="text-sm text-blue-700 space-y-1">
             <li>1. Connect your sub-account above</li>
             <li>2. Go to Users page to see your connected sub-accounts</li>
-            <li>3. Click "Open QR" to scan WhatsApp QR code</li>
+            <li>3. Click &quot;Open QR&quot; to scan WhatsApp QR code</li>
             <li>4. In GHL, add custom menu link to the provider URL</li>
             <li>5. Set as SMS provider in GHL Phone System settings</li>
           </ol>
