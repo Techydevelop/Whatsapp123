@@ -163,8 +163,22 @@ app.get('/oauth/callback', async (req, res) => {
 
     const { access_token, refresh_token, expires_in, companyId } = tokenResponse.data;
     
-    // Determine target user id (use state if present, otherwise create/find a service user)
-    let targetUserId = state;
+    // Parse state parameter to extract userId and locationId
+    let targetUserId = null;
+    let embeddedLocationId = null;
+    
+    if (state) {
+      try {
+        const stateData = JSON.parse(state);
+        targetUserId = stateData.userId;
+        embeddedLocationId = stateData.locationId;
+        console.log('Parsed state data:', { targetUserId, embeddedLocationId });
+      } catch (error) {
+        console.log('State is not JSON, treating as simple userId:', state);
+        targetUserId = state;
+      }
+    }
+    
     if (!targetUserId) {
       // Try to find an existing service user for this companyId
       const serviceEmail = `${companyId || 'ghl'}@company.oauth`;
@@ -192,8 +206,11 @@ app.get('/oauth/callback', async (req, res) => {
         refresh_token,
       expires_at: new Date(Date.now() + (expires_in * 1000)).toISOString()
     };
-    if (locationId) {
-      upsertPayload.location_id = locationId;
+    
+    // Use embedded locationId from state if available, otherwise use query parameter
+    const finalLocationId = embeddedLocationId || locationId;
+    if (finalLocationId) {
+      upsertPayload.location_id = finalLocationId;
     }
 
     const { error: insertError } = await supabaseAdmin
@@ -201,15 +218,15 @@ app.get('/oauth/callback', async (req, res) => {
       .upsert(upsertPayload);
 
     // If locationId is provided, also create/update subaccount
-    if (locationId && !insertError) {
-      console.log(`Creating/updating subaccount for locationId: ${locationId}, userId: ${targetUserId}`);
+    if (finalLocationId && !insertError) {
+      console.log(`Creating/updating subaccount for locationId: ${finalLocationId}, userId: ${targetUserId}`);
       
       const { data: subaccount, error: subaccountError } = await supabaseAdmin
         .from('subaccounts')
         .upsert({
           user_id: targetUserId,
-          ghl_location_id: locationId,
-          name: `Location ${locationId}`
+          ghl_location_id: finalLocationId,
+          name: `Location ${finalLocationId}`
         })
         .select()
         .single();
@@ -686,7 +703,13 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
       return res.status(500).json({ error: 'GHL_CLIENT_ID not configured' });
     }
 
-    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${req.user.id}&locationId=${ghl_location_id}`;
+    // Embed locationId in state parameter since GHL doesn't pass it back in callback
+    const stateWithLocation = JSON.stringify({
+      userId: req.user.id,
+      locationId: ghl_location_id
+    });
+
+    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(stateWithLocation)}`;
 
     res.json({ 
       success: true, 
