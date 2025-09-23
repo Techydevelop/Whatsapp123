@@ -127,7 +127,27 @@ export default function Dashboard() {
     // You could add a toast notification here
   }
 
-  const openQR = (locationId: string) => {
+  const openQR = async (locationId: string) => {
+    try {
+      // First create session if it doesn't exist
+      const createResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ghl/location/${locationId}/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ locationId })
+      })
+
+      if (createResponse.ok) {
+        console.log('Session created successfully')
+      } else {
+        console.error('Failed to create session')
+      }
+    } catch (error) {
+      console.error('Error creating session:', error)
+    }
+
+    // Then open the provider page
     const link = `${process.env.NEXT_PUBLIC_API_URL}/ghl/provider?locationId=${locationId}`
     window.open(link, '_blank')
   }
