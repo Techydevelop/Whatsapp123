@@ -6,17 +6,12 @@ import { supabase, Database } from '@/lib/supabase'
 type Subaccount = Database['public']['Tables']['subaccounts']['Row']
 type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
 
-interface LocationToken {
-  token: string
-  expires_at: string
-}
-
 interface GHLIntegrationProps {
   subaccount: Subaccount | null
   onSubaccountUpdate: () => void
 }
 
-export default function GHLIntegration({ subaccount, onSubaccountUpdate }: GHLIntegrationProps) {
+export default function GHLIntegration({ }: GHLIntegrationProps) {
   const [isConnecting, setIsConnecting] = useState(false)
   const [ghlAccount, setGhlAccount] = useState<GhlAccount | null>(null)
   const [isGhlUser, setIsGhlUser] = useState(false)

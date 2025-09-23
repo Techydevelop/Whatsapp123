@@ -19,7 +19,6 @@ interface SubaccountStatus {
 
 export default function Dashboard() {
   const searchParams = useSearchParams()
-  const [subaccounts, setSubaccounts] = useState<Subaccount[]>([])
   const [subaccountStatuses, setSubaccountStatuses] = useState<SubaccountStatus[]>([])
   const [ghlAccount, setGhlAccount] = useState<GhlAccount | null>(null)
   const [loading, setLoading] = useState(true)
@@ -45,7 +44,7 @@ export default function Dashboard() {
         .select('*')
         .eq('user_id', user.id)
 
-      setSubaccounts(existingSubaccounts || [])
+      // setSubaccounts(existingSubaccounts || [])
 
       // Fetch status for each subaccount
       if (existingSubaccounts && existingSubaccounts.length > 0) {
@@ -81,7 +80,6 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error('Error fetching subaccounts:', error)
-      setSubaccounts([])
       setSubaccountStatuses([])
     }
   }, [])
@@ -263,8 +261,8 @@ export default function Dashboard() {
         <div className="mt-6 p-4 bg-blue-50 rounded-lg">
           <h3 className="text-sm font-medium text-blue-800 mb-2">How to use:</h3>
           <ol className="text-sm text-blue-700 space-y-1">
-            <li>1. Add sub-accounts using the "Add Sub-Account" link in the sidebar</li>
-            <li>2. Click "Open QR" to scan WhatsApp QR code for each sub-account</li>
+            <li>1. Add sub-accounts using the &quot;Add Sub-Account&quot; link in the sidebar</li>
+            <li>2. Click &quot;Open QR&quot; to scan WhatsApp QR code for each sub-account</li>
             <li>3. Copy the provider link and add it as a custom menu link in GHL</li>
             <li>4. In GHL → Settings → Phone System → Additional Settings → Telephony Provider, choose your provider</li>
             <li>5. The connected WhatsApp number will appear as an SMS provider option</li>
