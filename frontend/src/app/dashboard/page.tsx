@@ -37,17 +37,23 @@ export default function Dashboard() {
 
       setGhlAccount(ghlAccount)
 
-      // Get subaccounts
+      // Get subaccounts and remove duplicates
       const { data: existingSubaccounts } = await supabase
         .from('subaccounts')
         .select('*')
         .eq('user_id', user.id)
 
-      // setSubaccounts(existingSubaccounts || [])
+      // Remove duplicates based on ghl_location_id
+      const uniqueSubaccounts = existingSubaccounts ? 
+        existingSubaccounts.filter((subaccount, index, self) => 
+          index === self.findIndex(s => s.ghl_location_id === subaccount.ghl_location_id)
+        ) : []
+
+      // setSubaccounts(uniqueSubaccounts || [])
 
       // Fetch status for each subaccount
-      if (existingSubaccounts && existingSubaccounts.length > 0) {
-        const statusPromises = existingSubaccounts.map(async (subaccount) => {
+      if (uniqueSubaccounts && uniqueSubaccounts.length > 0) {
+        const statusPromises = uniqueSubaccounts.map(async (subaccount) => {
           try {
             const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ghl/location/${subaccount.ghl_location_id}/session`)
             if (response.ok) {

@@ -988,14 +988,19 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     const { companyId } = req.query;
 
     // Find subaccount for this location
+    console.log(`Looking for subaccount with locationId: ${locationId}`);
+    
     const { data: subaccount, error: subErr } = await supabaseAdmin
       .from('subaccounts')
       .select('*')
       .eq('ghl_location_id', locationId)
       .maybeSingle();
 
+    console.log('Subaccount query result:', { subaccount, subErr });
+
     if (subErr || !subaccount) {
       // If subaccount doesn't exist yet but we know the companyId, try to link the ghl_account to the active user later via the link endpoint (manual) and short-circuit here
+      console.error(`Subaccount not found for locationId: ${locationId}`);
       return res.status(404).json({ error: 'Subaccount for location not found. Ensure OAuth callback stored this locationId.' });
     }
 
