@@ -152,7 +152,8 @@ app.get('/oauth/callback', async (req, res) => {
       user_id: targetUserId,
       company_id: companyId,
       access_token,
-      refresh_token
+      refresh_token,
+      expires_at: new Date(Date.now() + (expires_in * 1000)).toISOString()
     };
     if (locationId) {
       upsertPayload.location_id = locationId;
