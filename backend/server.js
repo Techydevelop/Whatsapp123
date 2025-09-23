@@ -163,21 +163,10 @@ app.get('/oauth/callback', async (req, res) => {
 
     const { access_token, refresh_token, expires_in, companyId } = tokenResponse.data;
     
-    // Parse state parameter to extract userId and locationId
-    let targetUserId = null;
-    let embeddedLocationId = null;
+    // Parse state parameter (simple userId)
+    let targetUserId = state;
     
-    if (state) {
-      try {
-        const stateData = JSON.parse(state);
-        targetUserId = stateData.userId;
-        embeddedLocationId = stateData.locationId;
-        console.log('Parsed state data:', { targetUserId, embeddedLocationId });
-      } catch (error) {
-        console.log('State is not JSON, treating as simple userId:', state);
-        targetUserId = state;
-      }
-    }
+    console.log('OAuth callback state:', { targetUserId, locationId });
     
     if (!targetUserId) {
       // Try to find an existing service user for this companyId
@@ -207,8 +196,16 @@ app.get('/oauth/callback', async (req, res) => {
       expires_at: new Date(Date.now() + (expires_in * 1000)).toISOString()
     };
     
-    // Use embedded locationId from state if available, otherwise use query parameter
-    const finalLocationId = embeddedLocationId || locationId;
+    // Find latest subaccount for this user to get locationId
+    const { data: latestSubaccount } = await supabaseAdmin
+      .from('subaccounts')
+      .select('ghl_location_id')
+      .eq('user_id', targetUserId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    const finalLocationId = latestSubaccount?.ghl_location_id || locationId;
     if (finalLocationId) {
       upsertPayload.location_id = finalLocationId;
     }
@@ -217,24 +214,24 @@ app.get('/oauth/callback', async (req, res) => {
       .from('ghl_accounts')
       .upsert(upsertPayload);
 
-    // If locationId is provided, also create/update subaccount
+    // Update subaccount name if needed
     if (finalLocationId && !insertError) {
-      console.log(`Creating/updating subaccount for locationId: ${finalLocationId}, userId: ${targetUserId}`);
+      console.log(`Updating subaccount for locationId: ${finalLocationId}, userId: ${targetUserId}`);
       
       const { data: subaccount, error: subaccountError } = await supabaseAdmin
         .from('subaccounts')
-        .upsert({
-          user_id: targetUserId,
-          ghl_location_id: finalLocationId,
+        .update({ 
           name: `Location ${finalLocationId}`
         })
+        .eq('user_id', targetUserId)
+        .eq('ghl_location_id', finalLocationId)
         .select()
         .single();
         
       if (subaccountError) {
-        console.error('Error creating subaccount:', subaccountError);
+        console.error('Error updating subaccount:', subaccountError);
       } else {
-        console.log('Subaccount created/updated successfully:', subaccount);
+        console.log('Subaccount updated successfully:', subaccount);
       }
     }
 
@@ -716,13 +713,21 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
       return res.status(500).json({ error: 'GHL_CLIENT_ID not configured' });
     }
 
-    // Embed locationId in state parameter since GHL doesn't pass it back in callback
-    const stateWithLocation = JSON.stringify({
-      userId: req.user.id,
-      locationId: ghl_location_id
-    });
+    // Store locationId in database before OAuth to track it later
+    const { data: tempRecord, error: tempError } = await supabaseAdmin
+      .from('subaccounts')
+      .upsert({
+        user_id: req.user.id,
+        ghl_location_id: ghl_location_id,
+        name: name || `Location ${ghl_location_id}`
+      })
+      .select()
+      .single();
 
-    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(stateWithLocation)}`;
+    if (tempError) throw tempError;
+
+    // Use simple state parameter (just userId) since GHL doesn't support complex state
+    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${req.user.id}`;
 
     res.json({ 
       success: true, 
