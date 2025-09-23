@@ -18,11 +18,8 @@ interface GHLIntegrationProps {
 
 export default function GHLIntegration({ subaccount, onSubaccountUpdate }: GHLIntegrationProps) {
   const [isConnecting, setIsConnecting] = useState(false)
-  const [ghlLocationId, setGhlLocationId] = useState(subaccount?.ghl_location_id || '')
   const [ghlAccount, setGhlAccount] = useState<GhlAccount | null>(null)
   const [isGhlUser, setIsGhlUser] = useState(false)
-  const [locationToken, setLocationToken] = useState<LocationToken | null>(null)
-  const [isMintingToken, setIsMintingToken] = useState(false)
 
   useEffect(() => {
     const check = async () => {
@@ -43,70 +40,6 @@ export default function GHLIntegration({ subaccount, onSubaccountUpdate }: GHLIn
     check()
   }, [])
 
-  useEffect(() => {
-    const fetchLocationToken = async () => {
-      if (!subaccount?.ghl_location_id) {
-        setLocationToken(null)
-        return
-      }
-
-      try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
-
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/location-token/${subaccount.id}`, {
-          headers: {
-            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-          },
-        })
-
-        if (response.ok) {
-          const token = await response.json()
-          setLocationToken(token)
-        } else {
-          setLocationToken(null)
-        }
-      } catch (error) {
-        console.error('Error fetching location token:', error)
-        setLocationToken(null)
-      }
-    }
-
-    fetchLocationToken()
-  }, [subaccount])
-
-  const mintLocationToken = async () => {
-    if (!subaccount) return
-
-    setIsMintingToken(true)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/mint-location-token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-        body: JSON.stringify({
-          subaccountId: subaccount.id,
-        }),
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.message || 'Failed to mint location token')
-      }
-
-      const result = await response.json()
-      setLocationToken(result.token)
-    } catch (error) {
-      console.error('Error minting location token:', error)
-    } finally {
-      setIsMintingToken(false)
-    }
-  }
 
   const connectGHL = async () => {
     setIsConnecting(true)
@@ -123,34 +56,6 @@ export default function GHLIntegration({ subaccount, onSubaccountUpdate }: GHLIn
     }
   }
 
-  const updateLocationId = async () => {
-    if (!subaccount || !ghlLocationId) return
-
-    try {
-      const { data: { session: authSession } } = await supabase.auth.getSession()
-      if (!authSession) throw new Error('Not authenticated')
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/subaccount/${subaccount.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authSession.access_token}`,
-        },
-        body: JSON.stringify({
-          ghl_location_id: ghlLocationId
-        }),
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to update location ID')
-      }
-
-      onSubaccountUpdate()
-    } catch (error) {
-      console.error('Error updating location ID:', error)
-    }
-  }
 
   return (
     <div className="bg-white shadow rounded-lg p-6">
@@ -169,62 +74,7 @@ export default function GHLIntegration({ subaccount, onSubaccountUpdate }: GHLIn
             )}
           </div>
           
-          {subaccount ? (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  GHL Location ID
-                </label>
-                <div className="mt-1 flex space-x-2">
-                  <input
-                    type="text"
-                    value={ghlLocationId}
-                    onChange={(e) => setGhlLocationId(e.target.value)}
-                    placeholder="Enter GHL Location ID"
-                    className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                  />
-                  <button
-                    onClick={updateLocationId}
-                    className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-                  >
-                    Update
-                  </button>
-                </div>
-              </div>
-
-              {/* Location Token Status */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Location Token Status
-                </label>
-                {locationToken ? (
-                  <div className="flex items-center space-x-2">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      ✓ Token Active
-                    </span>
-                    <span className="text-sm text-gray-600">
-                      Expires: {new Date(locationToken.expires_at).toLocaleString()}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center space-x-2">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                      &#9888; No Token
-                    </span>
-                    <button
-                      onClick={mintLocationToken}
-                      disabled={isMintingToken || !subaccount.ghl_location_id}
-                      className="px-3 py-1 text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {isMintingToken ? 'Minting...' : 'Mint Token'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <p className="text-gray-500">Select a subaccount to configure GHL integration</p>
-          )}
+          <p className="text-gray-500">Select a GHL subaccount below to get started</p>
         </div>
       ) : (
         <div className="space-y-4">

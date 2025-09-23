@@ -35,19 +35,30 @@ export default function Dashboard() {
 
   const fetchSubaccounts = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('subaccounts')
-        .select('*')
-        .order('created_at', { ascending: false })
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-      if (error) throw error
-      setSubaccounts(data || [])
-      
-      if (data && data.length > 0 && !selectedSubaccount) {
-        setSelectedSubaccount(data[0])
+      // Fetch existing subaccounts from GHL
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/subaccounts`, {
+        headers: {
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+      })
+
+      if (response.ok) {
+        const { subaccounts: ghlSubaccounts } = await response.json()
+        setSubaccounts(ghlSubaccounts || [])
+        
+        if (ghlSubaccounts && ghlSubaccounts.length > 0 && !selectedSubaccount) {
+          setSelectedSubaccount(ghlSubaccounts[0])
+        }
+      } else {
+        console.error('Failed to fetch GHL subaccounts')
+        setSubaccounts([])
       }
     } catch (error) {
       console.error('Error fetching subaccounts:', error)
+      setSubaccounts([])
     }
   }, [selectedSubaccount])
 
@@ -217,27 +228,6 @@ export default function Dashboard() {
     }
   }, [selectedSubaccount, fetchSessions, mintLocationToken, fetchGHLLeads])
 
-  const createSubaccount = async (name: string) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
-
-      const { data, error } = await supabase
-        .from('subaccounts')
-        .insert({
-          name,
-          user_id: user.id,
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-      setSubaccounts([data, ...subaccounts])
-      setSelectedSubaccount(data)
-    } catch (error) {
-      console.error('Error creating subaccount:', error)
-    }
-  }
 
   const createSession = async () => {
     if (!selectedSubaccount) return
@@ -352,79 +342,8 @@ export default function Dashboard() {
         subaccounts={subaccounts}
         selectedSubaccount={selectedSubaccount}
         onSubaccountChange={setSelectedSubaccount}
-        onCreate={createSubaccount}
       />
 
-      {/* GHL Leads Section */}
-      {selectedSubaccount && (
-        <div className="bg-white shadow rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">GHL Leads</h3>
-            <button
-              onClick={() => fetchGHLLeads(selectedSubaccount.id)}
-              disabled={loadingLeads}
-              className="px-3 py-1 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loadingLeads ? 'Loading...' : 'Refresh Leads'}
-            </button>
-          </div>
-          
-          {loadingLeads ? (
-            <div className="flex items-center justify-center h-32">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
-              <span className="ml-2 text-gray-500">Loading leads...</span>
-            </div>
-          ) : ghlLeads.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500 mb-2">No leads found</p>
-              <p className="text-sm text-gray-400">
-                Make sure you have a valid GHL location token and leads in your account
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {ghlLeads.map((lead) => (
-                    <tr key={lead.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {lead.name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {lead.phone}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {lead.email || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          {lead.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {lead.source}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(lead.created_at).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Sessions and Chat */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Database } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 type Subaccount = Database['public']['Tables']['subaccounts']['Row']
 
@@ -9,78 +10,59 @@ interface SubaccountSelectorProps {
   subaccounts: Subaccount[]
   selectedSubaccount: Subaccount | null
   onSubaccountChange: (subaccount: Subaccount) => void
-  onCreate?: (name: string) => void
 }
 
 export default function SubaccountSelector({ 
   subaccounts, 
   selectedSubaccount, 
-  onSubaccountChange, 
-  onCreate 
+  onSubaccountChange
 }: SubaccountSelectorProps) {
-  const [isCreating, setIsCreating] = useState(false)
-  const [newName, setNewName] = useState('')
+  const [connecting, setConnecting] = useState<string | null>(null)
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newName.trim() || !onCreate) return
-    
-    await onCreate(newName.trim())
-    setNewName('')
-    setIsCreating(false)
+  const connectSubaccount = async (subaccount: Subaccount) => {
+    setConnecting(subaccount.id)
+    try {
+      // Call backend to connect this subaccount
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/connect-subaccount`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({
+          ghl_location_id: subaccount.ghl_location_id,
+          name: subaccount.name
+        }),
+      })
+
+      if (response.ok) {
+        // Select the connected subaccount
+        onSubaccountChange(subaccount)
+        console.log('Subaccount connected successfully')
+      } else {
+        console.error('Failed to connect subaccount')
+      }
+    } catch (error) {
+      console.error('Error connecting subaccount:', error)
+    } finally {
+      setConnecting(null)
+    }
   }
 
   return (
     <div className="bg-white shadow rounded-lg p-6">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-medium text-gray-900">Subaccounts</h3>
-        <button
-          onClick={() => setIsCreating(true)}
-          className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-        >
-          Create New
-        </button>
+        <h3 className="text-lg font-medium text-gray-900">GHL Subaccounts</h3>
       </div>
-
-      {isCreating && (
-        <form onSubmit={handleCreate} className="mb-4 p-4 border border-gray-200 rounded-md">
-          <div className="flex space-x-2">
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Subaccount name"
-              className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              autoFocus
-            />
-            <button
-              type="submit"
-              className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
-            >
-              Create
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsCreating(false)
-                setNewName('')
-              }}
-              className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
 
       <div className="space-y-2">
         {subaccounts.length === 0 ? (
-          <p className="text-gray-500 text-sm">No subaccounts yet. Create one to get started.</p>
+          <p className="text-gray-500 text-sm">No GHL subaccounts found. Connect your GHL account first.</p>
         ) : (
           subaccounts.map((subaccount) => (
             <div
               key={subaccount.id}
-              onClick={() => onSubaccountChange(subaccount)}
+              onClick={() => connectSubaccount(subaccount)}
               className={`p-3 rounded-md cursor-pointer transition-colors ${
                 selectedSubaccount?.id === subaccount.id
                   ? 'bg-indigo-50 border-2 border-indigo-200'
@@ -91,12 +73,20 @@ export default function SubaccountSelector({
                 <div>
                   <h4 className="text-sm font-medium text-gray-900">{subaccount.name}</h4>
                   <p className="text-xs text-gray-500">
-                    Created {new Date(subaccount.created_at).toLocaleDateString()}
+                    Location ID: {subaccount.ghl_location_id}
                   </p>
                 </div>
-                {subaccount.ghl_location_id && (
+                {connecting === subaccount.id ? (
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    Connecting...
+                  </span>
+                ) : selectedSubaccount?.id === subaccount.id ? (
                   <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    GHL Connected
+                    ✓ Connected
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                    Click to Connect
                   </span>
                 )}
               </div>

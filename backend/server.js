@@ -75,6 +75,11 @@ app.get('/', (req, res) => {
   });
 });
 
+// Test endpoint for frontend
+app.get('/test', (req, res) => {
+  res.json({ message: 'Backend is working!' });
+});
+
 // GHL OAuth routes
 
 // Direct login redirect endpoint
@@ -506,8 +511,8 @@ app.put('/admin/subaccount/:subaccountId', requireAuth, async (req, res) => {
   }
 });
 
-// GHL Locations endpoint
-app.get('/admin/ghl/locations', requireAuth, async (req, res) => {
+// GHL Subaccounts endpoint - fetch existing subaccounts from GHL
+app.get('/admin/ghl/subaccounts', requireAuth, async (req, res) => {
   try {
     // Get GHL access token for this user
     const { data: ghlAccount, error: ghlError } = await supabaseAdmin
@@ -524,10 +529,47 @@ app.get('/admin/ghl/locations', requireAuth, async (req, res) => {
     const ghlClient = new GHLClient(ghlAccount.access_token);
     const locations = await ghlClient.getLocations();
 
-    res.json({ locations });
+    // Transform locations to subaccounts format
+    const subaccounts = locations.locations?.map(location => ({
+      id: location.id,
+      name: location.name || `Location ${location.id}`,
+      ghl_location_id: location.id,
+      status: 'available'
+    })) || [];
+
+    res.json({ subaccounts });
   } catch (error) {
-    console.error('Error fetching GHL locations:', error);
-    res.status(500).json({ error: 'Failed to fetch GHL locations', details: error.message });
+    console.error('Error fetching GHL subaccounts:', error);
+    res.status(500).json({ error: 'Failed to fetch GHL subaccounts', details: error.message });
+  }
+});
+
+// Connect GHL subaccount endpoint
+app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
+  try {
+    const { ghl_location_id, name } = req.body;
+    
+    if (!ghl_location_id) {
+      return res.status(400).json({ error: 'ghl_location_id is required' });
+    }
+
+    // Create or update subaccount in database
+    const { data: subaccount, error: subaccountError } = await supabaseAdmin
+      .from('subaccounts')
+      .upsert({
+        user_id: req.user.id,
+        ghl_location_id,
+        name: name || `Location ${ghl_location_id}`
+      })
+      .select()
+      .single();
+
+    if (subaccountError) throw subaccountError;
+
+    res.json({ success: true, subaccount });
+  } catch (error) {
+    console.error('Error connecting GHL subaccount:', error);
+    res.status(500).json({ error: 'Failed to connect GHL subaccount' });
   }
 });
 
