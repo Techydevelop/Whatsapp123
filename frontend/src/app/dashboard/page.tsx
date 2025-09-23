@@ -4,33 +4,25 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
-import SubaccountSelector from '@/components/dashboard/SubaccountSelector'
-import SessionsList from '@/components/dashboard/SessionsList'
-import ChatWindow from '@/components/dashboard/ChatWindow'
-import GHLIntegration from '@/components/dashboard/GHLIntegration'
 
 type Subaccount = Database['public']['Tables']['subaccounts']['Row']
-type Session = Database['public']['Tables']['sessions']['Row']
+type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
 
-interface GHLLead {
+interface SubaccountStatus {
   id: string
   name: string
-  phone: string
-  email?: string
-  status: string
-  source: string
-  created_at: string
+  ghl_location_id: string
+  status: 'ready' | 'qr' | 'initializing' | 'disconnected' | 'none'
+  phone_number?: string
+  qr?: string
 }
 
 export default function Dashboard() {
   const searchParams = useSearchParams()
   const [subaccounts, setSubaccounts] = useState<Subaccount[]>([])
-  const [selectedSubaccount, setSelectedSubaccount] = useState<Subaccount | null>(null)
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [selectedSession, setSelectedSession] = useState<Session | null>(null)
+  const [subaccountStatuses, setSubaccountStatuses] = useState<SubaccountStatus[]>([])
+  const [ghlAccount, setGhlAccount] = useState<GhlAccount | null>(null)
   const [loading, setLoading] = useState(true)
-  const [ghlLeads, setGhlLeads] = useState<GHLLead[]>([])
-  const [loadingLeads, setLoadingLeads] = useState(false)
   const [showSuccessMessage, setShowSuccessMessage] = useState(false)
 
   const fetchSubaccounts = useCallback(async () => {
@@ -38,51 +30,59 @@ export default function Dashboard() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Get GHL account info to show company ID
+      // Get GHL account info
       const { data: ghlAccount } = await supabase
         .from('ghl_accounts')
-        .select('company_id, location_id')
+        .select('*')
         .eq('user_id', user.id)
         .single()
 
-      if (ghlAccount) {
-        // Check if we have actual subaccounts in database
-        const { data: existingSubaccounts } = await supabase
+      setGhlAccount(ghlAccount)
+
+      // Get subaccounts
+      const { data: existingSubaccounts } = await supabase
         .from('subaccounts')
         .select('*')
-          .eq('user_id', user.id)
+        .eq('user_id', user.id)
 
-        if (existingSubaccounts && existingSubaccounts.length > 0) {
-          // Use actual subaccounts from database
-          setSubaccounts(existingSubaccounts)
-          if (!selectedSubaccount) {
-            setSelectedSubaccount(existingSubaccounts[0])
+      setSubaccounts(existingSubaccounts || [])
+
+      // Fetch status for each subaccount
+      if (existingSubaccounts && existingSubaccounts.length > 0) {
+        const statusPromises = existingSubaccounts.map(async (subaccount) => {
+          try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ghl/location/${subaccount.ghl_location_id}/session`)
+            if (response.ok) {
+              const sessionData = await response.json()
+              return {
+                id: subaccount.id,
+                name: subaccount.name,
+                ghl_location_id: subaccount.ghl_location_id,
+                status: sessionData.status || 'none',
+                phone_number: sessionData.phone_number,
+                qr: sessionData.qr
+              }
+            }
+          } catch (error) {
+            console.error(`Error fetching status for ${subaccount.ghl_location_id}:`, error)
           }
-        } else {
-          // No subaccounts yet, show empty state
-          setSubaccounts([])
-        }
+          return {
+            id: subaccount.id,
+            name: subaccount.name,
+            ghl_location_id: subaccount.ghl_location_id,
+            status: 'none' as const
+          }
+        })
+
+        const statuses = await Promise.all(statusPromises)
+        setSubaccountStatuses(statuses)
       } else {
-        setSubaccounts([])
+        setSubaccountStatuses([])
       }
     } catch (error) {
       console.error('Error fetching subaccounts:', error)
       setSubaccounts([])
-    }
-  }, [selectedSubaccount])
-
-  const fetchSessions = useCallback(async (subaccountId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('sessions')
-        .select('*')
-        .eq('subaccount_id', subaccountId)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      setSessions(data || [])
-    } catch (error) {
-      console.error('Error fetching sessions:', error)
+      setSubaccountStatuses([])
     }
   }, [])
 
@@ -96,99 +96,6 @@ export default function Dashboard() {
     }
   }, [searchParams])
 
-  // Fetch GHL leads for selected subaccount
-  const fetchGHLLeads = useCallback(async (subaccountId: string) => {
-    if (!subaccountId) return
-    
-    setLoadingLeads(true)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
-
-      // Get location token for this subaccount
-      const tokenResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/location-token/${subaccountId}`, {
-        headers: {
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-      })
-
-      if (!tokenResponse.ok) {
-        console.log('No location token available for leads, trying to mint one...')
-        // Try to mint location token first
-        try {
-          const mintResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/mint-location-token`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-            },
-            body: JSON.stringify({ subaccountId }),
-          })
-          
-          if (mintResponse.ok) {
-            // Retry getting location token
-            const retryTokenResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/location-token/${subaccountId}`, {
-              headers: {
-                'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-              },
-            })
-            
-            if (retryTokenResponse.ok) {
-              const locationToken = await retryTokenResponse.json()
-              await fetchLeadsWithToken(subaccountId, locationToken.access_token)
-            } else {
-              setGhlLeads([])
-            }
-          } else {
-            setGhlLeads([])
-          }
-        } catch (mintError) {
-          console.error('Error minting location token:', mintError)
-          setGhlLeads([])
-        }
-        return
-      }
-
-      const locationToken = await tokenResponse.json()
-      await fetchLeadsWithToken(subaccountId, locationToken.access_token)
-      
-    } catch (error) {
-      console.error('Error fetching GHL leads:', error)
-      setGhlLeads([])
-    } finally {
-      setLoadingLeads(false)
-    }
-  }, [])
-
-  const fetchLeadsWithToken = async (subaccountId: string, accessToken: string) => {
-    try {
-      // Fetch leads from GHL API
-      const leadsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/leads`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-        body: JSON.stringify({
-          subaccountId,
-          locationToken: accessToken
-        }),
-      })
-
-      if (leadsResponse.ok) {
-        const leads = await leadsResponse.json()
-        setGhlLeads(leads || [])
-        console.log('Fetched leads:', leads.length)
-      } else {
-        console.log('Failed to fetch leads')
-        setGhlLeads([])
-      }
-    } catch (error) {
-      console.error('Error fetching leads with token:', error)
-      setGhlLeads([])
-    }
-  }
-
   useEffect(() => {
     const init = async () => {
       await fetchSubaccounts()
@@ -197,116 +104,35 @@ export default function Dashboard() {
     init()
   }, [fetchSubaccounts])
 
-  const mintLocationToken = useCallback(async (subaccountId: string) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/mint-location-token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-        body: JSON.stringify({
-          subaccountId,
-        }),
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        console.warn('Location token minting failed:', error.message)
-        return
-      }
-
-      const result = await response.json()
-      console.log('Location token minted:', result.message)
-    } catch (error) {
-      console.error('Error minting location token:', error)
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'ready': return 'bg-green-100 text-green-800'
+      case 'qr': return 'bg-yellow-100 text-yellow-800'
+      case 'initializing': return 'bg-blue-100 text-blue-800'
+      case 'disconnected': return 'bg-red-100 text-red-800'
+      default: return 'bg-gray-100 text-gray-800'
     }
-  }, [])
+  }
 
-  useEffect(() => {
-    if (selectedSubaccount) {
-      fetchSessions(selectedSubaccount.id)
-      mintLocationToken(selectedSubaccount.id)
-      // Auto-fetch leads when subaccount is selected
-      if (selectedSubaccount.ghl_location_id) {
-        fetchGHLLeads(selectedSubaccount.id)
-      }
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'ready': return 'Ready'
+      case 'qr': return 'QR Code'
+      case 'initializing': return 'Initializing'
+      case 'disconnected': return 'Disconnected'
+      default: return 'Not Connected'
     }
-  }, [selectedSubaccount, fetchSessions, mintLocationToken, fetchGHLLeads])
+  }
 
+  const copyProviderLink = (locationId: string) => {
+    const link = `${process.env.NEXT_PUBLIC_API_URL}/ghl/provider?locationId=${locationId}`
+    navigator.clipboard.writeText(link)
+    // You could add a toast notification here
+  }
 
-  const createSession = async () => {
-    if (!selectedSubaccount) return
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/create-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-        body: JSON.stringify({
-          subaccountId: selectedSubaccount.id,
-        }),
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.message || 'Failed to create session')
-      }
-
-      const { sessionId } = await response.json() as { sessionId: string }
-      
-      // Add the new session to the list immediately
-      const newSession: Session = {
-        id: sessionId,
-        user_id: user.id,
-        subaccount_id: selectedSubaccount.id,
-        phone_number: null,
-        status: 'initializing',
-        qr: null,
-        created_at: new Date().toISOString()
-      }
-      
-      setSessions((prev: Session[]) => [newSession, ...prev])
-      
-      // Poll for session status updates
-      const pollSession = async () => {
-        try {
-          const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/session/${sessionId}`, {
-            headers: {
-              'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-            },
-          })
-          
-          if (statusResponse.ok) {
-            const sessionData = await statusResponse.json() as Partial<Session>
-            setSessions((prev: Session[]) => 
-              prev.map((s: Session) => s.id === sessionId ? { ...s, ...sessionData } as Session : s)
-            )
-            
-            // Continue polling if still initializing or showing QR
-            if (sessionData.status === 'initializing' || sessionData.status === 'qr') {
-              setTimeout(pollSession, 2000)
-            }
-          }
-        } catch (error) {
-          console.error('Error polling session:', error)
-        }
-      }
-      
-      // Start polling after a short delay
-      setTimeout(pollSession, 1000)
-      
-    } catch (error) {
-      console.error('Error creating session:', error)
-    }
+  const openQR = (locationId: string) => {
+    const link = `${process.env.NEXT_PUBLIC_API_URL}/ghl/provider?locationId=${locationId}`
+    window.open(link, '_blank')
   }
 
   if (loading) {
@@ -340,34 +166,110 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* GHL Integration */}
-      <GHLIntegration 
-        subaccount={selectedSubaccount}
-        onSubaccountUpdate={fetchSubaccounts}
-      />
-
-      {/* Subaccount Selector */}
-      <SubaccountSelector
-        subaccounts={subaccounts}
-        selectedSubaccount={selectedSubaccount}
-        onSubaccountChange={setSelectedSubaccount}
-      />
-
-
-      {/* Sessions and Chat */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <SessionsList
-          sessions={sessions}
-          selectedSession={selectedSession}
-          onSelect={setSelectedSession}
-          onCreate={createSession}
-          subaccount={selectedSubaccount}
-        />
+      {/* User Info */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Users</h2>
         
-        <ChatWindow
-          session={selectedSession}
-          subaccount={selectedSubaccount}
-        />
+        {ghlAccount ? (
+          <div className="mb-6 p-4 bg-green-50 rounded-lg">
+            <div className="flex items-center">
+              <svg className="h-5 w-5 text-green-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              <span className="text-sm font-medium text-green-800">GHL Account Connected</span>
+            </div>
+            <p className="text-sm text-green-700 mt-1">Company ID: {ghlAccount.company_id}</p>
+          </div>
+        ) : (
+          <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
+            <div className="flex items-center">
+              <svg className="h-5 w-5 text-yellow-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <span className="text-sm font-medium text-yellow-800">GHL Account Not Connected</span>
+            </div>
+            <p className="text-sm text-yellow-700 mt-1">Please connect your GHL account first to add sub-accounts.</p>
+          </div>
+        )}
+
+        {/* Subaccounts Table */}
+        <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+          <table className="min-w-full divide-y divide-gray-300">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Sub-Account
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Location ID
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Phone Number
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {subaccountStatuses.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
+                    No sub-accounts connected yet. <a href="/dashboard/add-subaccount" className="text-indigo-600 hover:text-indigo-500">Add your first sub-account</a>
+                  </td>
+                </tr>
+              ) : (
+                subaccountStatuses.map((subaccount) => (
+                  <tr key={subaccount.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {subaccount.name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {subaccount.ghl_location_id}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(subaccount.status)}`}>
+                        {getStatusText(subaccount.status)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {subaccount.phone_number ? `+${subaccount.phone_number}` : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                      <button
+                        onClick={() => openQR(subaccount.ghl_location_id)}
+                        className="text-indigo-600 hover:text-indigo-900"
+                      >
+                        Open QR
+                      </button>
+                      <button
+                        onClick={() => copyProviderLink(subaccount.ghl_location_id)}
+                        className="text-gray-600 hover:text-gray-900"
+                      >
+                        Copy Link
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Instructions */}
+        <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+          <h3 className="text-sm font-medium text-blue-800 mb-2">How to use:</h3>
+          <ol className="text-sm text-blue-700 space-y-1">
+            <li>1. Add sub-accounts using the "Add Sub-Account" link in the sidebar</li>
+            <li>2. Click "Open QR" to scan WhatsApp QR code for each sub-account</li>
+            <li>3. Copy the provider link and add it as a custom menu link in GHL</li>
+            <li>4. In GHL → Settings → Phone System → Additional Settings → Telephony Provider, choose your provider</li>
+            <li>5. The connected WhatsApp number will appear as an SMS provider option</li>
+          </ol>
+        </div>
       </div>
     </div>
   )
