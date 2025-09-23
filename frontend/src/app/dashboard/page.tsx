@@ -155,8 +155,8 @@ export default function Dashboard() {
         console.error('Failed to create session:', errorData)
         alert(`Failed to create session: ${errorData.error || 'Unknown error'}`)
         return
-      }
-    } catch (error) {
+          }
+        } catch (error) {
       console.error('Error creating session:', error)
       alert(`Error creating session: ${error}`)
       return
@@ -210,8 +210,8 @@ export default function Dashboard() {
               </svg>
               <span className="text-sm font-medium text-green-800">GHL Account Connected</span>
             </div>
-          </div>
-        ) : (
+            </div>
+          ) : (
           <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
             <div className="flex items-center">
               <svg className="h-5 w-5 text-yellow-400 mr-2" fill="currentColor" viewBox="0 0 20 20">

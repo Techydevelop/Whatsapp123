@@ -7,6 +7,7 @@ const helmet = require('helmet');
 const { createClient } = require('@supabase/supabase-js');
 const qrcode = require('qrcode');
 const axios = require('axios');
+const crypto = require('crypto');
 
 // Import utilities
 const { normalizeToE164, toWhatsAppJID, fromWhatsAppJID } = require('./lib/phone');
@@ -90,6 +91,41 @@ const requireAuth = async (req, res, next) => {
   } catch (error) {
     console.error('Auth error:', error);
     res.status(401).json({ error: 'Authentication failed' });
+  }
+};
+
+// Webhook signature verification middleware
+const verifyWebhookSignature = (req, res, next) => {
+  try {
+    const signature = req.headers['x-ghl-signature'];
+    const webhookSecret = process.env.GHL_WEBHOOK_SECRET;
+    
+    if (!webhookSecret) {
+      console.warn('GHL_WEBHOOK_SECRET not configured, skipping signature verification');
+      return next();
+    }
+    
+    if (!signature) {
+      return res.status(401).json({ error: 'Missing webhook signature' });
+    }
+
+    // Get raw body for signature verification
+    const rawBody = JSON.stringify(req.body);
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(rawBody)
+      .digest('hex');
+
+    const providedSignature = signature.replace('sha256=', '');
+    
+    if (!crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(providedSignature))) {
+      return res.status(401).json({ error: 'Invalid webhook signature' });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Webhook signature verification error:', error);
+    res.status(401).json({ error: 'Signature verification failed' });
   }
 };
 
@@ -197,13 +233,14 @@ app.get('/oauth/callback', async (req, res) => {
     };
     
     // Find latest subaccount for this user to get locationId
-    const { data: latestSubaccount } = await supabaseAdmin
+    const { data: latestSubaccounts } = await supabaseAdmin
       .from('subaccounts')
       .select('ghl_location_id')
       .eq('user_id', targetUserId)
       .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+      .limit(1);
+
+    const latestSubaccount = latestSubaccounts?.[0];
 
     const finalLocationId = latestSubaccount?.ghl_location_id || locationId;
     if (finalLocationId) {
@@ -214,24 +251,23 @@ app.get('/oauth/callback', async (req, res) => {
       .from('ghl_accounts')
       .upsert(upsertPayload);
 
-    // Update subaccount name if needed
+    // Update subaccount name if needed (handle multiple rows)
     if (finalLocationId && !insertError) {
       console.log(`Updating subaccount for locationId: ${finalLocationId}, userId: ${targetUserId}`);
       
-      const { data: subaccount, error: subaccountError } = await supabaseAdmin
+      const { data: subaccounts, error: subaccountError } = await supabaseAdmin
         .from('subaccounts')
         .update({ 
           name: `Location ${finalLocationId}`
         })
         .eq('user_id', targetUserId)
         .eq('ghl_location_id', finalLocationId)
-        .select()
-        .single();
+        .select();
         
       if (subaccountError) {
         console.error('Error updating subaccount:', subaccountError);
       } else {
-        console.log('Subaccount updated successfully:', subaccount);
+        console.log(`Updated ${subaccounts?.length || 0} subaccounts successfully`);
       }
     }
 
@@ -437,6 +473,68 @@ app.get('/admin/sessions', requireAuth, async (req, res) => {
   }
 });
 
+// Refresh GHL access token using refresh token
+app.post('/admin/ghl/refresh-token', requireAuth, async (req, res) => {
+  try {
+    // Get current GHL account
+    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('refresh_token, company_id, user_id')
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (ghlError || !ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    if (!ghlAccount.refresh_token) {
+      return res.status(400).json({ error: 'No refresh token available' });
+    }
+
+    // Exchange refresh token for new access token
+    const tokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/token', 
+      new URLSearchParams({
+        client_id: process.env.GHL_CLIENT_ID,
+        client_secret: process.env.GHL_CLIENT_SECRET,
+        grant_type: 'refresh_token',
+        refresh_token: ghlAccount.refresh_token,
+        user_type: 'Company',
+        redirect_uri: process.env.GHL_REDIRECT_URI
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
+        }
+      }
+    );
+
+    const { access_token, refresh_token, expires_in, companyId } = tokenResponse.data;
+
+    // Update tokens in database
+    const { error: updateError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .update({
+        access_token,
+        refresh_token,
+        expires_at: new Date(Date.now() + (expires_in * 1000)).toISOString()
+      })
+      .eq('user_id', req.user.id);
+
+    if (updateError) throw updateError;
+
+    res.json({ 
+      success: true, 
+      access_token,
+      expires_in,
+      message: 'Token refreshed successfully'
+    });
+  } catch (error) {
+    console.error('Error refreshing GHL token:', error);
+    res.status(500).json({ error: 'Failed to refresh token' });
+  }
+});
+
 // GHL account management routes
 app.put('/admin/ghl/location', requireAuth, async (req, res) => {
   try {
@@ -488,6 +586,8 @@ app.put('/admin/ghl/update-location', requireAuth, async (req, res) => {
 
 app.post('/admin/ghl/mint-location-token', requireAuth, async (req, res) => {
   try {
+    const { locationId } = req.body;
+    
     // Get GHL account
     const { data: ghlAccount, error: ghlError } = await supabaseAdmin
       .from('ghl_accounts')
@@ -499,23 +599,33 @@ app.post('/admin/ghl/mint-location-token', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'GHL account not found' });
     }
 
-    if (!ghlAccount.location_id) {
-      return res.status(400).json({ error: 'Location ID not set' });
+    const targetLocationId = locationId || ghlAccount.location_id;
+    if (!targetLocationId) {
+      return res.status(400).json({ error: 'Location ID not provided or set' });
     }
 
-    // Mint location-specific token
-    const locationToken = await GHLClient.mintLocationToken(
-      ghlAccount.access_token,
-      ghlAccount.company_id,
-      ghlAccount.location_id
-    );
+    // Mint location-specific token using GHL API
+    const locationTokenResponse = await axios.post('https://services.leadconnectorhq.com/oauth/locationToken', {
+      companyId: ghlAccount.company_id,
+      locationId: targetLocationId
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Version': '2021-07-28',
+        'Authorization': `Bearer ${ghlAccount.access_token}`
+      }
+    });
+
+    const { access_token, expires_in, refresh_token } = locationTokenResponse.data;
 
     // Update account with location token
     const { data: updatedAccount, error: updateError } = await supabaseAdmin
       .from('ghl_accounts')
       .update({ 
-        location_token: locationToken.access_token,
-        location_token_expires: new Date(Date.now() + (locationToken.expires_in * 1000)).toISOString()
+        location_token: access_token,
+        location_token_expires: new Date(Date.now() + (expires_in * 1000)).toISOString(),
+        location_id: targetLocationId
       })
       .eq('user_id', req.user.id)
       .select()
@@ -525,12 +635,13 @@ app.post('/admin/ghl/mint-location-token', requireAuth, async (req, res) => {
 
     res.json({ 
       success: true, 
-      location_token: locationToken.access_token,
-      expires_in: locationToken.expires_in
+      location_token: access_token,
+      expires_in: expires_in,
+      location_id: targetLocationId
     });
   } catch (error) {
     console.error('Error minting location token:', error);
-    res.status(500).json({ error: 'Failed to mint location token' });
+    res.status(500).json({ error: 'Failed to mint location token', details: error.message });
   }
 });
 
@@ -666,6 +777,53 @@ app.post('/admin/ghl/link-company', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error linking GHL company to user:', error);
     res.status(500).json({ error: 'Failed to link GHL company to user' });
+  }
+});
+
+// Clean up duplicate subaccounts endpoint
+app.post('/admin/ghl/cleanup-duplicates', requireAuth, async (req, res) => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+    // Get all subaccounts for this user
+    const { data: allSubaccounts } = await supabaseAdmin
+      .from('subaccounts')
+      .select('*')
+      .eq('user_id', user.id);
+
+    if (!allSubaccounts || allSubaccounts.length === 0) {
+      return res.json({ message: 'No subaccounts found', cleaned: 0 });
+    }
+
+    // Group by ghl_location_id and keep only the latest one
+    const grouped = {};
+    allSubaccounts.forEach(sub => {
+      if (!grouped[sub.ghl_location_id] || new Date(sub.created_at) > new Date(grouped[sub.ghl_location_id].created_at)) {
+        grouped[sub.ghl_location_id] = sub;
+      }
+    });
+
+    // Delete duplicates
+    const toDelete = allSubaccounts.filter(sub => sub.id !== grouped[sub.ghl_location_id].id);
+    
+    if (toDelete.length > 0) {
+      const { error: deleteError } = await supabaseAdmin
+        .from('subaccounts')
+        .delete()
+        .in('id', toDelete.map(s => s.id));
+
+      if (deleteError) throw deleteError;
+    }
+
+    res.json({ 
+      message: `Cleaned up ${toDelete.length} duplicate subaccounts`,
+      cleaned: toDelete.length,
+      remaining: Object.keys(grouped).length
+    });
+  } catch (error) {
+    console.error('Error cleaning up duplicates:', error);
+    res.status(500).json({ error: 'Failed to clean up duplicates' });
   }
 });
 
@@ -883,18 +1041,195 @@ app.post('/ghl/provider-outbound', async (req, res) => {
   }
 });
 
-// GHL message status endpoint (optional)
-app.post('/ghl/message-status', async (req, res) => {
+// GHL Webhook endpoints for real-time events
+// App Install Webhook - Critical for tracking app installations
+app.post('/ghl/webhook/install', verifyWebhookSignature, async (req, res) => {
   try {
-    const { messageId, status } = req.body;
-    
-    // Update message status in database if needed
-    // This is a stub - implement based on GHL requirements
-    
-    res.json({ success: true });
+    const { 
+      type, 
+      appId, 
+      versionId, 
+      installType, 
+      locationId, 
+      companyId, 
+      userId, 
+      companyName, 
+      isWhitelabelCompany, 
+      whitelabelDetails, 
+      timestamp, 
+      webhookId 
+    } = req.body;
+
+    console.log('GHL App Install Webhook:', { 
+      type, 
+      locationId, 
+      companyId, 
+      userId, 
+      installType 
+    });
+
+    if (type !== 'INSTALL') {
+      return res.status(400).json({ error: 'Invalid webhook type' });
+    }
+
+    // Store installation details in database
+    const { error: installError } = await supabaseAdmin
+      .from('ghl_installations')
+      .upsert({
+        webhook_id: webhookId,
+        app_id: appId,
+        version_id: versionId,
+        install_type: installType,
+        location_id: locationId,
+        company_id: companyId,
+        user_id: userId,
+        company_name: companyName,
+        is_whitelabel: isWhitelabelCompany,
+        whitelabel_details: whitelabelDetails,
+        installed_at: timestamp
+      });
+
+    if (installError) {
+      console.error('Error storing installation:', installError);
+      return res.status(500).json({ error: 'Failed to store installation' });
+    }
+
+    // Create subaccount entry if locationId is provided
+    if (locationId && userId) {
+      await supabaseAdmin
+        .from('subaccounts')
+        .upsert({
+          user_id: userId,
+          ghl_location_id: locationId,
+          name: companyName || `Location ${locationId}`,
+          status: 'installed'
+        });
+    }
+
+    res.json({ success: true, message: 'Installation recorded' });
   } catch (error) {
-    console.error('Error updating message status:', error);
-    res.status(500).json({ error: 'Failed to update message status' });
+    console.error('App Install webhook error:', error);
+    res.status(500).json({ error: 'Failed to process installation webhook' });
+  }
+});
+
+// Message Status Webhook - Track message delivery status
+app.post('/ghl/webhook/message-status', verifyWebhookSignature, async (req, res) => {
+  try {
+    const { 
+      messageId, 
+      status, 
+      locationId, 
+      contactId, 
+      phone, 
+      timestamp,
+      error 
+    } = req.body;
+
+    console.log('GHL Message Status Webhook:', { 
+      messageId, 
+      status, 
+      locationId, 
+      contactId 
+    });
+
+    // Update message status in database
+    const { error: updateError } = await supabaseAdmin
+      .from('messages')
+      .update({ 
+        status: status,
+        status_updated_at: new Date().toISOString(),
+        error_message: error || null
+      })
+      .eq('id', messageId);
+
+    if (updateError) {
+      console.error('Error updating message status:', updateError);
+      return res.status(500).json({ error: 'Failed to update message status' });
+    }
+
+    res.json({ success: true, message: 'Message status updated' });
+  } catch (error) {
+    console.error('Message status webhook error:', error);
+    res.status(500).json({ error: 'Failed to process message status webhook' });
+  }
+});
+
+// Conversation Webhook - Handle new conversations
+app.post('/ghl/webhook/conversation', verifyWebhookSignature, async (req, res) => {
+  try {
+    const { 
+      type, 
+      conversationId, 
+      locationId, 
+      contactId, 
+      phone, 
+      message, 
+      timestamp,
+      direction 
+    } = req.body;
+
+    console.log('GHL Conversation Webhook:', { 
+      type, 
+      conversationId, 
+      locationId, 
+      contactId,
+      direction 
+    });
+
+    // Store conversation in database
+    const { error: conversationError } = await supabaseAdmin
+      .from('ghl_conversations')
+      .upsert({
+        conversation_id: conversationId,
+        location_id: locationId,
+        contact_id: contactId,
+        phone: phone,
+        last_message: message,
+        direction: direction,
+        updated_at: timestamp
+      });
+
+    if (conversationError) {
+      console.error('Error storing conversation:', conversationError);
+      return res.status(500).json({ error: 'Failed to store conversation' });
+    }
+
+    res.json({ success: true, message: 'Conversation recorded' });
+  } catch (error) {
+    console.error('Conversation webhook error:', error);
+    res.status(500).json({ error: 'Failed to process conversation webhook' });
+  }
+});
+
+// Generic webhook handler for all GHL events
+app.post('/ghl/webhook', verifyWebhookSignature, async (req, res) => {
+  try {
+    const { type, webhookId, timestamp } = req.body;
+    
+    console.log('GHL Generic Webhook:', { type, webhookId, timestamp });
+
+    // Route to specific handlers based on type
+    switch (type) {
+      case 'INSTALL':
+        return app._router.handle(req, res, () => {
+          // This will be handled by the install webhook above
+        });
+      case 'MESSAGE_STATUS':
+        return app._router.handle(req, res, () => {
+          // This will be handled by the message status webhook above
+        });
+      case 'CONVERSATION':
+        return app._router.handle(req, res, () => {
+          // This will be handled by the conversation webhook above
+        });
+      default:
+        console.log('Unhandled webhook type:', type);
+        res.json({ success: true, message: 'Webhook received but not processed' });
+    }
+  } catch (error) {
+    console.error('Generic webhook error:', error);
+    res.status(500).json({ error: 'Failed to process webhook' });
   }
 });
 
@@ -992,22 +1327,23 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     const { locationId } = req.params;
     const { companyId } = req.query;
 
-    // Find subaccount for this location
+    // Find subaccount for this location (handle multiple rows)
     console.log(`Looking for subaccount with locationId: ${locationId}`);
     
-    const { data: subaccount, error: subErr } = await supabaseAdmin
+    const { data: subaccounts, error: subErr } = await supabaseAdmin
       .from('subaccounts')
       .select('*')
-      .eq('ghl_location_id', locationId)
-      .maybeSingle();
+      .eq('ghl_location_id', locationId);
 
-    console.log('Subaccount query result:', { subaccount, subErr });
+    console.log('Subaccount query result:', { subaccounts, subErr, count: subaccounts?.length });
 
-    if (subErr || !subaccount) {
-      // If subaccount doesn't exist yet but we know the companyId, try to link the ghl_account to the active user later via the link endpoint (manual) and short-circuit here
+    if (subErr || !subaccounts || subaccounts.length === 0) {
       console.error(`Subaccount not found for locationId: ${locationId}`);
       return res.status(404).json({ error: 'Subaccount for location not found. Ensure OAuth callback stored this locationId.' });
     }
+
+    // Use the first subaccount (they should all be the same)
+    const subaccount = subaccounts[0];
 
     // Check for latest session
     const { data: existing } = await supabaseAdmin
