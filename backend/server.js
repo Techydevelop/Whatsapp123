@@ -420,7 +420,8 @@ app.get('/admin/ghl/locations', requireAuth, async (req, res) => {
       .single();
 
     if (ghlError || !ghlAccount) {
-      return res.status(404).json({ error: 'GHL account not found' });
+      console.error('GHL account lookup error:', ghlError);
+      return res.status(404).json({ error: 'GHL account not found. Please connect your GHL account first.' });
     }
 
     const ghlClient = new GHLClient(ghlAccount.access_token);
@@ -429,7 +430,7 @@ app.get('/admin/ghl/locations', requireAuth, async (req, res) => {
     res.json({ locations });
   } catch (error) {
     console.error('Error fetching GHL locations:', error);
-    res.status(500).json({ error: 'Failed to fetch GHL locations' });
+    res.status(500).json({ error: 'Failed to fetch GHL locations', details: error.message });
   }
 });
 
