@@ -132,7 +132,12 @@ app.get('/oauth/callback', async (req, res) => {
   try {
     const { code, locationId, state } = req.query;
     
-    console.log('OAuth Callback received:', { code: !!code, locationId, state });
+    console.log('OAuth Callback received:', { 
+      code: !!code, 
+      locationId, 
+      state,
+      fullQuery: req.query 
+    });
     
     if (!code) {
       return res.status(400).send('Authorization code is required');
@@ -197,13 +202,23 @@ app.get('/oauth/callback', async (req, res) => {
 
     // If locationId is provided, also create/update subaccount
     if (locationId && !insertError) {
-      await supabaseAdmin
+      console.log(`Creating/updating subaccount for locationId: ${locationId}, userId: ${targetUserId}`);
+      
+      const { data: subaccount, error: subaccountError } = await supabaseAdmin
         .from('subaccounts')
         .upsert({
           user_id: targetUserId,
           ghl_location_id: locationId,
           name: `Location ${locationId}`
-        });
+        })
+        .select()
+        .single();
+        
+      if (subaccountError) {
+        console.error('Error creating subaccount:', subaccountError);
+      } else {
+        console.log('Subaccount created/updated successfully:', subaccount);
+      }
     }
 
     if (insertError) {
