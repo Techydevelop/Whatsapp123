@@ -278,6 +278,22 @@ export default function Dashboard() {
               >
                 Create Subaccount
               </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const response = await fetch('/api/admin/ghl/debug-subaccounts');
+                    const result = await response.json();
+                    console.log('Debug result:', result);
+                    alert(`Debug: ${result.subaccounts?.length || 0} subaccounts, ${result.ghl_accounts?.length || 0} GHL accounts`);
+                  } catch (error) {
+                    console.error('Debug error:', error);
+                    alert('Debug failed');
+                  }
+                }}
+                className="bg-green-500 text-white px-3 py-1 rounded text-xs hover:bg-green-600"
+              >
+                Debug
+              </button>
                 <button
                   onClick={async () => {
                     const locationId = prompt('Enter Location ID (e.g., LxCDfKzrlFEZ7rNiJtjc):');
