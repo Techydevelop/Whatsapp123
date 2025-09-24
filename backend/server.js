@@ -2,8 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const { createClient } = require('@supabase/supabase-js');
-const { GHLClient } = require('./lib/ghl');
-const { WAManager } = require('./lib/wa');
+const GHLClient = require('./lib/ghl');
+const WhatsAppManager = require('./lib/wa');
 const qrcode = require('qrcode');
 
 const app = express();
@@ -21,7 +21,7 @@ const GHL_REDIRECT_URI = process.env.GHL_REDIRECT_URI;
 const GHL_SCOPES = process.env.GHL_SCOPES || 'businesses.readonly businesses.write companies.readonly conversations.readonly conversations.write contacts.readonly contacts.write';
 
 // WhatsApp Manager
-const waManager = new WAManager();
+const waManager = new WhatsAppManager();
 
 // Middleware
 app.use(helmet({
