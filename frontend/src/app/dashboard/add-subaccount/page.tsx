@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { API_ENDPOINTS, apiCall } from '@/lib/config'
 
 export default function AddSubAccount() {
   const [name, setName] = useState('')
@@ -22,12 +23,8 @@ export default function AddSubAccount() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/connect-subaccount`, {
+      const response = await apiCall(API_ENDPOINTS.connectSubaccount, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
         body: JSON.stringify({
           ghl_location_id: ghlLocationId,
           name: name || `Location ${ghlLocationId}`

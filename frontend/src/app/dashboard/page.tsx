@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
+import { API_ENDPOINTS, apiCall } from '@/lib/config'
 
 type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
 
@@ -167,11 +168,8 @@ export default function Dashboard() {
       console.log(`Creating session for locationId: ${locationId}`)
       
       // First create session if it doesn't exist
-      const createResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ghl/location/${locationId}/session`, {
+      const createResponse = await apiCall(API_ENDPOINTS.createSession(locationId), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ locationId })
       })
 
@@ -192,7 +190,7 @@ export default function Dashboard() {
     }
 
     // Then open the provider page
-    const link = `${process.env.NEXT_PUBLIC_API_URL}/ghl/provider?locationId=${locationId}`
+    const link = API_ENDPOINTS.providerUI(locationId)
     window.open(link, '_blank')
   }
 
@@ -253,9 +251,8 @@ export default function Dashboard() {
               <button
                 onClick={async () => {
                   try {
-                    const response = await fetch('/api/admin/ghl/create-subaccount', {
+                    const response = await apiCall(API_ENDPOINTS.createSubaccount, {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
                         locationId: 'LxCDfKzrlFEZ7rNiJtjc',
                         companyId: 'jCNG7aXCC0YWYGuhnQEK',
@@ -281,7 +278,7 @@ export default function Dashboard() {
               <button
                 onClick={async () => {
                   try {
-                    const response = await fetch('/api/admin/ghl/debug-subaccounts');
+                    const response = await apiCall(API_ENDPOINTS.debugSubaccounts);
                     const result = await response.json();
                     console.log('Debug result:', result);
                     alert(`Debug: ${result.subaccounts?.length || 0} subaccounts, ${result.ghl_accounts?.length || 0} GHL accounts`);
