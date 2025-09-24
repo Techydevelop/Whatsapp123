@@ -193,26 +193,39 @@ app.get('/oauth/callback', async (req, res) => {
     
     console.log('OAuth callback state:', { targetUserId, locationId, state });
     
-    // If no state provided, we need to handle this differently
-    // For now, let's create a service user and link it later
+    // If no state provided, try to find existing GHL account for this company
     if (!targetUserId) {
-      console.log('No targetUserId in state, creating service user');
-      const serviceEmail = `${companyId || 'ghl'}@company.oauth`;
-      const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
-      const existing = usersList?.users?.find(u => u.email === serviceEmail);
-      if (existing) {
-        targetUserId = existing.id;
-        console.log('Found existing service user:', targetUserId);
+      console.log('No targetUserId in state, looking for existing GHL account');
+      
+      // First, try to find existing GHL account for this company
+      const { data: existingGhlAccount } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('user_id')
+        .eq('company_id', companyId)
+        .maybeSingle();
+        
+      if (existingGhlAccount && existingGhlAccount.user_id) {
+        targetUserId = existingGhlAccount.user_id;
+        console.log('Found existing GHL account user:', targetUserId);
       } else {
-        // Create a new service user (no password, confirmed)
-        const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-          email: serviceEmail,
-          email_confirm: true,
-          user_metadata: { ghl_company_id: companyId }
-        });
-        if (createErr) throw createErr;
-        targetUserId = created.user?.id;
-        console.log('Created new service user:', targetUserId);
+        // Create a service user as fallback
+        const serviceEmail = `${companyId || 'ghl'}@company.oauth`;
+        const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
+        const existing = usersList?.users?.find(u => u.email === serviceEmail);
+        if (existing) {
+          targetUserId = existing.id;
+          console.log('Found existing service user:', targetUserId);
+        } else {
+          // Create a new service user (no password, confirmed)
+          const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+            email: serviceEmail,
+            email_confirm: true,
+            user_metadata: { ghl_company_id: companyId }
+          });
+          if (createErr) throw createErr;
+          targetUserId = created.user?.id;
+          console.log('Created new service user:', targetUserId);
+        }
       }
     } else {
       console.log('Using targetUserId from state:', targetUserId);
@@ -929,7 +942,7 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
     if (tempError) throw tempError;
 
     // Use simple state parameter (just userId) since GHL doesn't support complex state
-    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${req.user.id}`;
+    const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(req.user.id)}`;
 
     res.json({ 
       success: true, 
