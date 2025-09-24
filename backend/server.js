@@ -191,15 +191,18 @@ app.get('/oauth/callback', async (req, res) => {
     // Parse state parameter (simple userId)
     let targetUserId = state;
     
-    console.log('OAuth callback state:', { targetUserId, locationId });
+    console.log('OAuth callback state:', { targetUserId, locationId, state });
     
+    // If no state provided, we need to handle this differently
+    // For now, let's create a service user and link it later
     if (!targetUserId) {
-      // Try to find an existing service user for this companyId
+      console.log('No targetUserId in state, creating service user');
       const serviceEmail = `${companyId || 'ghl'}@company.oauth`;
       const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
       const existing = usersList?.users?.find(u => u.email === serviceEmail);
       if (existing) {
         targetUserId = existing.id;
+        console.log('Found existing service user:', targetUserId);
       } else {
         // Create a new service user (no password, confirmed)
         const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
@@ -209,7 +212,10 @@ app.get('/oauth/callback', async (req, res) => {
         });
         if (createErr) throw createErr;
         targetUserId = created.user?.id;
+        console.log('Created new service user:', targetUserId);
       }
+    } else {
+      console.log('Using targetUserId from state:', targetUserId);
     }
 
     // Store tokens in database for this user
@@ -766,6 +772,55 @@ app.post('/admin/ghl/link-company', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error linking GHL company to user:', error);
     res.status(500).json({ error: 'Failed to link GHL company to user' });
+  }
+});
+
+// Manual GHL account linking for existing subaccounts
+app.post('/admin/ghl/link-existing', requireAuth, async (req, res) => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+    // Find any GHL account that might be linked to this user's subaccounts
+    const { data: subaccounts } = await supabaseAdmin
+      .from('subaccounts')
+      .select('ghl_location_id')
+      .eq('user_id', user.id);
+
+    if (!subaccounts || subaccounts.length === 0) {
+      return res.status(404).json({ error: 'No subaccounts found for user' });
+    }
+
+    // Find any GHL account that might be orphaned
+    const { data: orphanedAccounts } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .is('user_id', null)
+      .limit(1);
+
+    if (orphanedAccounts && orphanedAccounts.length > 0) {
+      // Link the first orphaned account to current user
+      const { error: linkError } = await supabaseAdmin
+        .from('ghl_accounts')
+        .update({ user_id: user.id })
+        .eq('id', orphanedAccounts[0].id);
+
+      if (linkError) throw linkError;
+
+      res.json({ 
+        success: true, 
+        message: 'Linked existing GHL account to user',
+        account: orphanedAccounts[0]
+      });
+    } else {
+      res.json({ 
+        success: false, 
+        message: 'No orphaned GHL accounts found. Please connect GHL account first.' 
+      });
+    }
+  } catch (error) {
+    console.error('Error linking existing GHL account:', error);
+    res.status(500).json({ error: 'Failed to link existing GHL account' });
   }
 });
 

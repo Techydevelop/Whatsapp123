@@ -29,12 +29,13 @@ export default function Dashboard() {
       if (!user) return
 
       // Get GHL account info
-      const { data: ghlAccount } = await supabase
+      const { data: ghlAccount, error: ghlError } = await supabase
         .from('ghl_accounts')
         .select('*')
         .eq('user_id', user.id)
-        .single()
+        .maybeSingle()
 
+      console.log('GHL Account lookup:', { ghlAccount, ghlError, userId: user.id })
       setGhlAccount(ghlAccount)
 
       // Get subaccounts and remove duplicates
@@ -220,6 +221,49 @@ export default function Dashboard() {
               <span className="text-sm font-medium text-yellow-800">GHL Account Not Connected</span>
             </div>
             <p className="text-sm text-yellow-700 mt-1">Please connect your GHL account first to add sub-accounts.</p>
+            <div className="mt-3 flex space-x-3">
+              <button
+                onClick={async () => {
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession()
+                    if (!session) return
+
+                    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/link-existing`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session.access_token}`,
+                      },
+                    })
+
+                    const result = await response.json()
+                    if (result.success) {
+                      alert('GHL account linked successfully!')
+                      await fetchSubaccounts()
+                    } else {
+                      alert(result.message || 'Failed to link GHL account')
+                    }
+                  } catch (error) {
+                    console.error('Error linking GHL account:', error)
+                    alert('Error linking GHL account')
+                  }
+                }}
+                className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                Link Existing GHL Account
+              </button>
+              <button
+                onClick={async () => {
+                  const { data: { user } } = await supabase.auth.getUser()
+                  if (user) {
+                    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/ghl/login?userId=${user.id}`
+                  }
+                }}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                Connect New GHL Account
+              </button>
+            </div>
           </div>
         )}
 
