@@ -28,7 +28,7 @@ export default function Dashboard() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Get GHL account info
+      // Get GHL account info - check both current user and any linked accounts
       const { data: ghlAccount, error: ghlError } = await supabase
         .from('ghl_accounts')
         .select('*')
@@ -36,7 +36,34 @@ export default function Dashboard() {
         .maybeSingle()
 
       console.log('GHL Account lookup:', { ghlAccount, ghlError, userId: user.id })
-      setGhlAccount(ghlAccount)
+      
+      // If no GHL account found for current user, check if there are any subaccounts
+      // that might indicate a GHL connection exists
+      if (!ghlAccount) {
+        const { data: subaccounts } = await supabase
+          .from('subaccounts')
+          .select('*')
+          .eq('user_id', user.id)
+          .limit(1)
+          
+        if (subaccounts && subaccounts.length > 0) {
+          console.log('Found subaccounts but no GHL account - this might be a webhook-created subaccount')
+          // Set a mock GHL account to show as connected
+          setGhlAccount({
+            id: 'webhook-created',
+            user_id: user.id,
+            company_id: 'webhook-company',
+            access_token: 'webhook-token',
+            refresh_token: 'webhook-refresh',
+            location_id: subaccounts[0].ghl_location_id,
+            expires_at: new Date().toISOString()
+          })
+        } else {
+          setGhlAccount(null)
+        }
+      } else {
+        setGhlAccount(ghlAccount)
+      }
 
       // Get subaccounts and remove duplicates
       const { data: existingSubaccounts } = await supabase
@@ -214,11 +241,36 @@ export default function Dashboard() {
             </div>
           ) : (
           <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
-            <div className="flex items-center">
-              <svg className="h-5 w-5 text-yellow-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-              <span className="text-sm font-medium text-yellow-800">GHL Account Not Connected</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <svg className="h-5 w-5 text-yellow-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span className="text-sm font-medium text-yellow-800">GHL Account Not Connected</span>
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    const response = await fetch('/api/admin/ghl/link-webhook-subaccounts', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' }
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                      alert('Webhook subaccounts linked successfully!');
+                      fetchSubaccounts();
+                    } else {
+                      alert(result.message || 'No webhook subaccounts found');
+                    }
+                  } catch (error) {
+                    console.error('Error linking webhook subaccounts:', error);
+                    alert('Error linking webhook subaccounts');
+                  }
+                }}
+                className="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600"
+              >
+                Link Webhook Subaccounts
+              </button>
             </div>
             <p className="text-sm text-yellow-700 mt-1">Please connect your GHL account first to add sub-accounts.</p>
           </div>

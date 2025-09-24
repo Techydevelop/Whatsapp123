@@ -837,6 +837,45 @@ app.post('/admin/ghl/link-existing', requireAuth, async (req, res) => {
   }
 });
 
+// Link webhook-created subaccounts to current user
+app.post('/admin/ghl/link-webhook-subaccounts', requireAuth, async (req, res) => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+    // Find subaccounts that might be created by webhooks but not linked to current user
+    const { data: webhookSubaccounts } = await supabaseAdmin
+      .from('subaccounts')
+      .select('*')
+      .neq('user_id', user.id)
+      .eq('status', 'installed');
+
+    if (!webhookSubaccounts || webhookSubaccounts.length === 0) {
+      return res.json({ 
+        success: false, 
+        message: 'No webhook-created subaccounts found to link' 
+      });
+    }
+
+    // Link all webhook subaccounts to current user
+    const { error: linkError } = await supabaseAdmin
+      .from('subaccounts')
+      .update({ user_id: user.id })
+      .in('id', webhookSubaccounts.map(s => s.id));
+
+    if (linkError) throw linkError;
+
+    res.json({ 
+      success: true, 
+      message: `Linked ${webhookSubaccounts.length} webhook subaccounts to current user`,
+      subaccounts: webhookSubaccounts
+    });
+  } catch (error) {
+    console.error('Error linking webhook subaccounts:', error);
+    res.status(500).json({ error: 'Failed to link webhook subaccounts' });
+  }
+});
+
 // Clean up duplicate subaccounts endpoint
 app.post('/admin/ghl/cleanup-duplicates', requireAuth, async (req, res) => {
   try {
@@ -1417,6 +1456,91 @@ app.post('/ghl/webhook', verifyWebhookSignature, async (req, res) => {
 
     // Route to specific handlers based on type
     switch (type) {
+      case 'INSTALL':
+        console.log('Processing INSTALL webhook:', req.body);
+        // Handle app install webhook
+        const { 
+          appId, 
+          versionId, 
+          installType, 
+          locationId, 
+          companyId, 
+          userId, 
+          companyName, 
+          isWhitelabelCompany, 
+          whitelabelDetails, 
+          timestamp, 
+          webhookId 
+        } = req.body;
+
+        // Store installation details in database
+        const { error: installError } = await supabaseAdmin
+          .from('ghl_installations')
+          .upsert({
+            webhook_id: webhookId,
+            app_id: appId,
+            version_id: versionId,
+            install_type: installType,
+            location_id: locationId,
+            company_id: companyId,
+            user_id: userId,
+            company_name: companyName,
+            is_whitelabel: isWhitelabelCompany,
+            whitelabel_details: whitelabelDetails,
+            installed_at: timestamp
+          });
+
+        if (installError) {
+          console.error('Error storing installation:', installError);
+          return res.status(500).json({ error: 'Failed to store installation' });
+        }
+
+        // Create subaccount entry if locationId is provided
+        if (locationId && userId) {
+          // First, try to find if there's already a subaccount for this location
+          const { data: existingSubaccount } = await supabaseAdmin
+            .from('subaccounts')
+            .select('*')
+            .eq('ghl_location_id', locationId)
+            .maybeSingle();
+          
+          if (existingSubaccount) {
+            // Update existing subaccount with webhook data
+            const { error: updateError } = await supabaseAdmin
+              .from('subaccounts')
+              .update({
+                name: companyName || `Location ${locationId}`,
+                status: 'installed'
+              })
+              .eq('id', existingSubaccount.id);
+              
+            if (updateError) {
+              console.error('Error updating subaccount from webhook:', updateError);
+            } else {
+              console.log('Subaccount updated from webhook:', { locationId, companyName });
+            }
+          } else {
+            // Create new subaccount - but we need to link it to a real user
+            // For now, create it with the webhook userId and we'll link it later
+            const { error: subaccountError } = await supabaseAdmin
+              .from('subaccounts')
+              .insert({
+                user_id: userId,
+                ghl_location_id: locationId,
+                name: companyName || `Location ${locationId}`,
+                status: 'installed'
+              });
+            
+            if (subaccountError) {
+              console.error('Error creating subaccount from webhook:', subaccountError);
+            } else {
+              console.log('Subaccount created from webhook:', { userId, locationId, companyName });
+            }
+          }
+        }
+
+        return res.json({ success: true, message: 'Installation recorded' });
+        
       case 'InboundMessage':
         return app._router.handle(req, res, () => {
           // This will be handled by the inbound message webhook above
