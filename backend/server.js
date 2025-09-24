@@ -42,12 +42,25 @@ app.use(cors({
     'http://localhost:3000',
     'https://whatsapp123-dhn1.onrender.com',
     'https://whatsapp123-frontend.vercel.app',
-    'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app'
+    'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
+    'https://whatsappghl.vercel.app',
+    'https://*.vercel.app'
   ],
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 
 app.use(express.json());
+
+// Handle preflight requests
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.sendStatus(200);
+});
 
 // Auth middleware
 const requireAuth = async (req, res, next) => {
