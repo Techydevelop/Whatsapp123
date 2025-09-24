@@ -56,7 +56,8 @@ export default function Dashboard() {
             access_token: 'webhook-token',
             refresh_token: 'webhook-refresh',
             location_id: subaccounts[0].ghl_location_id,
-            expires_at: new Date().toISOString()
+            expires_at: new Date().toISOString(),
+            created_at: new Date().toISOString()
           })
         } else {
           setGhlAccount(null)
@@ -248,7 +249,7 @@ export default function Dashboard() {
                 </svg>
                 <span className="text-sm font-medium text-yellow-800">GHL Account Not Connected</span>
               </div>
-              <button
+            <button
                 onClick={async () => {
                   try {
                     const response = await fetch('/api/admin/ghl/link-webhook-subaccounts', {
@@ -270,8 +271,8 @@ export default function Dashboard() {
                 className="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600"
               >
                 Link Webhook Subaccounts
-              </button>
-            </div>
+            </button>
+          </div>
             <p className="text-sm text-yellow-700 mt-1">Please connect your GHL account first to add sub-accounts.</p>
           </div>
         )}
