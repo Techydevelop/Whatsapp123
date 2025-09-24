@@ -249,29 +249,67 @@ export default function Dashboard() {
                 </svg>
                 <span className="text-sm font-medium text-yellow-800">GHL Account Not Connected</span>
               </div>
-            <button
+              <div className="flex gap-2">
+              <button
                 onClick={async () => {
                   try {
-                    const response = await fetch('/api/admin/ghl/link-webhook-subaccounts', {
+                    const response = await fetch('/api/admin/ghl/create-subaccount', {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' }
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        locationId: 'LxCDfKzrlFEZ7rNiJtjc',
+                        companyId: 'jCNG7aXCC0YWYGuhnQEK',
+                        companyName: 'Vezzur'
+                      })
                     });
                     const result = await response.json();
                     if (result.success) {
-                      alert('Webhook subaccounts linked successfully!');
+                      alert('Subaccount created successfully!');
                       fetchSubaccounts();
                     } else {
-                      alert(result.message || 'No webhook subaccounts found');
+                      alert(result.message || 'Failed to create subaccount');
                     }
                   } catch (error) {
-                    console.error('Error linking webhook subaccounts:', error);
-                    alert('Error linking webhook subaccounts');
+                    console.error('Error creating subaccount:', error);
+                    alert('Error creating subaccount');
                   }
                 }}
                 className="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600"
               >
-                Link Webhook Subaccounts
-            </button>
+                Create Subaccount
+              </button>
+                <button
+                  onClick={async () => {
+                    const locationId = prompt('Enter Location ID (e.g., LxCDfKzrlFEZ7rNiJtjc):');
+                    if (locationId) {
+                      try {
+                        const response = await fetch('/api/admin/ghl/create-webhook-subaccount', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            locationId: locationId,
+                            companyId: 'jCNG7aXCC0YWYGuhnQEK',
+                            companyName: 'Vezzur'
+                          })
+                        });
+                        const result = await response.json();
+                        if (result.success) {
+                          alert('Subaccount created successfully!');
+                          fetchSubaccounts();
+                        } else {
+                          alert(result.error || 'Failed to create subaccount');
+                        }
+                      } catch (error) {
+                        console.error('Error creating subaccount:', error);
+                        alert('Error creating subaccount');
+                      }
+                    }
+                  }}
+                  className="bg-green-500 text-white px-3 py-1 rounded text-xs hover:bg-green-600"
+                >
+                  Create Subaccount
+                </button>
+              </div>
           </div>
             <p className="text-sm text-yellow-700 mt-1">Please connect your GHL account first to add sub-accounts.</p>
           </div>

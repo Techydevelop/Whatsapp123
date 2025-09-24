@@ -876,6 +876,64 @@ app.post('/admin/ghl/link-webhook-subaccounts', requireAuth, async (req, res) =>
   }
 });
 
+// Simple subaccount creation - no webhook bakwas
+app.post('/admin/ghl/create-subaccount', requireAuth, async (req, res) => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+    const { locationId, companyId, companyName } = req.body;
+
+    if (!locationId) {
+      return res.status(400).json({ error: 'locationId is required' });
+    }
+
+    // Create subaccount
+    const { data: subaccount, error: subaccountError } = await supabaseAdmin
+      .from('subaccounts')
+      .insert({
+        user_id: user.id,
+        ghl_location_id: locationId,
+        name: companyName || `Location ${locationId}`,
+        status: 'connected'
+      })
+      .select()
+      .single();
+
+    if (subaccountError) {
+      console.error('Error creating subaccount:', subaccountError);
+      return res.status(500).json({ error: 'Failed to create subaccount' });
+    }
+
+    // Create GHL account if companyId provided
+    if (companyId) {
+      const { error: ghlAccountError } = await supabaseAdmin
+        .from('ghl_accounts')
+        .upsert({
+          user_id: user.id,
+          company_id: companyId,
+          access_token: 'simple-token',
+          refresh_token: 'simple-refresh',
+          location_id: locationId,
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        });
+      
+      if (ghlAccountError) {
+        console.error('Error creating GHL account:', ghlAccountError);
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Subaccount created successfully',
+      subaccount: subaccount
+    });
+  } catch (error) {
+    console.error('Error creating subaccount:', error);
+    res.status(500).json({ error: 'Failed to create subaccount' });
+  }
+});
+
 // Clean up duplicate subaccounts endpoint
 app.post('/admin/ghl/cleanup-duplicates', requireAuth, async (req, res) => {
   try {
@@ -1536,6 +1594,26 @@ app.post('/ghl/webhook', verifyWebhookSignature, async (req, res) => {
             } else {
               console.log('Subaccount created from webhook:', { userId, locationId, companyName });
             }
+          }
+        }
+
+        // Also create a GHL account entry for this installation
+        if (companyId && userId) {
+          const { error: ghlAccountError } = await supabaseAdmin
+            .from('ghl_accounts')
+            .upsert({
+              user_id: userId,
+              company_id: companyId,
+              access_token: 'webhook-created-token',
+              refresh_token: 'webhook-created-refresh',
+              location_id: locationId,
+              expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours from now
+            });
+          
+          if (ghlAccountError) {
+            console.error('Error creating GHL account from webhook:', ghlAccountError);
+          } else {
+            console.log('GHL account created from webhook:', { userId, companyId, locationId });
           }
         }
 
