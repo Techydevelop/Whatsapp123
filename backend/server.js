@@ -452,10 +452,7 @@ app.get('/ghl/provider', async (req, res) => {
     const connectedNumber = session?.phone_number || null;
     
     // Replace template variables in HTML
-    const htmlContent = `
-
-    res.send(htmlContent.replace(/\{locationId\}/g, locationId).replace(/\{subaccountName\}/g, subaccountName).replace(/\{connectedNumber\}/g, connectedNumber || 'Not connected'));
-      <!DOCTYPE html>
+    const htmlContent = `<!DOCTYPE html>
       <html>
         <head>
           <meta charset="utf-8" />
@@ -830,7 +827,9 @@ app.get('/ghl/provider', async (req, res) => {
           </script>
         </body>
       </html>
-    `);
+    `;
+    
+    res.send(htmlContent.replace(/\{locationId\}/g, locationId).replace(/\{subaccountName\}/g, subaccountName).replace(/\{connectedNumber\}/g, connectedNumber || 'Not connected'));
   } catch (error) {
     console.error('Provider UI error:', error);
     res.status(500).send('Failed to render provider');
