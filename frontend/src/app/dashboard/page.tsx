@@ -21,6 +21,20 @@ export default function Dashboard() {
   const [ghlAccount, setGhlAccount] = useState<GhlAccount | null>(null)
   const [subaccountStatuses, setSubaccountStatuses] = useState<SubaccountStatus[]>([])
 
+  // Handle OAuth success from URL parameter
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('ghl') === 'connected') {
+      console.log('GHL OAuth success detected, refreshing data...')
+      // Clean URL without page reload
+      window.history.replaceState({}, '', '/dashboard')
+      // Force refresh data
+      setTimeout(() => {
+        fetchGHLLocations()
+      }, 1000)
+    }
+  }, [fetchGHLLocations])
+
   const fetchGHLLocations = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser()

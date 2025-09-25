@@ -56,6 +56,7 @@ WA_DATA_DIR=/opt/render/.wwebjs_auth
 
 # Server Configuration
 PORT=3001
+FRONTEND_URL=https://whatsappghl.vercel.app
 ```
 
 ## How to Set Environment Variables:

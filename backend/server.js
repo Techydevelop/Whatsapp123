@@ -211,7 +211,8 @@ app.get('/oauth/callback', async (req, res) => {
     }
 
     console.log('GHL account stored successfully');
-    res.redirect('/dashboard?ghl=connected');
+    const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+    res.redirect(`${frontendUrl}/dashboard?ghl=connected`);
 
   } catch (error) {
     console.error('OAuth callback error:', error);
