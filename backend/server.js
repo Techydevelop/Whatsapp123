@@ -802,7 +802,7 @@ app.get('/ghl/provider', async (req, res) => {
               }
             }
 
-            let pollInterval = setInterval(poll, 2000); // Poll every 2 seconds for faster updates
+            let pollInterval = setInterval(poll, 3000); // Poll every 3 seconds
 
             // Event listeners
             resetBtn.addEventListener('click', async () => {
