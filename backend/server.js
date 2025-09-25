@@ -495,30 +495,31 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
 
     console.log(`Creating session for locationId: ${locationId}`);
 
-    // Find subaccount for this location
-    const { data: subaccount, error: subErr } = await supabaseAdmin
-      .from('subaccounts')
+    // Find GHL account for this location
+    const { data: ghlAccount, error: ghlErr } = await supabaseAdmin
+      .from('ghl_accounts')
       .select('*')
-      .eq('ghl_location_id', locationId)
+      .eq('location_id', locationId)
       .maybeSingle();
 
-    if (subErr) {
-      console.error('Database error:', subErr);
+    if (ghlErr) {
+      console.error('Database error:', ghlErr);
       return res.status(500).json({ error: 'Database error' });
     }
 
-    if (!subaccount) {
-      console.error(`Subaccount not found for locationId: ${locationId}`);
-      return res.status(404).json({ error: 'Subaccount not found. Please connect GHL subaccount first.' });
+    if (!ghlAccount) {
+      console.error(`GHL account not found for locationId: ${locationId}`);
+      return res.status(404).json({ error: 'GHL account not found. Please connect GHL account first.' });
     }
 
-    console.log('Found subaccount:', { id: subaccount.id, user_id: subaccount.user_id });
+    console.log('Found GHL account:', { user_id: ghlAccount.user_id, location_id: ghlAccount.location_id });
 
-    // Check for existing session
+    // Check for existing session for this location
     const { data: existing } = await supabaseAdmin
       .from('sessions')
       .select('*')
-      .eq('subaccount_id', subaccount.id)
+      .eq('user_id', ghlAccount.user_id)
+      .eq('location_id', locationId)
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -534,8 +535,8 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     const { data: session, error: sessionError } = await supabaseAdmin
       .from('sessions')
       .insert({ 
-        user_id: subaccount.user_id, 
-        subaccount_id: subaccount.id, 
+        user_id: ghlAccount.user_id, 
+        location_id: locationId,
         status: 'initializing' 
       })
       .select()
