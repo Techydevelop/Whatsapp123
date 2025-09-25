@@ -1045,6 +1045,19 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       status: session.status 
     });
 
+    // Verify session was saved to database
+    const { data: verifySession, error: verifyError } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('id', session.id)
+      .single();
+    
+    if (verifyError) {
+      console.error('Session verification failed:', verifyError);
+    } else {
+      console.log('Session verified in database:', verifySession);
+    }
+
     // Create WhatsApp client with location-specific session name (clean format)
     const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
     const sessionName = `location_${cleanLocationId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
@@ -1068,11 +1081,16 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
         try {
           clearTimeout(initTimeout); // Clear timeout when QR is generated
           const qrDataUrl = await qrcode.toDataURL(qrValue);
-          await supabaseAdmin
+          const { error: qrUpdateError } = await supabaseAdmin
             .from('sessions')
             .update({ qr: qrDataUrl, status: 'qr' })
             .eq('id', session.id);
-          console.log(`QR generated for location ${locationId}:`, session.id);
+          
+          if (qrUpdateError) {
+            console.error('QR update failed:', qrUpdateError);
+          } else {
+            console.log(`QR generated and saved for location ${locationId}:`, session.id);
+          }
         } catch (e) {
           console.error('QR update error:', e);
         }
@@ -1080,11 +1098,16 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       async (info) => {
         try {
           clearTimeout(initTimeout); // Clear timeout when connected
-          await supabaseAdmin
+          const { error: readyUpdateError } = await supabaseAdmin
             .from('sessions')
             .update({ status: 'ready', qr: null, phone_number: info.wid.user })
             .eq('id', session.id);
-          console.log(`WhatsApp connected for location ${locationId}:`, info.wid.user);
+          
+          if (readyUpdateError) {
+            console.error('Ready update failed:', readyUpdateError);
+          } else {
+            console.log(`WhatsApp connected and saved for location ${locationId}:`, info.wid.user);
+          }
         } catch (e) {
           console.error('Session ready update error:', e);
         }
