@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
 import { API_ENDPOINTS, apiCall } from '@/lib/config'
@@ -21,7 +20,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [ghlAccount, setGhlAccount] = useState<GhlAccount | null>(null)
   const [subaccountStatuses, setSubaccountStatuses] = useState<SubaccountStatus[]>([])
-  const searchParams = useSearchParams()
 
   const fetchGHLLocations = useCallback(async () => {
     try {
@@ -46,7 +44,7 @@ export default function Dashboard() {
             const locations = data.locations || []
             
             // Convert GHL locations to our format and fetch WhatsApp session status
-            const statusPromises = locations.map(async (location: any) => {
+            const statusPromises = locations.map(async (location: { id: string; name?: string }) => {
               try {
                 const sessionResponse = await apiCall(API_ENDPOINTS.getSession(location.id))
                 let sessionData = { status: 'none', phone_number: null, qr: null }
@@ -243,7 +241,7 @@ export default function Dashboard() {
         <ol className="text-sm text-blue-700 space-y-1">
           <li>1. Connect your GHL account above</li>
           <li>2. Your locations will appear automatically</li>
-          <li>3. Click "Open QR" to scan WhatsApp QR code</li>
+          <li>3. Click &quot;Open QR&quot; to scan WhatsApp QR code</li>
           <li>4. In GHL, add custom menu link: <code className="bg-blue-100 px-1 rounded">{process.env.NEXT_PUBLIC_API_BASE_URL}/ghl/provider?locationId=YOUR_LOCATION_ID</code></li>
           <li>5. Set as SMS provider in GHL Phone System settings</li>
         </ol>
