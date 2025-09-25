@@ -308,9 +308,75 @@ app.get('/ghl/provider/config', (req, res) => {
 });
 
 // GHL Provider Webhook (for incoming messages)
-app.post('/ghl/provider/webhook', (req, res) => {
-  console.log('GHL Provider Webhook:', req.body);
-  res.json({ status: 'success' });
+app.post('/ghl/provider/webhook', async (req, res) => {
+  try {
+    console.log('GHL Provider Webhook:', req.body);
+    
+    const { locationId, message, contactId, conversationId } = req.body;
+    
+    if (!locationId || !message) {
+      console.log('Missing required fields in webhook');
+      return res.json({ status: 'success' });
+    }
+    
+    // Find GHL account for this location
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+    
+    if (!ghlAccount) {
+      console.log(`GHL account not found for location: ${locationId}`);
+      return res.json({ status: 'success' });
+    }
+    
+    // Find active WhatsApp session
+    const { data: session } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', ghlAccount.id)
+      .eq('status', 'ready')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (!session) {
+      console.log(`No active WhatsApp session found for location: ${locationId}`);
+      return res.json({ status: 'success' });
+    }
+    
+    // Get WhatsApp client
+    const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const clientKey = `location_${cleanLocationId}_${cleanSessionId}`;
+    
+    const client = waManager.getClient(clientKey);
+    if (!client) {
+      console.log(`WhatsApp client not found for key: ${clientKey}`);
+      return res.json({ status: 'success' });
+    }
+    
+    // Get contact phone number from GHL
+    const ghlClient = new GHLClient(ghlAccount.access_token);
+    const contact = await ghlClient.getContact(contactId);
+    
+    if (!contact || !contact.phone) {
+      console.log(`No phone number found for contact: ${contactId}`);
+      return res.json({ status: 'success' });
+    }
+    
+    // Send message via WhatsApp
+    console.log(`Forwarding message to WhatsApp: ${contact.phone} - ${message}`);
+    await client.sendMessage(contact.phone, message);
+    
+    console.log('Message forwarded to WhatsApp successfully');
+    res.json({ status: 'success' });
+    
+  } catch (error) {
+    console.error('Webhook processing error:', error);
+    res.json({ status: 'success' }); // Always return success to GHL
+  }
 });
 
 // GHL Provider Send Message
