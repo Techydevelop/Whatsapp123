@@ -577,32 +577,13 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       });
     }
 
-    // Create dummy subaccount entry if it doesn't exist
-    const { data: existingSubaccount } = await supabaseAdmin
-      .from('subaccounts')
-      .select('id')
-      .eq('id', ghlAccount.id)
-      .maybeSingle();
-
-    if (!existingSubaccount) {
-      // Create dummy subaccount entry
-      await supabaseAdmin
-        .from('subaccounts')
-        .insert({
-          id: ghlAccount.id,
-          user_id: ghlAccount.user_id,
-          ghl_location_id: locationId,
-          name: `Location ${locationId}`
-        });
-      console.log('Created dummy subaccount entry:', ghlAccount.id);
-    }
-
     // Create new session - let database generate UUID automatically
+    // Use ghl_account.id as subaccount_id (no need for separate subaccounts table)
     const { data: session, error: sessionError } = await supabaseAdmin
       .from('sessions')
       .insert({ 
         user_id: ghlAccount.user_id, 
-        subaccount_id: ghlAccount.id, // Use ghl_account ID as subaccount reference
+        subaccount_id: ghlAccount.id, // Use ghl_account ID directly
         status: 'initializing' 
       })
       .select()
