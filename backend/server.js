@@ -18,7 +18,7 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 const GHL_CLIENT_ID = process.env.GHL_CLIENT_ID;
 const GHL_CLIENT_SECRET = process.env.GHL_CLIENT_SECRET;
 const GHL_REDIRECT_URI = process.env.GHL_REDIRECT_URI;
-const GHL_SCOPES = process.env.GHL_SCOPES || 'businesses.readonly businesses.write companies.readonly conversations.readonly conversations.write contacts.readonly contacts.write';
+const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write users.readonly';
 
 // WhatsApp Manager
 const waManager = new WhatsAppManager();

@@ -49,7 +49,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 GHL_CLIENT_ID=your_ghl_client_id
 GHL_CLIENT_SECRET=your_ghl_client_secret
 GHL_REDIRECT_URI=https://whatsapp123-dhn1.onrender.com/oauth/callback
-GHL_SCOPES=businesses.readonly businesses.write companies.readonly conversations.readonly conversations.write contacts.readonly contacts.write
+GHL_SCOPES=locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write users.readonly
 
 # WhatsApp Configuration
 WA_DATA_DIR=/opt/render/.wwebjs_auth

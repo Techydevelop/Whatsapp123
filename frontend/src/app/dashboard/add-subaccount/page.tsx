@@ -16,7 +16,7 @@ export default function AddSubAccount() {
       if (!user) throw new Error('Not authenticated')
 
       // Direct GHL OAuth flow - let user choose location in GHL
-      const scopes = 'businesses.readonly businesses.write companies.readonly conversations.readonly conversations.write contacts.readonly contacts.write'
+      const scopes = 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write users.readonly'
       const clientId = process.env.NEXT_PUBLIC_GHL_CLIENT_ID
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://whatsapp123-dhn1.onrender.com'
       const redirectUri = `${apiBaseUrl}/oauth/callback`
