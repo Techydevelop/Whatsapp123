@@ -404,6 +404,86 @@ app.get('/ghl/provider', async (req, res) => {
   }
 });
 
+// Get locations from GHL API
+app.get('/admin/ghl/locations', async (req, res) => {
+  try {
+    // Get user from Authorization header (if available)
+    const authHeader = req.headers.authorization;
+    let userId = null;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.split(' ')[1];
+        const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+        userId = user?.id;
+      } catch (e) {
+        console.log('Auth token validation failed:', e.message);
+      }
+    }
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    // Get GHL account for this user
+    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('access_token, location_id')
+      .eq('user_id', userId)
+      .single();
+      
+    if (ghlError || !ghlAccount) {
+      console.error('GHL account lookup error:', ghlError);
+      return res.status(404).json({ error: 'GHL account not found. Please connect your GHL account first.' });
+    }
+    
+    // If we have a location_id, return that single location
+    if (ghlAccount.location_id) {
+      return res.json({
+        locations: [{
+          id: ghlAccount.location_id,
+          name: `Location ${ghlAccount.location_id}`
+        }]
+      });
+    }
+    
+    // Otherwise try to fetch from GHL API (if we have company-level access)
+    try {
+      const ghlResponse = await fetch('https://services.leadconnectorhq.com/locations/', {
+        headers: {
+          'Authorization': `Bearer ${ghlAccount.access_token}`,
+          'Version': '2021-07-28'
+        }
+      });
+      
+      if (ghlResponse.ok) {
+        const ghlData = await ghlResponse.json();
+        return res.json(ghlData);
+      } else {
+        // Fallback to single location if API call fails
+        return res.json({
+          locations: [{
+            id: ghlAccount.location_id || 'unknown',
+            name: 'Connected Location'
+          }]
+        });
+      }
+    } catch (error) {
+      console.error('GHL API error:', error);
+      return res.json({
+        locations: [{
+          id: ghlAccount.location_id || 'unknown',
+          name: 'Connected Location'
+        }]
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error fetching GHL locations:', error);
+    res.status(500).json({ error: 'Failed to fetch locations', details: error.message });
+  }
+});
+
 // Session management endpoints
 app.post('/ghl/location/:locationId/session', async (req, res) => {
   try {
