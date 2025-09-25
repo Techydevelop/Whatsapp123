@@ -25,9 +25,9 @@ export const API_ENDPOINTS = {
 export const apiCall = async (url: string, options: RequestInit = {}) => {
   const { data: { session } } = await import('./supabase').then(m => m.supabase.auth.getSession());
   
-  const headers = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...options.headers,
+    ...(options.headers as Record<string, string>),
   };
 
   if (session?.access_token) {
