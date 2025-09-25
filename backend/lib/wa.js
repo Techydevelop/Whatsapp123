@@ -4,6 +4,14 @@
 
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
+const GHLClient = require('./ghl');
+
+// Initialize Supabase admin client
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 class WhatsAppManager {
   constructor() {
@@ -77,10 +85,26 @@ class WhatsAppManager {
       console.log(`WhatsApp state changed for session ${sessionId}:`, state);
     });
 
+    // Handle incoming messages
     client.on('message', async (message) => {
-      console.log(`Message received in session ${sessionId}:`, message.body);
-      onMessage(message);
+      try {
+        console.log(`Incoming WhatsApp message for session ${sessionId}:`, {
+          from: message.from,
+          body: message.body,
+          timestamp: message.timestamp
+        });
+        
+        // Forward to GHL
+        await this.forwardMessageToGHL(sessionId, message);
+      } catch (error) {
+        console.error(`Error handling incoming message for session ${sessionId}:`, error);
+      }
     });
+
+    // Legacy message handler (if needed)
+    if (onMessage) {
+      client.on('message', onMessage);
+    }
 
     this.clients.set(sessionId, client);
     return client;
@@ -148,6 +172,56 @@ class WhatsAppManager {
    */
   getAllClients() {
     return Array.from(this.clients.entries());
+  }
+
+  /**
+   * Forward WhatsApp message to GHL
+   */
+  async forwardMessageToGHL(sessionId, message) {
+    try {
+      // Extract phone number from message.from (format: 1234567890@c.us)
+      const phoneNumber = message.from.replace('@c.us', '');
+      
+      console.log(`Forwarding WhatsApp message to GHL: ${phoneNumber} - ${message.body}`);
+      
+      // Find session details
+      const { data: session } = await supabaseAdmin
+        .from('sessions')
+        .select(`
+          *,
+          ghl_accounts!inner(*)
+        `)
+        .eq('id', sessionId)
+        .single();
+      
+      if (!session) {
+        console.log(`Session not found for ID: ${sessionId}`);
+        return;
+      }
+      
+      // Find contact in GHL by phone number
+      const ghlClient = new GHLClient(session.ghl_accounts.access_token);
+      const contacts = await ghlClient.searchContacts(phoneNumber);
+      
+      if (!contacts || contacts.length === 0) {
+        console.log(`Contact not found in GHL for phone: ${phoneNumber}`);
+        return;
+      }
+      
+      const contact = contacts[0];
+      
+      // Send message to GHL conversation
+      await ghlClient.sendMessage({
+        contactId: contact.id,
+        message: message.body,
+        type: 'SMS'
+      });
+      
+      console.log(`Message forwarded to GHL conversation for contact: ${contact.id}`);
+      
+    } catch (error) {
+      console.error('Error forwarding message to GHL:', error);
+    }
   }
 
   /**

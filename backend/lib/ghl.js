@@ -115,6 +115,40 @@ class GHLClient {
   }
 
   /**
+   * Get contact by ID
+   */
+  async getContact(contactId) {
+    return this.request('GET', `/contacts/${contactId}`);
+  }
+
+  /**
+   * Search contacts by phone number
+   */
+  async searchContacts(phoneNumber) {
+    try {
+      const response = await this.request('GET', `/contacts/search?phone=${phoneNumber}`);
+      return response.contacts || [];
+    } catch (error) {
+      console.error('Error searching contacts:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Send message to GHL conversation
+   */
+  async sendMessage({ contactId, message, type = 'SMS' }) {
+    const payload = {
+      type,
+      contactId,
+      message,
+      direction: 'inbound'
+    };
+
+    return this.request('POST', '/conversations/messages', payload);
+  }
+
+  /**
    * Refresh access token
    */
   static async refreshToken(refreshToken, clientId, clientSecret) {
