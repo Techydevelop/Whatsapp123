@@ -310,47 +310,350 @@ app.get('/ghl/provider', async (req, res) => {
       `);
     }
 
+    // Get subaccount name and connected phone number
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+
+    const { data: session } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', ghlAccount?.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const subaccountName = ghlAccount ? `Location ${locationId}` : `Location ${locationId}`;
+    const connectedNumber = session?.phone_number || null;
+
     res.send(`
       <!DOCTYPE html>
       <html>
         <head>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>WhatsApp Provider</title>
+          <title>WhatsApp Provider - ${subaccountName}</title>
           <style>
-            body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 16px; }
-            .card { max-width: 520px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; }
-            .muted { color: #6b7280; font-size: 14px; }
-            .center { text-align: center; }
-            img { max-width: 100%; }
-            .status { margin-top: 8px; }
-            button { padding: 8px 12px; border-radius: 6px; border: 1px solid #d1d5db; background:#fff; cursor:pointer; }
+            body { 
+              font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; 
+              padding: 16px; 
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              min-height: 100vh;
+              margin: 0;
+            }
+            .container { 
+              max-width: 600px; 
+              margin: 0 auto; 
+              padding: 20px;
+            }
+            .card { 
+              background: white; 
+              border-radius: 16px; 
+              padding: 32px; 
+              box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 32px;
+            }
+            .logo {
+              width: 64px;
+              height: 64px;
+              background: #25D366;
+              border-radius: 50%;
+              margin: 0 auto 16px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 32px;
+            }
+            .title {
+              font-size: 28px;
+              font-weight: 700;
+              color: #1f2937;
+              margin: 0 0 8px 0;
+            }
+            .subtitle {
+              color: #6b7280;
+              font-size: 16px;
+              margin: 0;
+            }
+            .info-section {
+              background: #f8fafc;
+              border-radius: 12px;
+              padding: 20px;
+              margin-bottom: 24px;
+            }
+            .info-row {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 8px 0;
+              border-bottom: 1px solid #e5e7eb;
+            }
+            .info-row:last-child {
+              border-bottom: none;
+            }
+            .info-label {
+              font-weight: 600;
+              color: #374151;
+            }
+            .info-value {
+              color: #6b7280;
+              font-family: monospace;
+            }
+            .connected-number {
+              color: #059669;
+              font-weight: 600;
+            }
+            .qr-section {
+              text-align: center;
+              margin: 24px 0;
+            }
+            .qr-container {
+              background: white;
+              border: 2px solid #e5e7eb;
+              border-radius: 12px;
+              padding: 20px;
+              display: inline-block;
+              margin: 16px 0;
+            }
+            .qr-container img {
+              max-width: 256px;
+              height: auto;
+            }
+            .status {
+              margin: 16px 0;
+              padding: 12px;
+              border-radius: 8px;
+              font-weight: 500;
+            }
+            .status.initializing {
+              background: #dbeafe;
+              color: #1e40af;
+              border: 1px solid #93c5fd;
+            }
+            .status.qr {
+              background: #fef3c7;
+              color: #92400e;
+              border: 1px solid #fcd34d;
+            }
+            .status.ready {
+              background: #d1fae5;
+              color: #065f46;
+              border: 1px solid #6ee7b7;
+            }
+            .status.disconnected {
+              background: #fee2e2;
+              color: #991b1b;
+              border: 1px solid #fca5a5;
+            }
+            .instructions {
+              background: #f0f9ff;
+              border: 1px solid #bae6fd;
+              border-radius: 12px;
+              padding: 20px;
+              margin: 24px 0;
+            }
+            .instructions h3 {
+              color: #0c4a6e;
+              margin: 0 0 12px 0;
+              font-size: 18px;
+            }
+            .instructions ol {
+              color: #075985;
+              margin: 0;
+              padding-left: 20px;
+            }
+            .instructions li {
+              margin: 8px 0;
+              line-height: 1.5;
+            }
+            .button-group {
+              display: flex;
+              gap: 12px;
+              justify-content: center;
+              margin-top: 24px;
+            }
+            button { 
+              padding: 12px 24px; 
+              border-radius: 8px; 
+              border: none; 
+              font-weight: 600;
+              cursor: pointer;
+              transition: all 0.2s;
+            }
+            .btn-primary {
+              background: #3b82f6;
+              color: white;
+            }
+            .btn-primary:hover {
+              background: #2563eb;
+            }
+            .btn-secondary {
+              background: #f3f4f6;
+              color: #374151;
+              border: 1px solid #d1d5db;
+            }
+            .btn-secondary:hover {
+              background: #e5e7eb;
+            }
+            .btn-success {
+              background: #10b981;
+              color: white;
+            }
+            .btn-success:hover {
+              background: #059669;
+            }
+            .loading {
+              display: inline-block;
+              width: 20px;
+              height: 20px;
+              border: 3px solid #f3f3f3;
+              border-top: 3px solid #3b82f6;
+              border-radius: 50%;
+              animation: spin 1s linear infinite;
+            }
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
           </style>
         </head>
         <body>
-          <div class="card">
-            <h2 class="center">Connect WhatsApp</h2>
-            <p class="muted center">Location: ${locationId}</p>
-            <div id="qr" class="center" style="margin-top:12px;"></div>
-            <div id="info" class="center status muted">Preparing session…</div>
-            <div class="center" style="margin-top:12px;"><button id="reset">Reset QR</button></div>
+          <div class="container">
+            <div class="card">
+              <div class="header">
+                <div class="logo">📱</div>
+                <h1 class="title">WhatsApp SMS Provider</h1>
+                <p class="subtitle">Connect your WhatsApp to GoHighLevel</p>
+              </div>
+
+              <div class="info-section">
+                <div class="info-row">
+                  <span class="info-label">Subaccount:</span>
+                  <span class="info-value">${subaccountName}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Location ID:</span>
+                  <span class="info-value">${locationId}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Status:</span>
+                  <span class="info-value" id="status-text">Checking...</span>
+                </div>
+                <div class="info-row" id="phone-row" style="display: none;">
+                  <span class="info-label">Connected Number:</span>
+                  <span class="info-value connected-number" id="phone-number"></span>
+                </div>
+              </div>
+
+              <div class="qr-section">
+                <div id="qr" class="qr-container" style="display: none;">
+                  <div id="qr-image"></div>
+                </div>
+                <div id="status" class="status initializing">
+                  <div class="loading"></div> Preparing WhatsApp session...
+                </div>
+              </div>
+
+              <div class="instructions">
+                <h3>📋 How to Connect:</h3>
+                <ol>
+                  <li><strong>Open WhatsApp</strong> on your phone</li>
+                  <li><strong>Tap Menu</strong> (three dots) → <strong>Linked Devices</strong></li>
+                  <li><strong>Tap "Link a Device"</strong></li>
+                  <li><strong>Scan the QR code</strong> above with your phone</li>
+                  <li><strong>Wait for "Connected"</strong> status</li>
+                  <li><strong>Use in GHL</strong> as SMS provider</li>
+                </ol>
+              </div>
+
+              <div class="button-group">
+                <button id="reset" class="btn-secondary">🔄 Reset QR</button>
+                <button id="refresh" class="btn-primary">🔄 Refresh Status</button>
+                <button id="close" class="btn-success" style="display: none;">✅ Close</button>
+              </div>
+            </div>
           </div>
           <script>
             const qs = new URLSearchParams(window.location.search);
             const locId = qs.get('locationId');
             const companyId = qs.get('companyId');
-            const info = document.getElementById('info');
-            const qr = document.getElementById('qr');
+            
+            // Get DOM elements
+            const statusEl = document.getElementById('status');
+            const statusTextEl = document.getElementById('status-text');
+            const qrEl = document.getElementById('qr');
+            const qrImageEl = document.getElementById('qr-image');
+            const phoneRowEl = document.getElementById('phone-row');
+            const phoneNumberEl = document.getElementById('phone-number');
             const resetBtn = document.getElementById('reset');
+            const refreshBtn = document.getElementById('refresh');
+            const closeBtn = document.getElementById('close');
+
+            function updateStatus(status, phoneNumber = null) {
+              // Update status text
+              statusTextEl.textContent = status;
+              
+              // Update status element
+              statusEl.className = 'status ' + status;
+              
+              switch(status) {
+                case 'initializing':
+                  statusEl.innerHTML = '<div class="loading"></div> Preparing WhatsApp session...';
+                  qrEl.style.display = 'none';
+                  phoneRowEl.style.display = 'none';
+                  closeBtn.style.display = 'none';
+                  break;
+                  
+                case 'qr':
+                  statusEl.innerHTML = '📱 <strong>Scan QR Code</strong><br><small>Open WhatsApp → Menu → Linked Devices → Link a Device</small>';
+                  qrEl.style.display = 'block';
+                  phoneRowEl.style.display = 'none';
+                  closeBtn.style.display = 'none';
+                  break;
+                  
+                case 'ready':
+                  statusEl.innerHTML = '✅ <strong>Connected Successfully!</strong><br><small>WhatsApp is now linked to this location</small>';
+                  qrEl.style.display = 'none';
+                  phoneRowEl.style.display = 'flex';
+                  phoneNumberEl.textContent = phoneNumber || 'Unknown';
+                  closeBtn.style.display = 'inline-block';
+                  break;
+                  
+                case 'disconnected':
+                  statusEl.innerHTML = '❌ <strong>Disconnected</strong><br><small>WhatsApp session ended</small>';
+                  qrEl.style.display = 'none';
+                  phoneRowEl.style.display = 'none';
+                  closeBtn.style.display = 'none';
+                  break;
+                  
+                default:
+                  statusEl.innerHTML = '❓ <strong>Unknown Status</strong><br><small>Status: ' + status + '</small>';
+                  qrEl.style.display = 'none';
+                  phoneRowEl.style.display = 'none';
+                  closeBtn.style.display = 'none';
+              }
+            }
 
             async function create() {
               try {
+                updateStatus('initializing');
                 const r = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session' + (companyId ? ('?companyId=' + encodeURIComponent(companyId)) : ''), { method: 'POST' });
                 const j = await r.json().catch(() => ({}));
-                if (j.qr) qr.innerHTML = '<img src="' + j.qr + '" alt="QR" />';
-                info.textContent = 'Status: ' + (j.status || r.status);
+                
+                if (j.qr) {
+                  qrImageEl.innerHTML = '<img src="' + j.qr + '" alt="QR Code" />';
+                  updateStatus('qr');
+                } else {
+                  updateStatus(j.status || 'error');
+                }
               } catch (e) {
-                info.textContent = 'Error creating session';
+                console.error('Create session error:', e);
+                updateStatus('error');
               }
             }
 
@@ -358,27 +661,42 @@ app.get('/ghl/provider', async (req, res) => {
               try {
                 const r = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session');
                 const j = await r.json().catch(() => ({}));
-                if (j.qr) qr.innerHTML = '<img src="' + j.qr + '" alt="QR" />';
-                if (j.status === 'ready') {
-                  info.textContent = 'Connected: ' + (j.phone_number || 'Unknown');
-                  clearInterval(pollInterval);
-                } else if (j.status === 'disconnected') {
-                  info.textContent = 'Disconnected';
-                  clearInterval(pollInterval);
+                
+                if (j.qr) {
+                  qrImageEl.innerHTML = '<img src="' + j.qr + '" alt="QR Code" />';
+                  updateStatus('qr');
                 } else {
-                  info.textContent = 'Status: ' + (j.status || 'Unknown');
+                  updateStatus(j.status || 'unknown', j.phone_number);
+                }
+                
+                // Stop polling if connected or disconnected
+                if (j.status === 'ready' || j.status === 'disconnected') {
+                  clearInterval(pollInterval);
                 }
               } catch (e) {
-                info.textContent = 'Error polling status';
+                console.error('Poll error:', e);
+                updateStatus('error');
               }
             }
 
-            let pollInterval = setInterval(poll, 2000);
+            let pollInterval = setInterval(poll, 3000);
 
+            // Event listeners
             resetBtn.addEventListener('click', async () => {
+              clearInterval(pollInterval);
               await create();
+              pollInterval = setInterval(poll, 3000);
             });
 
+            refreshBtn.addEventListener('click', () => {
+              poll();
+            });
+
+            closeBtn.addEventListener('click', () => {
+              window.close();
+            });
+
+            // Initialize
             (async () => {
               await create();
               poll();
@@ -667,12 +985,29 @@ app.get('/ghl/location/:locationId/session', async (req, res) => {
   try {
     const { locationId } = req.params;
 
-    // Find GHL account for this location first
-    const { data: ghlAccount } = await supabaseAdmin
+    // Find GHL account for this location first (try by location_id, then fallback)
+    let ghlAccount = null;
+    
+    const { data: accountByLocation } = await supabaseAdmin
       .from('ghl_accounts')
       .select('id, user_id')
       .eq('location_id', locationId)
       .maybeSingle();
+    
+    if (accountByLocation) {
+      ghlAccount = accountByLocation;
+    } else {
+      // Fallback: use any GHL account
+      const { data: anyAccount } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('id, user_id')
+        .limit(1)
+        .maybeSingle();
+      
+      if (anyAccount) {
+        ghlAccount = anyAccount;
+      }
+    }
 
     if (!ghlAccount) {
       return res.json({ status: 'none' });

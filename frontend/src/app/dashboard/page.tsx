@@ -106,6 +106,13 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchGHLLocations()
+    
+    // Poll for status updates every 5 seconds
+    const interval = setInterval(() => {
+      fetchGHLLocations()
+    }, 5000)
+    
+    return () => clearInterval(interval)
   }, [fetchGHLLocations])
 
   const openQR = async (locationId: string) => {
@@ -226,9 +233,9 @@ export default function Dashboard() {
                         subaccount.status === 'disconnected' ? 'bg-red-100 text-red-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        {subaccount.status === 'ready' ? '✅ Connected' :
-                         subaccount.status === 'qr' ? '📱 Scan QR' :
-                         subaccount.status === 'initializing' ? '⏳ Starting' :
+                        {subaccount.status === 'ready' ? `✅ Connected ${subaccount.phone_number ? `(${subaccount.phone_number})` : ''}` :
+                         subaccount.status === 'qr' ? '📱 Scan QR Code' :
+                         subaccount.status === 'initializing' ? '⏳ Initializing...' :
                          subaccount.status === 'disconnected' ? '❌ Disconnected' :
                          '⚪ Not Connected'}
                       </span>
