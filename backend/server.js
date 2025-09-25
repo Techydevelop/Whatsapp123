@@ -18,7 +18,7 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 const GHL_CLIENT_ID = process.env.GHL_CLIENT_ID;
 const GHL_CLIENT_SECRET = process.env.GHL_CLIENT_SECRET;
 const GHL_REDIRECT_URI = process.env.GHL_REDIRECT_URI;
-const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly users.readonly';
+const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write businesses.readonly users.readonly';
 
 // WhatsApp Manager
 const waManager = new WhatsAppManager();
@@ -279,6 +279,120 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error connecting subaccount:', error);
     res.status(500).json({ error: 'Failed to connect subaccount' });
+  }
+});
+
+// GHL Provider Configuration (for marketplace app)
+app.get('/ghl/provider/config', (req, res) => {
+  res.json({
+    name: "WhatsApp SMS Provider",
+    description: "Connect WhatsApp as SMS provider for GoHighLevel",
+    version: "1.0.0",
+    provider: {
+      type: "sms",
+      name: "WhatsApp SMS",
+      description: "Send and receive SMS via WhatsApp",
+      capabilities: ["send", "receive", "status"],
+      webhook_url: `${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/ghl/provider/webhook`
+    },
+    settings: {
+      webhook_url: {
+        type: "url",
+        label: "Webhook URL",
+        description: "URL for receiving incoming messages",
+        required: true,
+        default: `${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/ghl/provider/webhook`
+      }
+    }
+  });
+});
+
+// GHL Provider Webhook (for incoming messages)
+app.post('/ghl/provider/webhook', (req, res) => {
+  console.log('GHL Provider Webhook:', req.body);
+  res.json({ status: 'success' });
+});
+
+// GHL Provider Send Message
+app.post('/ghl/provider/send', async (req, res) => {
+  try {
+    const { to, message, locationId } = req.body;
+    console.log('GHL Send Message:', { to, message, locationId });
+
+    // Find session for this location
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+
+    if (!ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    // Find active session
+    const { data: session } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', ghlAccount.id)
+      .eq('status', 'ready')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!session) {
+      return res.status(404).json({ error: 'No active WhatsApp session found' });
+    }
+
+    // Send message via WhatsApp
+    const client = waManager.getClient(`location_${locationId}_${session.id}`);
+    if (client) {
+      await client.sendMessage(to, message);
+      res.json({ status: 'success', messageId: Date.now().toString() });
+    } else {
+      res.status(500).json({ error: 'WhatsApp client not available' });
+    }
+  } catch (error) {
+    console.error('Send message error:', error);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// GHL Provider Status
+app.get('/ghl/provider/status', async (req, res) => {
+  try {
+    const { locationId } = req.query;
+    
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+
+    if (!ghlAccount) {
+      return res.json({ status: 'disconnected', message: 'GHL account not found' });
+    }
+
+    const { data: session } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', ghlAccount.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!session) {
+      return res.json({ status: 'disconnected', message: 'No session found' });
+    }
+
+    res.json({ 
+      status: session.status,
+      phone_number: session.phone_number,
+      message: session.status === 'ready' ? 'Connected' : 'Not connected'
+    });
+  } catch (error) {
+    console.error('Status check error:', error);
+    res.status(500).json({ error: 'Failed to check status' });
   }
 });
 
