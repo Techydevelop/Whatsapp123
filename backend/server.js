@@ -559,12 +559,10 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       });
     }
 
-    // Create new session with generated UUID for subaccount_id
-    const sessionId = `session_${Date.now()}`;
+    // Create new session - let database generate UUID automatically
     const { data: session, error: sessionError } = await supabaseAdmin
       .from('sessions')
       .insert({ 
-        id: sessionId,
         user_id: ghlAccount.user_id, 
         subaccount_id: ghlAccount.id, // Use ghl_account ID as subaccount reference
         status: 'initializing' 
