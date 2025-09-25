@@ -450,8 +450,11 @@ app.get('/ghl/provider', async (req, res) => {
 
     const subaccountName = ghlAccount ? `Location ${locationId}` : `Location ${locationId}`;
     const connectedNumber = session?.phone_number || null;
+    
+    // Replace template variables in HTML
+    const htmlContent = `
 
-    res.send(`
+    res.send(htmlContent.replace(/\{locationId\}/g, locationId).replace(/\{subaccountName\}/g, subaccountName).replace(/\{connectedNumber\}/g, connectedNumber || 'Not connected'));
       <!DOCTYPE html>
       <html>
         <head>
@@ -1037,8 +1040,9 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
 
     console.log('Created session:', session.id);
 
-    // Create WhatsApp client with location-specific session name
-    const sessionName = `location_${locationId}_${session.id}`;
+    // Create WhatsApp client with location-specific session name (clean format)
+    const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sessionName = `location_${cleanLocationId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
     // Add timeout for WhatsApp client initialization
     const initTimeout = setTimeout(async () => {
