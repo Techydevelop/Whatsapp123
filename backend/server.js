@@ -345,11 +345,19 @@ app.post('/ghl/provider/send', async (req, res) => {
     }
 
     // Send message via WhatsApp
-    const client = waManager.getClient(`location_${locationId}_${session.id}`);
+    const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const clientKey = `location_${cleanLocationId}_${cleanSessionId}`;
+    
+    console.log(`Looking for WhatsApp client with key: ${clientKey}`);
+    const client = waManager.getClient(clientKey);
+    
     if (client) {
+      console.log(`Sending WhatsApp message to ${to}: ${message}`);
       await client.sendMessage(to, message);
       res.json({ status: 'success', messageId: Date.now().toString() });
     } else {
+      console.error(`WhatsApp client not found for key: ${clientKey}`);
       res.status(500).json({ error: 'WhatsApp client not available' });
     }
   } catch (error) {

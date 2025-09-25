@@ -90,6 +90,8 @@ class WhatsAppManager {
    * Get client by session ID
    */
   getClient(sessionId) {
+    console.log(`Getting client for sessionId: ${sessionId}`);
+    console.log(`Available clients:`, Array.from(this.clients.keys()));
     return this.clients.get(sessionId);
   }
 
