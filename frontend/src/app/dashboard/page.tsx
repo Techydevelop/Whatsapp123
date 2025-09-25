@@ -112,6 +112,13 @@ export default function Dashboard() {
     try {
       console.log(`Creating session for locationId: ${locationId}`)
       
+      // Show loading state
+      const button = document.querySelector(`[data-location-id="${locationId}"]`) as HTMLButtonElement
+      if (button) {
+        button.disabled = true
+        button.textContent = 'Initializing...'
+      }
+      
       // First create session if it doesn't exist
       const createResponse = await apiCall(API_ENDPOINTS.createSession(locationId), {
         method: 'POST',
@@ -122,21 +129,34 @@ export default function Dashboard() {
         console.log('Session created successfully')
         // Refresh the locations to show updated status
         await fetchGHLLocations()
+        
+        // Then open the provider page
+        const link = API_ENDPOINTS.providerUI(locationId)
+        window.open(link, '_blank')
       } else {
         const errorData = await createResponse.json()
         console.error('Failed to create session:', errorData)
         alert(`Failed to create session: ${errorData.error || 'Unknown error'}`)
+        
+        // Reset button state
+        if (button) {
+          button.disabled = false
+          button.textContent = 'Open QR'
+        }
         return
       }
     } catch (error) {
       console.error('Error creating session:', error)
       alert(`Error creating session: ${error}`)
+      
+      // Reset button state
+      const button = document.querySelector(`[data-location-id="${locationId}"]`) as HTMLButtonElement
+      if (button) {
+        button.disabled = false
+        button.textContent = 'Open QR'
+      }
       return
     }
-
-    // Then open the provider page
-    const link = API_ENDPOINTS.providerUI(locationId)
-    window.open(link, '_blank')
   }
 
   if (loading) {
@@ -213,8 +233,9 @@ export default function Dashboard() {
                          '⚪ Not Connected'}
                       </span>
             <button
+                        data-location-id={subaccount.ghl_location_id}
                         onClick={() => openQR(subaccount.ghl_location_id)}
-                        className="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600"
+                        className="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600 disabled:opacity-50"
             >
                         Open QR
             </button>

@@ -598,10 +598,25 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
 
     // Create WhatsApp client with location-specific session name
     const sessionName = `location_${locationId}_${session.id}`;
+    
+    // Add timeout for WhatsApp client initialization
+    const initTimeout = setTimeout(async () => {
+      try {
+        await supabaseAdmin
+          .from('sessions')
+          .update({ status: 'disconnected' })
+          .eq('id', session.id);
+        console.log(`WhatsApp initialization timeout for location ${locationId}`);
+      } catch (e) {
+        console.error('Timeout update error:', e);
+      }
+    }, 30000); // 30 seconds timeout
+
     const client = waManager.createClient(
       sessionName, // Use location-specific session name
       async (qrValue) => {
         try {
+          clearTimeout(initTimeout); // Clear timeout when QR is generated
           const qrDataUrl = await qrcode.toDataURL(qrValue);
           await supabaseAdmin
             .from('sessions')
@@ -614,6 +629,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       },
       async (info) => {
         try {
+          clearTimeout(initTimeout); // Clear timeout when connected
           await supabaseAdmin
             .from('sessions')
             .update({ status: 'ready', qr: null, phone_number: info.wid.user })
