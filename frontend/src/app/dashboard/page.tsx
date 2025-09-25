@@ -75,11 +75,11 @@ export default function Dashboard() {
             }
             setSubaccountStatuses([fallbackStatus])
           }
-        } else {
+            } else {
           console.log('No location_id in GHL account')
           setSubaccountStatuses([])
-        }
-      } else {
+            }
+          } else {
         setSubaccountStatuses([])
       }
     } catch (error) {
@@ -127,8 +127,8 @@ export default function Dashboard() {
         console.error('Failed to create session:', errorData)
         alert(`Failed to create session: ${errorData.error || 'Unknown error'}`)
         return
-          }
-        } catch (error) {
+      }
+    } catch (error) {
       console.error('Error creating session:', error)
       alert(`Error creating session: ${error}`)
       return

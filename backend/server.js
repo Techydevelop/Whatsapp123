@@ -523,26 +523,44 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
 
     console.log(`Creating session for locationId: ${locationId}`);
 
-    // Find GHL account for this location
-    const { data: ghlAccount, error: ghlErr } = await supabaseAdmin
+    // Find GHL account - try by location_id first, then fallback to any account
+    let ghlAccount = null;
+    
+    // First try to find account with matching location_id
+    const { data: accountByLocation } = await supabaseAdmin
       .from('ghl_accounts')
       .select('*')
       .eq('location_id', locationId)
       .maybeSingle();
-
-    if (ghlErr) {
-      console.error('Database error:', ghlErr);
-      return res.status(500).json({ error: 'Database error' });
+    
+    if (accountByLocation) {
+      ghlAccount = accountByLocation;
+      console.log('Found GHL account by location_id:', locationId);
+    } else {
+      // Fallback: use any GHL account if location_id doesn't match
+      const { data: anyAccount } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+      
+      if (anyAccount) {
+        ghlAccount = anyAccount;
+        console.log('Using fallback GHL account for location:', locationId);
+      }
     }
 
     if (!ghlAccount) {
-      console.error(`GHL account not found for locationId: ${locationId}`);
+      console.error(`No GHL account found in database`);
       return res.status(404).json({ error: 'GHL account not found. Please connect GHL account first.' });
     }
 
-    console.log('Found GHL account:', { user_id: ghlAccount.user_id, location_id: ghlAccount.location_id });
+    console.log('Using GHL account:', { id: ghlAccount.id, user_id: ghlAccount.user_id, company_id: ghlAccount.company_id, location_id: ghlAccount.location_id });
+
+    // Remove this line since location_id might not exist
 
     // Check for existing session for this user/location combination
+    // Use locationId as a unique identifier for the session
     const { data: existing } = await supabaseAdmin
       .from('sessions')
       .select('*')
@@ -577,9 +595,10 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
 
     console.log('Created session:', session.id);
 
-    // Create WhatsApp client
+    // Create WhatsApp client with location-specific session name
+    const sessionName = `location_${locationId}_${session.id}`;
     const client = waManager.createClient(
-      session.id,
+      sessionName, // Use location-specific session name
       async (qrValue) => {
         try {
           const qrDataUrl = await qrcode.toDataURL(qrValue);
@@ -587,6 +606,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
             .from('sessions')
             .update({ qr: qrDataUrl, status: 'qr' })
             .eq('id', session.id);
+          console.log(`QR generated for location ${locationId}:`, session.id);
         } catch (e) {
           console.error('QR update error:', e);
         }
@@ -597,6 +617,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
             .from('sessions')
             .update({ status: 'ready', qr: null, phone_number: info.wid.user })
             .eq('id', session.id);
+          console.log(`WhatsApp connected for location ${locationId}:`, info.wid.user);
         } catch (e) {
           console.error('Session ready update error:', e);
         }
