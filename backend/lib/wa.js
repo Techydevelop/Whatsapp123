@@ -44,11 +44,13 @@ class WhatsAppManager {
     // Event handlers
     client.on('qr', (qr) => {
       console.log(`QR generated for session ${sessionId}`);
+      console.log(`QR code: ${qr.substring(0, 50)}...`);
       onQR(qr);
     });
 
     client.on('ready', () => {
       console.log(`WhatsApp client ready for session ${sessionId}`);
+      console.log(`Client info:`, client.info);
       onReady(client.info);
     });
 
