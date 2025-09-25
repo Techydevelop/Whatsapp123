@@ -253,7 +253,8 @@ export default function Dashboard() {
           <li>1. Connect your GHL account above</li>
           <li>2. Your locations will appear automatically</li>
           <li>3. Click &quot;Open QR&quot; to scan WhatsApp QR code</li>
-          <li>4. In GHL, add custom menu link: <code className="bg-blue-100 px-1 rounded">{process.env.NEXT_PUBLIC_API_BASE_URL}/ghl/provider?locationId=YOUR_LOCATION_ID</code></li>
+          <li>4. In GHL Agency, add custom menu link: <code className="bg-blue-100 px-1 rounded">{process.env.NEXT_PUBLIC_API_BASE_URL}/ghl/provider?locationId=&#123;locationId&#125;</code></li>
+          <li>   (GHL automatically replaces &#123;locationId&#125; with actual location ID)</li>
           <li>5. Set as SMS provider in GHL Phone System settings</li>
         </ol>
       </div>

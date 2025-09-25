@@ -276,10 +276,38 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
 // GHL Provider UI (for custom menu link)
 app.get('/ghl/provider', async (req, res) => {
   try {
-    const { locationId, companyId } = req.query;
+    let { locationId, companyId } = req.query;
+    
+    // If no locationId provided, try to detect from GHL context or company
+    if (!locationId && companyId) {
+      console.log('No locationId provided, looking up by companyId:', companyId);
+      
+      // Find GHL account by company_id
+      const { data: ghlAccount } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('location_id')
+        .eq('company_id', companyId)
+        .maybeSingle();
+        
+      if (ghlAccount && ghlAccount.location_id) {
+        locationId = ghlAccount.location_id;
+        console.log('Found locationId from company:', locationId);
+      }
+    }
     
     if (!locationId) {
-      return res.status(400).send('Location ID is required');
+      return res.status(400).send(`
+        <html>
+          <body style="font-family: Arial, sans-serif; padding: 20px; text-align: center;">
+            <h2>⚠️ Setup Required</h2>
+            <p>Please add your Location ID to the custom menu link:</p>
+            <code style="background: #f0f0f0; padding: 10px; border-radius: 5px;">
+              ${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/ghl/provider?locationId=YOUR_LOCATION_ID
+            </code>
+            <p>Find your Location ID in GHL Settings → General → Location ID</p>
+          </body>
+        </html>
+      `);
     }
 
     res.send(`
@@ -519,7 +547,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       .from('sessions')
       .select('*')
       .eq('user_id', ghlAccount.user_id)
-      .eq('location_id', locationId)
+      .eq('subaccount_id', locationId) // Use subaccount_id as location reference
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -531,12 +559,12 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       });
     }
 
-    // Create new session
+    // Create new session (using subaccount_id as location reference)
     const { data: session, error: sessionError } = await supabaseAdmin
       .from('sessions')
       .insert({ 
         user_id: ghlAccount.user_id, 
-        location_id: locationId,
+        subaccount_id: locationId, // Use locationId as subaccount_id temporarily
         status: 'initializing' 
       })
       .select()
@@ -601,27 +629,11 @@ app.get('/ghl/location/:locationId/session', async (req, res) => {
   try {
     const { locationId } = req.params;
 
-    // Find subaccount for this location
-    const { data: subaccount, error: subErr } = await supabaseAdmin
-      .from('subaccounts')
-      .select('id')
-      .eq('ghl_location_id', locationId)
-      .maybeSingle();
-
-    if (subErr) {
-      console.error('Database error:', subErr);
-      return res.status(500).json({ error: 'Database error' });
-    }
-
-    if (!subaccount) {
-      return res.status(404).json({ error: 'Subaccount not found' });
-    }
-
-    // Get latest session
+    // Get latest session for this location (using locationId as subaccount_id)
     const { data: existing } = await supabaseAdmin
       .from('sessions')
       .select('*')
-      .eq('subaccount_id', subaccount.id)
+      .eq('subaccount_id', locationId)
       .order('created_at', { ascending: false })
       .limit(1);
 
