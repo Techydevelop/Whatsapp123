@@ -42,54 +42,40 @@ export default function Dashboard() {
       setGhlAccount(ghlAccount)
 
       if (ghlAccount) {
-        // Fetch locations directly from GHL API using stored tokens
-        console.log('GHL account found, fetching locations...', ghlAccount)
-        try {
-          const response = await apiCall(`${process.env.NEXT_PUBLIC_API_BASE_URL}/admin/ghl/locations`)
-          console.log('Locations API response:', response.status, response.statusText)
-          if (response.ok) {
-            const data = await response.json()
-            const locations = data.locations || []
+        // Use location from stored GHL account
+        console.log('GHL account found, using stored location...', ghlAccount)
+        
+        if (ghlAccount.location_id) {
+          try {
+            const sessionResponse = await apiCall(API_ENDPOINTS.getSession(ghlAccount.location_id))
+            let sessionData = { status: 'none', phone_number: null, qr: null }
             
-            // Convert GHL locations to our format and fetch WhatsApp session status
-            const statusPromises = locations.map(async (location: { id: string; name?: string }) => {
-              try {
-                const sessionResponse = await apiCall(API_ENDPOINTS.getSession(location.id))
-                let sessionData = { status: 'none', phone_number: null, qr: null }
-                
-                if (sessionResponse.ok) {
-                  sessionData = await sessionResponse.json()
-                }
-                
-                return {
-                  id: location.id,
-                  name: location.name || `Location ${location.id}`,
-                  ghl_location_id: location.id,
-                  status: sessionData.status || 'none',
-                  phone_number: sessionData.phone_number,
-                  qr: sessionData.qr
-                }
-    } catch (error) {
-                console.error(`Error fetching status for ${location.id}:`, error)
-                return {
-                  id: location.id,
-                  name: location.name || `Location ${location.id}`,
-                  ghl_location_id: location.id,
-                  status: 'none' as const
-                }
-              }
-            })
-
-            const statuses = await Promise.all(statusPromises)
-            setSubaccountStatuses(statuses)
-      } else {
-            console.error('Failed to fetch locations from GHL:', response.status)
-            const errorText = await response.text()
-            console.error('Error response:', errorText)
-            setSubaccountStatuses([])
-      }
-    } catch (error) {
-          console.error('Error fetching locations from GHL:', error)
+            if (sessionResponse.ok) {
+              sessionData = await sessionResponse.json()
+            }
+            
+            const locationStatus = {
+              id: ghlAccount.location_id,
+              name: `Location ${ghlAccount.location_id}`,
+              ghl_location_id: ghlAccount.location_id,
+              status: sessionData.status || 'none',
+              phone_number: sessionData.phone_number,
+              qr: sessionData.qr
+            }
+            
+            setSubaccountStatuses([locationStatus])
+            console.log('Location status set:', locationStatus)
+          } catch (error) {
+            console.error('Error fetching session status:', error)
+            setSubaccountStatuses([{
+              id: ghlAccount.location_id,
+              name: `Location ${ghlAccount.location_id}`,
+              ghl_location_id: ghlAccount.location_id,
+              status: 'none' as const
+            }])
+          }
+        } else {
+          console.log('No location_id in GHL account')
           setSubaccountStatuses([])
         }
       } else {
