@@ -210,22 +210,7 @@ app.get('/oauth/callback', async (req, res) => {
       return res.status(500).json({ error: 'Failed to store account information' });
     }
 
-    // Create subaccount entry
-    const { error: subaccountError } = await supabaseAdmin
-      .from('subaccounts')
-      .upsert({
-        user_id: targetUserId,
-        ghl_location_id: locationId,
-        name: `Location ${locationId}`,
-        status: 'connected'
-      });
-
-    if (subaccountError) {
-      console.error('Error creating subaccount:', subaccountError);
-      return res.status(500).json({ error: 'Failed to create subaccount' });
-    }
-
-    console.log('GHL account and subaccount created successfully');
+    console.log('GHL account stored successfully');
     res.redirect('/dashboard?ghl=connected');
 
   } catch (error) {
