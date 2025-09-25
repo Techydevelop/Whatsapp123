@@ -123,14 +123,24 @@ app.get('/oauth/callback', async (req, res) => {
         client_secret: GHL_CLIENT_SECRET,
         grant_type: 'authorization_code',
         code: code,
+        user_type: 'Location', // Required by GHL OAuth 2.0
         redirect_uri: GHL_REDIRECT_URI
       })
     });
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
-      console.error('Token exchange failed:', errorText);
-      return res.status(400).json({ error: 'Failed to exchange authorization code for token' });
+      console.error('Token exchange failed:', {
+        status: tokenResponse.status,
+        statusText: tokenResponse.statusText,
+        error: errorText,
+        clientId: GHL_CLIENT_ID ? 'SET' : 'MISSING',
+        redirectUri: GHL_REDIRECT_URI
+      });
+      return res.status(400).json({ 
+        error: 'Failed to exchange authorization code for token',
+        details: errorText
+      });
     }
 
     const tokenData = await tokenResponse.json();
