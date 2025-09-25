@@ -14,7 +14,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 # Backend API Configuration
 NEXT_PUBLIC_API_BASE_URL=https://whatsapp123-dhn1.onrender.com
 
-# GHL OAuth Configuration (Frontend)
+# GHL OAuth Configuration (Frontend) - Use the same CLIENT_ID as backend
 NEXT_PUBLIC_GHL_CLIENT_ID=your_ghl_client_id
 ```
 

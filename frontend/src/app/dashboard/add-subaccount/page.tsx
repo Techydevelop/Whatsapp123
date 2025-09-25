@@ -17,16 +17,16 @@ export default function AddSubAccount() {
 
       // Direct GHL OAuth flow - let user choose location in GHL
       const scopes = 'businesses.readonly businesses.write companies.readonly conversations.readonly conversations.write contacts.readonly contacts.write'
-      const clientId = process.env.NEXT_PUBLIC_GHL_CLIENT_ID || 'your_ghl_client_id'
+      const clientId = process.env.NEXT_PUBLIC_GHL_CLIENT_ID
       const redirectUri = `${process.env.NEXT_PUBLIC_API_BASE_URL}/oauth/callback`
       
       console.log('OAuth Config:', {
-        clientId: clientId === 'your_ghl_client_id' ? 'NOT_SET' : 'SET',
+        clientId: clientId ? 'SET' : 'NOT_SET',
         redirectUri,
         apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL
       })
       
-      if (clientId === 'your_ghl_client_id') {
+      if (!clientId) {
         alert('GHL Client ID not configured. Please set NEXT_PUBLIC_GHL_CLIENT_ID environment variable.')
         return
       }
