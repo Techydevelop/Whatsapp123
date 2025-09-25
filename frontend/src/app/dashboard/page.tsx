@@ -34,6 +34,8 @@ export default function Dashboard() {
         .maybeSingle()
 
       console.log('GHL account query result:', { ghlAccount, ghlError, userId: user.id })
+      console.log('GHL account details:', ghlAccount)
+      console.log('GHL error details:', ghlError)
       setGhlAccount(ghlAccount)
 
       if (ghlAccount) {
