@@ -20,9 +20,22 @@ export default function AddSubAccount() {
       const clientId = process.env.NEXT_PUBLIC_GHL_CLIENT_ID || 'your_ghl_client_id'
       const redirectUri = `${process.env.NEXT_PUBLIC_API_BASE_URL}/oauth/callback`
       
+      console.log('OAuth Config:', {
+        clientId: clientId === 'your_ghl_client_id' ? 'NOT_SET' : 'SET',
+        redirectUri,
+        apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL
+      })
+      
+      if (clientId === 'your_ghl_client_id') {
+        alert('GHL Client ID not configured. Please set NEXT_PUBLIC_GHL_CLIENT_ID environment variable.')
+        return
+      }
+      
       const state = user.id // Just pass user ID as state
       
-      const authUrl = `https://marketplace.leadconnectorhq.com/oauth/chooselocation?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(state)}`
+      const authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(state)}`
+      
+      console.log('Redirecting to GHL OAuth:', authUrl)
       
       // Direct redirect to GHL OAuth
       window.location.href = authUrl
