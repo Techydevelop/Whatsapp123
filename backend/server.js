@@ -1060,7 +1060,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       } catch (e) {
         console.error('Timeout update error:', e);
       }
-    }, 30000); // 30 seconds timeout
+    }, 60000); // 60 seconds timeout (increased for WhatsApp initialization)
 
     const client = waManager.createClient(
       sessionName, // Use location-specific session name

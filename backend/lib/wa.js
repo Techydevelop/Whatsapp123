@@ -32,6 +32,9 @@ class WhatsAppManager {
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
+          '--disable-gpu',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor',
           '--no-zygote',
           '--disable-gpu'
         ]
@@ -52,6 +55,10 @@ class WhatsAppManager {
     client.on('disconnected', (reason) => {
       console.log(`WhatsApp client disconnected for session ${sessionId}:`, reason);
       onDisconnected(reason);
+    });
+
+    client.on('auth_failure', (msg) => {
+      console.error(`WhatsApp auth failure for session ${sessionId}:`, msg);
     });
 
     client.on('message', async (message) => {
