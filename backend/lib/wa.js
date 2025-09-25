@@ -45,7 +45,10 @@ class WhatsAppManager {
       webVersionCache: {
         type: 'remote',
         remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
-      }
+      },
+      restartOnAuthFail: true,
+      takeoverOnConflict: true,
+      takeoverTimeoutMs: 0
     });
 
     // Event handlers
