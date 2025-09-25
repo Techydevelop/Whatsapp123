@@ -21,20 +21,6 @@ export default function Dashboard() {
   const [ghlAccount, setGhlAccount] = useState<GhlAccount | null>(null)
   const [subaccountStatuses, setSubaccountStatuses] = useState<SubaccountStatus[]>([])
 
-  // Handle OAuth success from URL parameter
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    if (urlParams.get('ghl') === 'connected') {
-      console.log('GHL OAuth success detected, refreshing data...')
-      // Clean URL without page reload
-      window.history.replaceState({}, '', '/dashboard')
-      // Force refresh data
-      setTimeout(() => {
-        fetchGHLLocations()
-      }, 1000)
-    }
-  }, [fetchGHLLocations])
-
   const fetchGHLLocations = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -75,7 +61,7 @@ export default function Dashboard() {
                   phone_number: sessionData.phone_number,
                   qr: sessionData.qr
                 }
-              } catch (error) {
+    } catch (error) {
                 console.error(`Error fetching status for ${location.id}:`, error)
                 return {
                   id: location.id,
@@ -88,11 +74,11 @@ export default function Dashboard() {
 
             const statuses = await Promise.all(statusPromises)
             setSubaccountStatuses(statuses)
-          } else {
+      } else {
             console.error('Failed to fetch locations from GHL')
             setSubaccountStatuses([])
-          }
-        } catch (error) {
+      }
+    } catch (error) {
           console.error('Error fetching locations from GHL:', error)
           setSubaccountStatuses([])
         }
@@ -106,6 +92,20 @@ export default function Dashboard() {
       setLoading(false)
     }
   }, [])
+
+  // Handle OAuth success from URL parameter
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('ghl') === 'connected') {
+      console.log('GHL OAuth success detected, refreshing data...')
+      // Clean URL without page reload
+      window.history.replaceState({}, '', '/dashboard')
+      // Force refresh data
+      setTimeout(() => {
+        fetchGHLLocations()
+      }, 1000)
+    }
+  }, [fetchGHLLocations])
 
   useEffect(() => {
     fetchGHLLocations()
@@ -130,8 +130,8 @@ export default function Dashboard() {
         console.error('Failed to create session:', errorData)
         alert(`Failed to create session: ${errorData.error || 'Unknown error'}`)
         return
-      }
-    } catch (error) {
+          }
+        } catch (error) {
       console.error('Error creating session:', error)
       alert(`Error creating session: ${error}`)
       return
@@ -161,11 +161,11 @@ export default function Dashboard() {
         <div className="mb-6 p-4 bg-green-50 rounded-lg">
           <div className="flex items-center">
             <svg className="h-5 w-5 text-green-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-            </svg>
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
             <span className="text-sm font-medium text-green-800">GHL Account Connected</span>
-          </div>
-        </div>
+              </div>
+            </div>
       ) : (
         <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
           <div className="flex items-center justify-between">
@@ -215,13 +215,13 @@ export default function Dashboard() {
                          subaccount.status === 'disconnected' ? '❌ Disconnected' :
                          '⚪ Not Connected'}
                       </span>
-                      <button
+            <button
                         onClick={() => openQR(subaccount.ghl_location_id)}
                         className="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600"
-                      >
+            >
                         Open QR
-                      </button>
-                    </div>
+            </button>
+          </div>
                   </div>
                 </div>
               ))}
@@ -232,9 +232,9 @@ export default function Dashboard() {
         <div className="bg-white shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6 text-center">
             <p className="text-gray-500">No locations found in your GHL account.</p>
-          </div>
-        </div>
-      ) : (
+            </div>
+            </div>
+          ) : (
         <div className="bg-white shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6 text-center">
             <h3 className="text-lg font-medium text-gray-900 mb-2">Get Started</h3>
@@ -245,7 +245,7 @@ export default function Dashboard() {
             >
               Connect GHL Account
             </a>
-          </div>
+            </div>
         </div>
       )}
 
