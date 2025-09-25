@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { API_ENDPOINTS, apiCall } from '@/lib/config'
 
 export default function AddSubAccount() {
   const [loading, setLoading] = useState(false)
@@ -43,7 +42,7 @@ export default function AddSubAccount() {
         
         <div className="text-center">
           <p className="text-gray-600 mb-6">
-            Connect your GoHighLevel location directly through OAuth. You'll be able to choose your location in the GHL interface.
+            Connect your GoHighLevel location directly through OAuth. You&apos;ll be able to choose your location in the GHL interface.
           </p>
           
           <button
@@ -66,11 +65,11 @@ export default function AddSubAccount() {
         <div className="mt-6 p-4 bg-blue-50 rounded-md">
           <h3 className="text-sm font-medium text-blue-800 mb-2">How it works:</h3>
           <ol className="text-sm text-blue-700 space-y-1">
-            <li>1. Click "Connect GHL Location" above</li>
+            <li>1. Click &quot;Connect GHL Location&quot; above</li>
             <li>2. Choose your location in GHL OAuth screen</li>
             <li>3. Authorize the connection</li>
             <li>4. Return to dashboard to see connected location</li>
-            <li>5. Click "Open QR" to scan WhatsApp QR code</li>
+            <li>5. Click &quot;Open QR&quot; to scan WhatsApp QR code</li>
           </ol>
         </div>
       </div>
