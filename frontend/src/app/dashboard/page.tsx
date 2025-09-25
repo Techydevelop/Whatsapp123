@@ -59,8 +59,8 @@ export default function Dashboard() {
               name: `Location ${ghlAccount.location_id}`,
               ghl_location_id: ghlAccount.location_id,
               status: (sessionData.status as 'initializing' | 'qr' | 'ready' | 'disconnected' | 'none') || 'none',
-              phone_number: sessionData.phone_number,
-              qr: sessionData.qr
+              phone_number: sessionData.phone_number || undefined,
+              qr: sessionData.qr || undefined
             }
             
             setSubaccountStatuses([locationStatus])
