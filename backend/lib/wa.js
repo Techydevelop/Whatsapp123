@@ -36,8 +36,15 @@ class WhatsAppManager {
           '--disable-web-security',
           '--disable-features=VizDisplayCompositor',
           '--no-zygote',
-          '--disable-gpu'
+          '--disable-gpu',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding'
         ]
+      },
+      webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
       }
     });
 
@@ -61,6 +68,10 @@ class WhatsAppManager {
 
     client.on('auth_failure', (msg) => {
       console.error(`WhatsApp auth failure for session ${sessionId}:`, msg);
+    });
+
+    client.on('change_state', (state) => {
+      console.log(`WhatsApp state changed for session ${sessionId}:`, state);
     });
 
     client.on('message', async (message) => {
