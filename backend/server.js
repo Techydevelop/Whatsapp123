@@ -41,15 +41,24 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'https://whatsapp123-dhn1.onrender.com',
+    'https://whatsapp-saas-backend.onrender.com',
     'https://whatsapp123-frontend.vercel.app',
     'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
     'https://whatsappghl.vercel.app',
-    'https://*.vercel.app'
+    'https://*.vercel.app',
+    'https://app.gohighlevel.com'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
+
+// Add CSP headers for iframe embedding
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com");
+  res.setHeader('X-Frame-Options', 'ALLOWALL');
+  next();
+});
 
 app.use(express.json());
 
