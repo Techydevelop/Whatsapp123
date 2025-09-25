@@ -1038,6 +1038,12 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     }
 
     console.log('Created session:', session.id);
+    console.log('Session details:', { 
+      id: session.id, 
+      user_id: session.user_id, 
+      subaccount_id: session.subaccount_id, 
+      status: session.status 
+    });
 
     // Create WhatsApp client with location-specific session name (clean format)
     const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -1098,8 +1104,17 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     );
 
     // Initialize WhatsApp client
-    client.initialize().catch((e) => console.error('WA init error:', e));
+    client.initialize().catch((e) => {
+      console.error('WA init error:', e);
+      // Update session status to error
+      supabaseAdmin
+        .from('sessions')
+        .update({ status: 'disconnected' })
+        .eq('id', session.id)
+        .catch(err => console.error('Error updating session status:', err));
+    });
 
+    console.log(`WhatsApp client initialized for session: ${session.id}, location: ${locationId}`);
     res.json({ status: 'initializing' });
   } catch (error) {
     console.error('Create session error:', error);

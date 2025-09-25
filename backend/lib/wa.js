@@ -15,9 +15,13 @@ class WhatsAppManager {
    * Create WhatsApp client for a session
    */
   createClient(sessionId, onQR, onReady, onDisconnected, onMessage) {
+    // Clean sessionId to ensure valid clientId format
+    const cleanSessionId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    console.log(`Creating WhatsApp client with sessionId: ${sessionId} -> cleanSessionId: ${cleanSessionId}`);
+    
     const client = new Client({
       authStrategy: new LocalAuth({ 
-        clientId: `client_${sessionId}`,
+        clientId: `client_${cleanSessionId}`,
         dataPath: this.dataDir
       }),
       puppeteer: {
