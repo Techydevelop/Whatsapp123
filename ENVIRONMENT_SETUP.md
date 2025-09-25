@@ -18,6 +18,22 @@ NEXT_PUBLIC_API_BASE_URL=https://whatsapp123-dhn1.onrender.com
 NEXT_PUBLIC_GHL_CLIENT_ID=your_ghl_client_id
 ```
 
+### ⚠️ CRITICAL: GHL App Redirect URI Setup
+
+**In your GHL Marketplace App settings, make sure you have added this exact redirect URI:**
+
+```
+https://whatsapp123-dhn1.onrender.com/oauth/callback
+```
+
+**Steps to add redirect URI in GHL:**
+1. Go to GHL Marketplace → My Apps
+2. Select your app
+3. Go to Advanced Settings → Auth
+4. In "Redirect URL" field, add: `https://whatsapp123-dhn1.onrender.com/oauth/callback`
+5. Click "Add" button
+6. Save changes
+
 ## Backend (Render) Environment Variables
 
 Add these environment variables in your Render dashboard:

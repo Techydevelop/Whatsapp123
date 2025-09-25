@@ -18,16 +18,23 @@ export default function AddSubAccount() {
       // Direct GHL OAuth flow - let user choose location in GHL
       const scopes = 'businesses.readonly businesses.write companies.readonly conversations.readonly conversations.write contacts.readonly contacts.write'
       const clientId = process.env.NEXT_PUBLIC_GHL_CLIENT_ID
-      const redirectUri = `${process.env.NEXT_PUBLIC_API_BASE_URL}/oauth/callback`
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://whatsapp123-dhn1.onrender.com'
+      const redirectUri = `${apiBaseUrl}/oauth/callback`
       
       console.log('OAuth Config:', {
         clientId: clientId ? 'SET' : 'NOT_SET',
         redirectUri,
-        apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL
+        apiBaseUrl,
+        envApiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL
       })
       
       if (!clientId) {
         alert('GHL Client ID not configured. Please set NEXT_PUBLIC_GHL_CLIENT_ID environment variable.')
+        return
+      }
+      
+      if (!apiBaseUrl || apiBaseUrl === 'undefined') {
+        alert('API Base URL not configured. Please set NEXT_PUBLIC_API_BASE_URL environment variable.')
         return
       }
       
