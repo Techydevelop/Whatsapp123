@@ -54,11 +54,11 @@ export default function Dashboard() {
               sessionData = await sessionResponse.json()
             }
             
-            const locationStatus = {
+            const locationStatus: SubaccountStatus = {
               id: ghlAccount.location_id,
               name: `Location ${ghlAccount.location_id}`,
               ghl_location_id: ghlAccount.location_id,
-              status: sessionData.status || 'none',
+              status: (sessionData.status as 'initializing' | 'qr' | 'ready' | 'disconnected' | 'none') || 'none',
               phone_number: sessionData.phone_number,
               qr: sessionData.qr
             }
@@ -67,12 +67,13 @@ export default function Dashboard() {
             console.log('Location status set:', locationStatus)
           } catch (error) {
             console.error('Error fetching session status:', error)
-            setSubaccountStatuses([{
+            const fallbackStatus: SubaccountStatus = {
               id: ghlAccount.location_id,
               name: `Location ${ghlAccount.location_id}`,
               ghl_location_id: ghlAccount.location_id,
               status: 'none' as const
-            }])
+            }
+            setSubaccountStatuses([fallbackStatus])
           }
         } else {
           console.log('No location_id in GHL account')
