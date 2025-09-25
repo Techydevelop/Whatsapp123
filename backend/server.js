@@ -365,6 +365,48 @@ app.get('/ghl/provider', async (req, res) => {
   }
 });
 
+// Get GHL account status
+app.get('/admin/ghl/account-status', async (req, res) => {
+  try {
+    // Get user from Authorization header
+    const authHeader = req.headers.authorization;
+    let userId = null;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.split(' ')[1];
+        const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+        userId = user?.id;
+      } catch (e) {
+        console.log('Auth token validation failed:', e.message);
+      }
+    }
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    // Get GHL account for this user
+    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+      
+    console.log('Account status check:', { userId, ghlAccount: !!ghlAccount, error: ghlError });
+    
+    res.json({
+      account: ghlAccount,
+      error: ghlError,
+      connected: !!ghlAccount
+    });
+    
+  } catch (error) {
+    console.error('Error checking account status:', error);
+    res.status(500).json({ error: 'Failed to check account status' });
+  }
+});
+
 // Get locations from GHL API
 app.get('/admin/ghl/locations', async (req, res) => {
   try {

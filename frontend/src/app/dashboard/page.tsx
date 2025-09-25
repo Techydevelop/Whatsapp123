@@ -36,6 +36,9 @@ export default function Dashboard() {
       console.log('GHL account query result:', { ghlAccount, ghlError, userId: user.id })
       console.log('GHL account details:', ghlAccount)
       console.log('GHL error details:', ghlError)
+      if (ghlError) {
+        console.error('Database error:', ghlError.message, ghlError.code)
+      }
       setGhlAccount(ghlAccount)
 
       if (ghlAccount) {
@@ -79,13 +82,13 @@ export default function Dashboard() {
 
             const statuses = await Promise.all(statusPromises)
             setSubaccountStatuses(statuses)
-          } else {
+      } else {
             console.error('Failed to fetch locations from GHL:', response.status)
             const errorText = await response.text()
             console.error('Error response:', errorText)
             setSubaccountStatuses([])
-          }
-        } catch (error) {
+      }
+    } catch (error) {
           console.error('Error fetching locations from GHL:', error)
           setSubaccountStatuses([])
         }
