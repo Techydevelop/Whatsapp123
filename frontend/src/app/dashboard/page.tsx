@@ -37,8 +37,10 @@ export default function Dashboard() {
 
       if (ghlAccount) {
         // Fetch locations directly from GHL API using stored tokens
+        console.log('GHL account found, fetching locations...', ghlAccount)
         try {
           const response = await apiCall(`${process.env.NEXT_PUBLIC_API_BASE_URL}/admin/ghl/locations`)
+          console.log('Locations API response:', response.status, response.statusText)
           if (response.ok) {
             const data = await response.json()
             const locations = data.locations || []
@@ -74,11 +76,13 @@ export default function Dashboard() {
 
             const statuses = await Promise.all(statusPromises)
             setSubaccountStatuses(statuses)
-      } else {
-            console.error('Failed to fetch locations from GHL')
+          } else {
+            console.error('Failed to fetch locations from GHL:', response.status)
+            const errorText = await response.text()
+            console.error('Error response:', errorText)
             setSubaccountStatuses([])
-      }
-    } catch (error) {
+          }
+        } catch (error) {
           console.error('Error fetching locations from GHL:', error)
           setSubaccountStatuses([])
         }
