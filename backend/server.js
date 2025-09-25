@@ -542,12 +542,12 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
 
     console.log('Found GHL account:', { user_id: ghlAccount.user_id, location_id: ghlAccount.location_id });
 
-    // Check for existing session for this location
+    // Check for existing session for this user/location combination
     const { data: existing } = await supabaseAdmin
       .from('sessions')
       .select('*')
       .eq('user_id', ghlAccount.user_id)
-      .eq('subaccount_id', locationId) // Use subaccount_id as location reference
+      .eq('subaccount_id', ghlAccount.id) // Use ghl_account ID as reference
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -559,12 +559,14 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       });
     }
 
-    // Create new session (using subaccount_id as location reference)
+    // Create new session with generated UUID for subaccount_id
+    const sessionId = `session_${Date.now()}`;
     const { data: session, error: sessionError } = await supabaseAdmin
       .from('sessions')
       .insert({ 
+        id: sessionId,
         user_id: ghlAccount.user_id, 
-        subaccount_id: locationId, // Use locationId as subaccount_id temporarily
+        subaccount_id: ghlAccount.id, // Use ghl_account ID as subaccount reference
         status: 'initializing' 
       })
       .select()
@@ -629,11 +631,22 @@ app.get('/ghl/location/:locationId/session', async (req, res) => {
   try {
     const { locationId } = req.params;
 
-    // Get latest session for this location (using locationId as subaccount_id)
+    // Find GHL account for this location first
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('id, user_id')
+      .eq('location_id', locationId)
+      .maybeSingle();
+
+    if (!ghlAccount) {
+      return res.json({ status: 'none' });
+    }
+
+    // Get latest session for this GHL account
     const { data: existing } = await supabaseAdmin
       .from('sessions')
       .select('*')
-      .eq('subaccount_id', locationId)
+      .eq('subaccount_id', ghlAccount.id)
       .order('created_at', { ascending: false })
       .limit(1);
 
