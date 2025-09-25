@@ -27,12 +27,13 @@ export default function Dashboard() {
       if (!user) return
 
       // Check if we have a GHL account connected
-      const { data: ghlAccount } = await supabase
+      const { data: ghlAccount, error: ghlError } = await supabase
         .from('ghl_accounts')
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle()
 
+      console.log('GHL account query result:', { ghlAccount, ghlError, userId: user.id })
       setGhlAccount(ghlAccount)
 
       if (ghlAccount) {

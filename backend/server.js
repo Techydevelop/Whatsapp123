@@ -151,43 +151,18 @@ app.get('/oauth/callback', async (req, res) => {
       userId: tokenData.userId 
     });
 
-    // Determine target user ID
+    // Use state as target user ID (passed from frontend)
     let targetUserId = null;
     if (state) {
       try {
         targetUserId = decodeURIComponent(state);
+        console.log('Using target user ID from state:', targetUserId);
       } catch (e) {
         console.error('Error decoding state:', e);
+        return res.status(400).json({ error: 'Invalid state parameter' });
       }
-    }
-
-    // If no target user, try to find existing GHL account for this company
-    if (!targetUserId) {
-      const { data: existingAccount } = await supabaseAdmin
-        .from('ghl_accounts')
-        .select('user_id')
-        .eq('company_id', tokenData.companyId)
-        .maybeSingle();
-      
-      if (existingAccount) {
-        targetUserId = existingAccount.user_id;
-        console.log('Found existing GHL account for company:', targetUserId);
-      } else {
-        // Create a service user for this GHL account
-        const { data: serviceUser, error: userError } = await supabaseAdmin.auth.admin.createUser({
-          email: `ghl-${tokenData.companyId}@service.local`,
-          password: Math.random().toString(36),
-          email_confirm: true
-        });
-        
-        if (userError) {
-          console.error('Error creating service user:', userError);
-          return res.status(500).json({ error: 'Failed to create user account' });
-        }
-        
-        targetUserId = serviceUser.user.id;
-        console.log('Created service user for GHL account:', targetUserId);
-      }
+    } else {
+      return res.status(400).json({ error: 'State parameter missing - user ID required' });
     }
 
     // Store GHL account information - use locationId from token response
