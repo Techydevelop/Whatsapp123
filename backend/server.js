@@ -101,15 +101,15 @@ app.get('/oauth/callback', async (req, res) => {
   try {
     const { code, state, locationId } = req.query;
     
-    console.log('OAuth Callback received:', { code: !!code, locationId, state });
+    console.log('OAuth Callback received - ALL PARAMS:', req.query);
+    console.log('Specific params:', { code: !!code, locationId, state });
 
     if (!code) {
       return res.status(400).json({ error: 'Authorization code not provided' });
     }
 
-    if (!locationId) {
-      return res.status(400).json({ error: 'Location ID not provided. Please select a subaccount during OAuth flow.' });
-    }
+    // Don't require locationId in query - GHL may provide it in token response
+    console.log('Proceeding with token exchange...');
 
     // Exchange code for access token
     const tokenResponse = await fetch('https://services.leadconnectorhq.com/oauth/token', {
@@ -190,7 +190,10 @@ app.get('/oauth/callback', async (req, res) => {
       }
     }
 
-    // Store GHL account information
+    // Store GHL account information - use locationId from token response
+    const finalLocationId = tokenData.locationId || locationId;
+    console.log('Using location ID:', finalLocationId);
+    
     const { error: ghlError } = await supabaseAdmin
       .from('ghl_accounts')
       .upsert({
@@ -198,7 +201,7 @@ app.get('/oauth/callback', async (req, res) => {
         company_id: tokenData.companyId,
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token,
-        location_id: locationId,
+        location_id: finalLocationId,
         expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString()
       });
 
