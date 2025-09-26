@@ -79,6 +79,7 @@ class WhatsAppManager {
             // Add event handlers
             client.on('ready', () => {
               console.log(`✅ WhatsApp client restored and ready: ${sessionName}`);
+              console.log(`Client info after ready:`, client.info);
             });
 
             client.on('disconnected', (reason) => {
@@ -86,27 +87,28 @@ class WhatsAppManager {
               this.clients.delete(sessionName);
             });
 
-            // Store client
+            client.on('auth_failure', (msg) => {
+              console.error(`❌ Restored client auth failure: ${sessionName}`, msg);
+            });
+
+            client.on('change_state', (state) => {
+              console.log(`🔄 Restored client state change: ${sessionName} -> ${state}`);
+            });
+
+            // Store client immediately
             this.clients.set(sessionName, client);
-            console.log(`✅ Client restored: ${sessionName}`);
+            console.log(`✅ Client stored: ${sessionName}`);
             
-            // Initialize client with timeout
+            // Initialize client with proper error handling
             console.log(`🔄 Initializing restored client: ${sessionName}`);
             client.initialize().then(() => {
               console.log(`✅ Client initialized successfully: ${sessionName}`);
+              console.log(`Client state after init:`, client.state);
+              console.log(`Client info after init:`, client.info);
             }).catch(error => {
               console.error(`❌ Failed to initialize restored client ${sessionName}:`, error);
               this.clients.delete(sessionName);
             });
-            
-            // Add timeout for initialization
-            setTimeout(() => {
-              if (!client.info || !client.info.wid) {
-                console.log(`⏰ Client initialization timeout for ${sessionName}`);
-                console.log(`Client state:`, client.state);
-                console.log(`Client info:`, client.info);
-              }
-            }, 30000); // 30 seconds timeout
             
           } catch (error) {
             console.error(`❌ Failed to restore client for session ${session.id}:`, error);
@@ -114,6 +116,15 @@ class WhatsAppManager {
         }
         
         console.log(`🎉 Restored ${this.clients.size} WhatsApp clients`);
+        
+        // Wait for clients to initialize
+        setTimeout(() => {
+          console.log(`📊 Client status after 10 seconds:`);
+          for (const [key, client] of this.clients) {
+            console.log(`Client ${key}: state=${client.state}, info=${client.info ? 'available' : 'undefined'}`);
+          }
+        }, 10000);
+        
       } else {
         console.log('📱 No ready sessions found to restore');
       }
