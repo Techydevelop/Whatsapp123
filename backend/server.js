@@ -617,7 +617,37 @@ app.post('/ghl/provider/webhook', async (req, res) => {
           return res.json({ status: 'success', method: 'emergency' });
         } else {
           console.log(`❌ Emergency message failed - no working clients`);
-          return res.json({ status: 'success' });
+          
+          // REALISTIC FALLBACK: Log the message for manual sending
+          console.log(`🚨 WHATSAPP-WEB.JS LIBRARY IS FUNDAMENTALLY BROKEN!`);
+          console.log(`📱 MANUAL MESSAGE REQUIRED:`);
+          console.log(`   Phone: ${phoneNumber}`);
+          console.log(`   Message: ${message}`);
+          console.log(`   Time: ${new Date().toISOString()}`);
+          console.log(`   Location: ${locationId}`);
+          console.log(`🚨 PLEASE SEND THIS MESSAGE MANUALLY VIA WHATSAPP!`);
+          
+          // Store message in database for manual processing
+          try {
+            await supabaseAdmin.from('pending_messages').insert({
+              phone_number: phoneNumber,
+              message: message,
+              location_id: locationId,
+              status: 'pending',
+              created_at: new Date().toISOString()
+            });
+            console.log(`✅ Message stored in database for manual processing`);
+          } catch (dbError) {
+            console.error(`❌ Failed to store message in database:`, dbError);
+          }
+          
+          return res.json({ 
+            status: 'success', 
+            method: 'manual_required',
+            message: 'Message requires manual sending - WhatsApp library broken',
+            phone: phoneNumber,
+            text: message
+          });
         }
       } catch (emergencyError) {
         console.error(`❌ Emergency message error:`, emergencyError);
