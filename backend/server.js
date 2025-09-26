@@ -393,15 +393,6 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     res.json({ status: 'success' });
   }
 });
-          
-          if (contact && contact.phone) {
-            console.log(`Forwarding message to WhatsApp: ${contact.phone} - ${message}`);
-            await altClient.sendMessage(contact.phone, message);
-            console.log('Message forwarded to WhatsApp successfully');
-            return res.json({ status: 'success' });
-          } else {
-            console.log(`No phone number found for contact: ${contactId}`);
-            console.log(`Contact data:`, contact);
             
             // Try using phone from webhook payload
             if (req.body.phone) {
