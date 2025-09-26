@@ -81,7 +81,7 @@ const requireAuth = async (req, res, next) => {
 
     const token = authHeader.split(' ')[1];
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
-
+    
     if (error || !user) {
       return res.status(401).json({ error: 'Invalid token' });
     }
@@ -102,7 +102,7 @@ app.get('/health', (req, res) => {
 // GHL OAuth Routes
 app.get('/auth/ghl/connect', (req, res) => {
   const authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`;
-  res.redirect(authUrl);
+    res.redirect(authUrl);
 });
 
 // OAuth callback - handles GHL OAuth 2.0 flow
@@ -112,7 +112,7 @@ app.get('/oauth/callback', async (req, res) => {
     
     console.log('OAuth Callback received - ALL PARAMS:', req.query);
     console.log('Specific params:', { code: !!code, locationId, state });
-
+    
     if (!code) {
       return res.status(400).json({ error: 'Authorization code not provided' });
     }
@@ -123,9 +123,9 @@ app.get('/oauth/callback', async (req, res) => {
     // Exchange code for access token
     const tokenResponse = await fetch('https://services.leadconnectorhq.com/oauth/token', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json'
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
       },
       body: new URLSearchParams({
         client_id: GHL_CLIENT_ID,
@@ -170,7 +170,7 @@ app.get('/oauth/callback', async (req, res) => {
         console.error('Error decoding state:', e);
         return res.status(400).json({ error: 'Invalid state parameter' });
       }
-    } else {
+      } else {
       return res.status(400).json({ error: 'State parameter missing - user ID required' });
     }
 
@@ -197,7 +197,7 @@ app.get('/oauth/callback', async (req, res) => {
     console.log('GHL account stored successfully');
     const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
     res.redirect(`${frontendUrl}/dashboard?ghl=connected`);
-
+    
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.status(500).json({ error: 'OAuth callback failed' });
@@ -252,15 +252,15 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
 
     // Create subaccount
     const { data: newSubaccount, error: subaccountError } = await supabaseAdmin
-      .from('subaccounts')
+        .from('subaccounts')
       .insert({
         user_id: user.id,
         ghl_location_id,
         name: name || `Location ${ghl_location_id}`,
         status: 'pending_oauth'
-      })
-      .select()
-      .single();
+        })
+        .select()
+        .single();
 
     if (subaccountError) {
       console.error('Error creating subaccount:', subaccountError);
@@ -325,12 +325,12 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       .select('*')
       .eq('location_id', locationId)
       .maybeSingle();
-    
+
     if (!ghlAccount) {
       console.log(`GHL account not found for location: ${locationId}`);
       return res.json({ status: 'success' });
     }
-    
+
     // Find active WhatsApp session
     const { data: session } = await supabaseAdmin
       .from('sessions')
@@ -351,9 +351,34 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanLocationId}_${cleanSessionId}`;
     
+    console.log(`Looking for WhatsApp client with key: ${clientKey}`);
+    console.log(`Available clients:`, waManager.getAllClients().map(([key]) => key));
+    
     const client = waManager.getClient(clientKey);
     if (!client) {
       console.log(`WhatsApp client not found for key: ${clientKey}`);
+      console.log(`Trying to find any client for location: ${locationId}`);
+      
+      // Try to find any client for this location
+      const allClients = waManager.getAllClients().map(([key]) => key);
+      const locationClient = allClients.find(key => key.includes(cleanLocationId));
+      
+      if (locationClient) {
+        console.log(`Found alternative client: ${locationClient}`);
+        const altClient = waManager.getClient(locationClient);
+        if (altClient) {
+          console.log(`Using alternative client for message sending`);
+          // Use alternative client
+          const contact = await ghlClient.getContact(contactId);
+          if (contact && contact.phone) {
+            console.log(`Forwarding message to WhatsApp: ${contact.phone} - ${message}`);
+            await altClient.sendMessage(contact.phone, message);
+            console.log('Message forwarded to WhatsApp successfully');
+            return res.json({ status: 'success' });
+          }
+        }
+      }
+      
       return res.json({ status: 'success' });
     }
     
@@ -939,8 +964,8 @@ app.get('/admin/ghl/account-status', async (req, res) => {
       .maybeSingle();
       
     console.log('Account status check:', { userId, ghlAccount: !!ghlAccount, error: ghlError });
-    
-    res.json({
+
+    res.json({ 
       account: ghlAccount,
       error: ghlError,
       connected: !!ghlAccount
@@ -979,7 +1004,7 @@ app.get('/admin/ghl/locations', async (req, res) => {
       .select('access_token, location_id')
       .eq('user_id', userId)
       .single();
-      
+
     if (ghlError || !ghlAccount) {
       console.error('GHL account lookup error:', ghlError);
       return res.status(404).json({ error: 'GHL account not found. Please connect your GHL account first.' });
@@ -1007,7 +1032,7 @@ app.get('/admin/ghl/locations', async (req, res) => {
       if (ghlResponse.ok) {
         const ghlData = await ghlResponse.json();
         return res.json(ghlData);
-      } else {
+    } else {
         // Fallback to single location if API call fails
         return res.json({
           locations: [{
@@ -1025,7 +1050,7 @@ app.get('/admin/ghl/locations', async (req, res) => {
         }]
       });
     }
-    
+
   } catch (error) {
     console.error('Error fetching GHL locations:', error);
     res.status(500).json({ error: 'Failed to fetch locations', details: error.message });
@@ -1057,7 +1082,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       // Fallback: use any GHL account if location_id doesn't match
       const { data: anyAccount } = await supabaseAdmin
         .from('ghl_accounts')
-        .select('*')
+      .select('*')
         .limit(1)
         .maybeSingle();
       
@@ -1125,7 +1150,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       .select('*')
       .eq('id', session.id)
       .single();
-    
+
     if (verifyError) {
       console.error('Session verification failed:', verifyError);
     } else {
@@ -1149,6 +1174,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       }
     }, 120000); // 120 seconds timeout (2 minutes for WhatsApp connection)
 
+    console.log(`Creating WhatsApp client with sessionName: ${sessionName}`);
     const client = waManager.createClient(
       sessionName, // Use location-specific session name
       async (qrValue) => {
@@ -1181,6 +1207,8 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
             console.error('Ready update failed:', readyUpdateError);
           } else {
             console.log(`WhatsApp connected and saved for location ${locationId}:`, info.wid.user);
+            console.log(`Client stored with sessionName: ${sessionName}`);
+            console.log(`Available clients after connection:`, waManager.getAllClients().map(([key]) => key));
           }
         } catch (e) {
           console.error('Session ready update error:', e);
@@ -1333,6 +1361,61 @@ app.post('/ghl/provider/messages', async (req, res) => {
   } catch (error) {
     console.error('Send message error:', error);
     res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// Debug endpoint to check WhatsApp clients
+app.get('/debug/whatsapp-clients', (req, res) => {
+  try {
+    const clients = waManager.getAllClients();
+    const clientInfo = clients.map(([key, client]) => ({
+      sessionKey: key,
+      isReady: client.info ? true : false,
+      phoneNumber: client.info?.wid?.user || 'Not connected',
+      state: client.state || 'Unknown'
+    }));
+    
+    res.json({
+      totalClients: clients.length,
+      clients: clientInfo,
+      availableKeys: clients.map(([key]) => key)
+    });
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({ error: 'Failed to get client info' });
+  }
+});
+
+// Test message sending endpoint
+app.post('/debug/send-message', async (req, res) => {
+  try {
+    const { phoneNumber, message } = req.body;
+    
+    if (!phoneNumber || !message) {
+      return res.status(400).json({ error: 'Phone number and message required' });
+    }
+    
+    const clients = waManager.getAllClients();
+    
+    if (clients.length === 0) {
+      return res.status(404).json({ error: 'No WhatsApp clients available' });
+    }
+    
+    const [sessionKey, client] = clients[0];
+    console.log(`Sending test message using client: ${sessionKey}`);
+    
+    await client.sendMessage(phoneNumber, message);
+    
+    res.json({
+      success: true,
+      message: 'Message sent successfully',
+      sessionKey,
+      phoneNumber,
+      message
+    });
+  } catch (error) {
+    console.error('Test message error:', error);
+    res.status(500).json({ error: 'Failed to send message', details: error.message });
   }
 });
 
