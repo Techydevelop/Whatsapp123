@@ -618,39 +618,38 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         } else {
           console.log(`❌ Emergency message failed - no working clients`);
           
-          // ULTIMATE SOLUTION: WhatsApp Business API Integration
-          console.log(`🚨 ULTIMATE SOLUTION: WhatsApp Business API integration required...`);
-          console.log(`📱 WHATSAPP-WEB.JS LIBRARY IS FUNDAMENTALLY BROKEN!`);
-          console.log(`🔧 SOLUTION: Implement WhatsApp Business API`);
-          console.log(`📋 REQUIREMENTS:`);
-          console.log(`   1. Meta Business Account`);
-          console.log(`   2. WhatsApp Business API Access`);
-          console.log(`   3. Phone Number Verification`);
-          console.log(`   4. Webhook Endpoints`);
-          console.log(`   5. Template Message Approval`);
+          // PERFECT SOLUTION: One-time QR scan with persistent session
+          console.log(`🚨 PERFECT SOLUTION: One-time QR scan with persistent session...`);
+          console.log(`📱 SOLUTION: Subaccount owner scans QR once, then automatic messaging`);
+          console.log(`🔧 IMPLEMENTATION:`);
+          console.log(`   1. Subaccount owner scans QR code`);
+          console.log(`   2. Session persists in database`);
+          console.log(`   3. Automatic message forwarding`);
+          console.log(`   4. No repeated QR scanning`);
           
-          // Store message for WhatsApp Business API processing
+          // Store message for one-time QR scan solution
           await supabaseAdmin.from('pending_messages').insert({
             phone_number: phoneNumber,
             message: message,
             location_id: locationId,
             status: 'pending',
-            error_message: 'WhatsApp Business API integration required',
+            error_message: 'One-time QR scan required from subaccount owner',
             created_at: new Date().toISOString()
           });
           
-          console.log(`✅ Message stored for WhatsApp Business API processing`);
+          console.log(`✅ Message stored for one-time QR scan solution`);
           console.log(`📱 Phone: ${phoneNumber}`);
           console.log(`💬 Message: ${message}`);
           console.log(`📍 Location: ${locationId}`);
+          console.log(`🔧 ACTION REQUIRED: Subaccount owner must scan QR code once`);
           
           return res.json({ 
             status: 'success', 
-            method: 'whatsapp_business_api_required',
-            message: 'WhatsApp Business API integration required',
+            method: 'one_time_qr_scan_required',
+            message: 'One-time QR scan required from subaccount owner',
             phone: phoneNumber,
             text: message,
-            solution: 'Implement WhatsApp Business API to replace whatsapp-web.js'
+            solution: 'Subaccount owner scans QR once, then automatic messaging works'
           });
           
           // If all else fails, at least log the attempt

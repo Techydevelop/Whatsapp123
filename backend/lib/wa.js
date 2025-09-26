@@ -66,8 +66,6 @@ class WhatsAppManager {
           '--disable-renderer-backgrounding',
           '--disable-extensions',
           '--disable-plugins',
-          '--disable-images',
-          '--disable-javascript',
           '--disable-default-apps',
           '--disable-sync',
           '--disable-translate',
@@ -84,20 +82,21 @@ class WhatsAppManager {
           '--disable-client-side-phishing-detection',
           '--disable-component-extensions-with-background-pages',
           '--disable-background-networking',
+          '--disable-ipc-flooding-protection',
+          '--memory-pressure-off',
+          '--max_old_space_size=4096',
+          '--user-data-dir=/tmp/whatsapp-session',
+          '--profile-directory=Default',
           '--disable-background-timer-throttling',
           '--disable-renderer-backgrounding',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-ipc-flooding-protection',
-          '--single-process',
-          '--memory-pressure-off',
-          '--max_old_space_size=4096'
+          '--disable-backgrounding-occluded-windows'
         ],
         webVersionCache: {
           type: 'remote',
           remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
         },
-        timeout: 60000,
-        protocolTimeout: 60000
+        timeout: 120000,
+        protocolTimeout: 120000
       },
               restartOnAuthFail: true,
               takeoverOnConflict: true,
