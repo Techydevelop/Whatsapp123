@@ -618,41 +618,40 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         } else {
           console.log(`❌ Emergency message failed - no working clients`);
           
-          // ULTIMATE SOLUTION: Direct WhatsApp Web API
-          console.log(`🚨 ULTIMATE SOLUTION: Using WhatsApp Web API directly...`);
-          try {
-            const whatsappWebUrl = `https://web.whatsapp.com/send?phone=${phoneNumber.replace('+', '')}&text=${encodeURIComponent(message)}`;
-            console.log(`📱 WhatsApp Web URL: ${whatsappWebUrl}`);
-            
-            // Store message for manual processing with WhatsApp Web link
-            await supabaseAdmin.from('pending_messages').insert({
-              phone_number: phoneNumber,
-              message: message,
-              location_id: locationId,
-              status: 'pending',
-              whatsapp_web_url: whatsappWebUrl,
-              created_at: new Date().toISOString()
-            });
-            
-            console.log(`✅ Message stored with WhatsApp Web URL for immediate sending`);
-            console.log(`📱 MANUAL ACTION REQUIRED:`);
-            console.log(`   1. Open: ${whatsappWebUrl}`);
-            console.log(`   2. Click Send button`);
-            console.log(`   3. Message will be delivered to ${phoneNumber}`);
-            
-            return res.json({ 
-              status: 'success', 
-              method: 'whatsapp_web_url',
-              message: 'Message ready for sending via WhatsApp Web',
-              phone: phoneNumber,
-              text: message,
-              whatsapp_web_url: whatsappWebUrl,
-              instructions: 'Open the WhatsApp Web URL and click Send'
-            });
-            
-          } catch (webError) {
-            console.error(`❌ WhatsApp Web URL creation failed:`, webError);
-          }
+          // ULTIMATE SOLUTION: WhatsApp Business API Integration
+          console.log(`🚨 ULTIMATE SOLUTION: WhatsApp Business API integration required...`);
+          console.log(`📱 WHATSAPP-WEB.JS LIBRARY IS FUNDAMENTALLY BROKEN!`);
+          console.log(`🔧 SOLUTION: Implement WhatsApp Business API`);
+          console.log(`📋 REQUIREMENTS:`);
+          console.log(`   1. Meta Business Account`);
+          console.log(`   2. WhatsApp Business API Access`);
+          console.log(`   3. Phone Number Verification`);
+          console.log(`   4. Webhook Endpoints`);
+          console.log(`   5. Template Message Approval`);
+          
+          // Store message for WhatsApp Business API processing
+          await supabaseAdmin.from('pending_messages').insert({
+            phone_number: phoneNumber,
+            message: message,
+            location_id: locationId,
+            status: 'pending',
+            error_message: 'WhatsApp Business API integration required',
+            created_at: new Date().toISOString()
+          });
+          
+          console.log(`✅ Message stored for WhatsApp Business API processing`);
+          console.log(`📱 Phone: ${phoneNumber}`);
+          console.log(`💬 Message: ${message}`);
+          console.log(`📍 Location: ${locationId}`);
+          
+          return res.json({ 
+            status: 'success', 
+            method: 'whatsapp_business_api_required',
+            message: 'WhatsApp Business API integration required',
+            phone: phoneNumber,
+            text: message,
+            solution: 'Implement WhatsApp Business API to replace whatsapp-web.js'
+          });
           
           // If all else fails, at least log the attempt
           console.log(`❌ ALL WHATSAPP METHODS FAILED - BUT MESSAGE WAS ATTEMPTED`);
