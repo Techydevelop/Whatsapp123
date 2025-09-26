@@ -351,22 +351,42 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client
+    // Get WhatsApp client - try multiple key formats
     const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
     const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const clientKey = `location_${cleanLocationId}_${cleanSessionId}`;
+    const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
     
-    console.log(`Looking for WhatsApp client with key: ${clientKey}`);
+    // Try different key formats
+    const possibleKeys = [
+      `location_${cleanLocationId}_${cleanSessionId}`,
+      `location_${cleanSubaccountId}_${cleanSessionId}`,
+      `location_${cleanLocationId}_${cleanSubaccountId}`,
+      `location_${cleanSubaccountId}_${cleanSubaccountId}`
+    ];
+    
+    console.log(`Looking for WhatsApp client with possible keys:`, possibleKeys);
     console.log(`Available clients:`, waManager.getAllClients().map(([key]) => key));
     
-    const client = waManager.getClient(clientKey);
+    let client = null;
+    let usedKey = null;
+    
+    // Try each possible key
+    for (const key of possibleKeys) {
+      client = waManager.getClient(key);
+      if (client) {
+        usedKey = key;
+        console.log(`✅ Found client with key: ${key}`);
+        break;
+      }
+    }
+    
     if (!client) {
-      console.log(`WhatsApp client not found for key: ${clientKey}`);
+      console.log(`❌ WhatsApp client not found for any key`);
       console.log(`Trying to find any client for location: ${locationId}`);
       
       // Try to find any client for this location
       const allClients = waManager.getAllClients().map(([key]) => key);
-      const locationClient = allClients.find(key => key.includes(cleanLocationId));
+      const locationClient = allClients.find(key => key.includes(cleanLocationId) || key.includes(cleanSubaccountId));
       
       if (locationClient) {
         console.log(`Found alternative client: ${locationClient}`);
@@ -1162,9 +1182,9 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       console.log('Session verified in database:', verifySession);
     }
 
-    // Create WhatsApp client with location-specific session name (clean format)
-    const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const sessionName = `location_${cleanLocationId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    // Create WhatsApp client with subaccount-specific session name (clean format)
+    const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sessionName = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
     // Add timeout for WhatsApp client initialization
     const initTimeout = setTimeout(async () => {
