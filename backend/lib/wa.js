@@ -90,6 +90,12 @@ class WhatsAppManager {
             this.clients.set(sessionName, client);
             console.log(`✅ Client restored: ${sessionName}`);
             
+            // Initialize client
+            client.initialize().catch(error => {
+              console.error(`❌ Failed to initialize restored client ${sessionName}:`, error);
+              this.clients.delete(sessionName);
+            });
+            
           } catch (error) {
             console.error(`❌ Failed to restore client for session ${session.id}:`, error);
           }

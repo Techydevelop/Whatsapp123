@@ -410,9 +410,22 @@ app.post('/ghl/provider/webhook', async (req, res) => {
             // Try using phone from webhook payload
             if (req.body.phone) {
               console.log(`Using phone from webhook payload: ${req.body.phone}`);
-              await altClient.sendMessage(req.body.phone, message);
-              console.log('Message forwarded to WhatsApp using webhook phone');
-              return res.json({ status: 'success' });
+              
+              // Check if alternative client is ready
+              if (!altClient.info || !altClient.info.wid) {
+                console.log(`❌ Alternative WhatsApp client not ready. Client info:`, altClient.info);
+                return res.json({ status: 'success' });
+              }
+              
+              try {
+                await altClient.sendMessage(req.body.phone, message);
+                console.log('Message forwarded to WhatsApp using webhook phone');
+                return res.json({ status: 'success' });
+              } catch (sendError) {
+                console.error('Error sending WhatsApp message via alternative client:', sendError);
+                console.log(`Alternative client state:`, altClient.state);
+                console.log(`Alternative client info:`, altClient.info);
+              }
             }
           }
         }
@@ -441,11 +454,26 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
+    // Check if client is ready before sending
+    if (!client.info || !client.info.wid) {
+      console.log(`❌ WhatsApp client not ready. Client info:`, client.info);
+      return res.json({ status: 'success' });
+    }
+    
     // Send message via WhatsApp
     console.log(`Forwarding message to WhatsApp: ${phoneNumber} - ${message}`);
-    await client.sendMessage(phoneNumber, message);
+    console.log(`Client state:`, client.state);
+    console.log(`Client info:`, client.info);
     
-    console.log('Message forwarded to WhatsApp successfully');
+    try {
+      await client.sendMessage(phoneNumber, message);
+      console.log('Message forwarded to WhatsApp successfully');
+    } catch (sendError) {
+      console.error('Error sending WhatsApp message:', sendError);
+      console.log(`Client state after error:`, client.state);
+      console.log(`Client info after error:`, client.info);
+    }
+    
     res.json({ status: 'success' });
     
   } catch (error) {
