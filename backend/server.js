@@ -351,52 +351,48 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client - try multiple key formats
+    // Get WhatsApp client
     const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
     const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const clientKey = `location_${cleanLocationId}_${cleanSessionId}`;
     
-    // Try different key formats
-    const possibleKeys = [
-      `location_${cleanLocationId}_${cleanSessionId}`,
-      `location_${cleanSubaccountId}_${cleanSessionId}`,
-      `location_${cleanLocationId}_${cleanSubaccountId}`,
-      `location_${cleanSubaccountId}_${cleanSubaccountId}`
-    ];
-    
-    console.log(`Looking for WhatsApp client with possible keys:`, possibleKeys);
-    console.log(`Available clients:`, waManager.getAllClients().map(([key]) => key));
-    
-    let client = null;
-    let usedKey = null;
-    
-    // Try each possible key
-    for (const key of possibleKeys) {
-      client = waManager.getClient(key);
-      if (client) {
-        usedKey = key;
-        console.log(`✅ Found client with key: ${key}`);
-        break;
-      }
-    }
+    console.log(`Looking for WhatsApp client with key: ${clientKey}`);
+    const client = waManager.getClient(clientKey);
     
     if (!client) {
-      console.log(`❌ WhatsApp client not found for any key`);
-      console.log(`Trying to find any client for location: ${locationId}`);
-      
-      // Try to find any client for this location
-      const allClients = waManager.getAllClients().map(([key]) => key);
-      const locationClient = allClients.find(key => key.includes(cleanLocationId) || key.includes(cleanSubaccountId));
-      
-      if (locationClient) {
-        console.log(`Found alternative client: ${locationClient}`);
-        const altClient = waManager.getClient(locationClient);
-        if (altClient) {
-          console.log(`Using alternative client for message sending`);
-          // Use alternative client
-          console.log(`Getting contact details for contactId: ${contactId}`);
-          const contact = await ghlClient.getContact(contactId);
-          console.log(`Contact details:`, contact);
+      console.log(`❌ WhatsApp client not found for key: ${clientKey}`);
+      return res.json({ status: 'success' });
+    }
+    
+    // Get phone number
+    let phoneNumber = null;
+    if (req.body.phone) {
+      phoneNumber = req.body.phone;
+    } else {
+      console.log(`No phone number found`);
+      return res.json({ status: 'success' });
+    }
+    
+    // Check if client is ready
+    if (!client.info || !client.info.wid) {
+      console.log(`❌ WhatsApp client not ready`);
+      return res.json({ status: 'success' });
+    }
+    
+    // Send message
+    try {
+      await client.sendMessage(phoneNumber, message);
+      console.log('Message sent successfully');
+    } catch (sendError) {
+      console.error('Error sending message:', sendError);
+    }
+    
+    res.json({ status: 'success' });
+  } catch (error) {
+    console.error('Webhook processing error:', error);
+    res.json({ status: 'success' });
+  }
+});
           
           if (contact && contact.phone) {
             console.log(`Forwarding message to WhatsApp: ${contact.phone} - ${message}`);
