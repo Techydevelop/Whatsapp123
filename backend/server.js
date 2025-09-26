@@ -417,24 +417,45 @@ app.post('/ghl/provider/webhook', async (req, res) => {
                 console.log(`Alternative client state:`, altClient.state);
                 console.log(`Skipping reinitialization due to compatibility issues`);
                 
-                // Use emergency endpoint instead
-                console.log(`🚨 Redirecting to emergency message sending...`);
+                // Direct emergency message sending without API call
+                console.log(`🚨 Direct emergency message sending...`);
                 try {
-                  const emergencyResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/emergency/send-message`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      phoneNumber: req.body.phone,
-                      message: message,
-                      locationId: locationId
-                    })
-                  });
+                  // Try to find any available client
+                  const clients = waManager.getAllClients();
+                  let messageSent = false;
                   
-                  if (emergencyResponse.ok) {
+                  if (clients.length > 0) {
+                    console.log(`Found ${clients.length} available clients for emergency sending`);
+                    
+                    for (const [sessionKey, client] of clients) {
+                      try {
+                        console.log(`Emergency trying client: ${sessionKey}`);
+                        console.log(`Emergency client state:`, client.state);
+                        console.log(`Emergency client info:`, client.info);
+                        
+                        if (client.info && client.info.wid) {
+                          console.log(`Emergency client ready, sending message...`);
+                          await client.sendMessage(req.body.phone, message);
+                          console.log(`✅ Emergency message sent successfully via client: ${sessionKey}`);
+                          messageSent = true;
+                          break;
+                        } else {
+                          console.log(`Emergency client not ready, skipping: ${sessionKey}`);
+                        }
+                      } catch (clientError) {
+                        console.error(`Emergency error with client ${sessionKey}:`, clientError);
+                        continue;
+                      }
+                    }
+                  } else {
+                    console.log(`No clients available for emergency sending`);
+                  }
+                  
+                  if (messageSent) {
                     console.log(`✅ Emergency message sent successfully`);
                     return res.json({ status: 'success', method: 'emergency' });
                   } else {
-                    console.log(`❌ Emergency message failed`);
+                    console.log(`❌ Emergency message failed - no working clients`);
                     return res.json({ status: 'success' });
                   }
                 } catch (emergencyError) {
@@ -486,24 +507,45 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       console.log(`Client state:`, client.state);
       console.log(`Skipping reinitialization due to compatibility issues`);
       
-      // Use emergency endpoint instead
-      console.log(`🚨 Redirecting to emergency message sending...`);
+      // Direct emergency message sending without API call
+      console.log(`🚨 Direct emergency message sending...`);
       try {
-        const emergencyResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/emergency/send-message`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phoneNumber: phoneNumber,
-            message: message,
-            locationId: locationId
-          })
-        });
+        // Try to find any available client
+        const clients = waManager.getAllClients();
+        let messageSent = false;
         
-        if (emergencyResponse.ok) {
+        if (clients.length > 0) {
+          console.log(`Found ${clients.length} available clients for emergency sending`);
+          
+          for (const [sessionKey, client] of clients) {
+            try {
+              console.log(`Emergency trying client: ${sessionKey}`);
+              console.log(`Emergency client state:`, client.state);
+              console.log(`Emergency client info:`, client.info);
+              
+              if (client.info && client.info.wid) {
+                console.log(`Emergency client ready, sending message...`);
+                await client.sendMessage(phoneNumber, message);
+                console.log(`✅ Emergency message sent successfully via client: ${sessionKey}`);
+                messageSent = true;
+                break;
+              } else {
+                console.log(`Emergency client not ready, skipping: ${sessionKey}`);
+              }
+            } catch (clientError) {
+              console.error(`Emergency error with client ${sessionKey}:`, clientError);
+              continue;
+            }
+          }
+        } else {
+          console.log(`No clients available for emergency sending`);
+        }
+        
+        if (messageSent) {
           console.log(`✅ Emergency message sent successfully`);
           return res.json({ status: 'success', method: 'emergency' });
         } else {
-          console.log(`❌ Emergency message failed`);
+          console.log(`❌ Emergency message failed - no working clients`);
           return res.json({ status: 'success' });
         }
       } catch (emergencyError) {
