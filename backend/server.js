@@ -1560,54 +1560,56 @@ app.post('/emergency/send-message', async (req, res) => {
     
     console.log(`🚨 Emergency message sending to: ${phoneNumber}`);
     
-    // Try to find any available client
+    // Direct message sending without client dependency
+    console.log(`🚨 Direct emergency message sending to: ${phoneNumber}`);
+    
+    // Try to find any available client first
     const clients = waManager.getAllClients();
-    let client = null;
-    let sessionKey = null;
+    let messageSent = false;
     
     if (clients.length > 0) {
-      [sessionKey, client] = clients[0];
-      console.log(`Using existing client: ${sessionKey}`);
+      console.log(`Found ${clients.length} available clients`);
+      
+      for (const [sessionKey, client] of clients) {
+        try {
+          console.log(`Trying client: ${sessionKey}`);
+          console.log(`Client state:`, client.state);
+          console.log(`Client info:`, client.info);
+          
+          if (client.info && client.info.wid) {
+            console.log(`Client ready, sending message...`);
+            await client.sendMessage(phoneNumber, message);
+            console.log(`✅ Message sent successfully via client: ${sessionKey}`);
+            messageSent = true;
+            break;
+          } else {
+            console.log(`Client not ready, skipping: ${sessionKey}`);
+          }
+        } catch (clientError) {
+          console.error(`Error with client ${sessionKey}:`, clientError);
+          continue;
+        }
+      }
     } else {
-      console.log(`No clients available, creating emergency client...`);
-      
-      // Create emergency client
-      const emergencySessionId = `emergency_${Date.now()}`;
-      sessionKey = emergencySessionId;
-      
-      client = waManager.createClient(
-        sessionKey,
-        (qr) => console.log('Emergency QR generated'),
-        (info) => console.log('Emergency client ready:', info.wid.user),
-        (reason) => console.log('Emergency client disconnected:', reason)
-      );
-      
-      console.log(`Emergency client created: ${sessionKey}`);
+      console.log(`No clients available`);
     }
     
-    // Wait for client to be ready
-    let attempts = 0;
-    while ((!client.info || !client.info.wid) && attempts < 10) {
-      console.log(`Waiting for client to be ready... attempt ${attempts + 1}`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      attempts++;
+    if (!messageSent) {
+      console.log(`❌ No working clients found, message not sent`);
+      return res.status(500).json({ 
+        error: 'No working WhatsApp clients available',
+        phoneNumber,
+        message,
+        availableClients: clients.length
+      });
     }
-    
-    if (!client.info || !client.info.wid) {
-      return res.status(500).json({ error: 'Client not ready after waiting' });
-    }
-    
-    // Send message
-    console.log(`Sending emergency message to: ${phoneNumber}`);
-    await client.sendMessage(phoneNumber, message);
     
     res.json({
       success: true,
       message: 'Emergency message sent successfully',
-      sessionKey,
       phoneNumber,
       message,
-      clientInfo: client.info
+      availableClients: clients.length
     });
     
   } catch (error) {
