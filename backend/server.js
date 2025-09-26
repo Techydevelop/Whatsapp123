@@ -394,12 +394,26 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         if (altClient) {
           console.log(`Using alternative client for message sending`);
           // Use alternative client
+          console.log(`Getting contact details for contactId: ${contactId}`);
           const contact = await ghlClient.getContact(contactId);
+          console.log(`Contact details:`, contact);
+          
           if (contact && contact.phone) {
             console.log(`Forwarding message to WhatsApp: ${contact.phone} - ${message}`);
             await altClient.sendMessage(contact.phone, message);
             console.log('Message forwarded to WhatsApp successfully');
             return res.json({ status: 'success' });
+          } else {
+            console.log(`No phone number found for contact: ${contactId}`);
+            console.log(`Contact data:`, contact);
+            
+            // Try using phone from webhook payload
+            if (req.body.phone) {
+              console.log(`Using phone from webhook payload: ${req.body.phone}`);
+              await altClient.sendMessage(req.body.phone, message);
+              console.log('Message forwarded to WhatsApp using webhook phone');
+              return res.json({ status: 'success' });
+            }
           }
         }
       }
@@ -409,16 +423,27 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     // Get contact phone number from GHL
     const ghlClient = new GHLClient(ghlAccount.access_token);
+    console.log(`Getting contact details for contactId: ${contactId}`);
     const contact = await ghlClient.getContact(contactId);
+    console.log(`Contact details:`, contact);
     
-    if (!contact || !contact.phone) {
+    let phoneNumber = null;
+    
+    if (contact && contact.phone) {
+      phoneNumber = contact.phone;
+      console.log(`Using phone from contact: ${phoneNumber}`);
+    } else if (req.body.phone) {
+      phoneNumber = req.body.phone;
+      console.log(`Using phone from webhook payload: ${phoneNumber}`);
+    } else {
       console.log(`No phone number found for contact: ${contactId}`);
+      console.log(`Contact data:`, contact);
       return res.json({ status: 'success' });
     }
     
     // Send message via WhatsApp
-    console.log(`Forwarding message to WhatsApp: ${contact.phone} - ${message}`);
-    await client.sendMessage(contact.phone, message);
+    console.log(`Forwarding message to WhatsApp: ${phoneNumber} - ${message}`);
+    await client.sendMessage(phoneNumber, message);
     
     console.log('Message forwarded to WhatsApp successfully');
     res.json({ status: 'success' });
