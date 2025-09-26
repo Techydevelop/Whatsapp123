@@ -415,20 +415,30 @@ app.post('/ghl/provider/webhook', async (req, res) => {
               if (!altClient.info || !altClient.info.wid) {
                 console.log(`❌ Alternative WhatsApp client not ready. Client info:`, altClient.info);
                 console.log(`Alternative client state:`, altClient.state);
-                console.log(`Attempting to reinitialize alternative client...`);
+                console.log(`Skipping reinitialization due to compatibility issues`);
                 
-                // Try to reinitialize the alternative client
+                // Use emergency endpoint instead
+                console.log(`🚨 Redirecting to emergency message sending...`);
                 try {
-                  await altClient.initialize();
-                  console.log(`✅ Alternative client reinitialized successfully`);
-                } catch (initError) {
-                  console.error(`❌ Failed to reinitialize alternative client:`, initError);
-                  return res.json({ status: 'success' });
-                }
-                
-                // Check again after reinitialization
-                if (!altClient.info || !altClient.info.wid) {
-                  console.log(`❌ Alternative client still not ready after reinitialization`);
+                  const emergencyResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/emergency/send-message`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      phoneNumber: req.body.phone,
+                      message: message,
+                      locationId: locationId
+                    })
+                  });
+                  
+                  if (emergencyResponse.ok) {
+                    console.log(`✅ Emergency message sent successfully`);
+                    return res.json({ status: 'success', method: 'emergency' });
+                  } else {
+                    console.log(`❌ Emergency message failed`);
+                    return res.json({ status: 'success' });
+                  }
+                } catch (emergencyError) {
+                  console.error(`❌ Emergency message error:`, emergencyError);
                   return res.json({ status: 'success' });
                 }
               }
@@ -474,20 +484,30 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     if (!client.info || !client.info.wid) {
       console.log(`❌ WhatsApp client not ready. Client info:`, client.info);
       console.log(`Client state:`, client.state);
-      console.log(`Attempting to reinitialize client...`);
+      console.log(`Skipping reinitialization due to compatibility issues`);
       
-      // Try to reinitialize the client
+      // Use emergency endpoint instead
+      console.log(`🚨 Redirecting to emergency message sending...`);
       try {
-        await client.initialize();
-        console.log(`✅ Client reinitialized successfully`);
-      } catch (initError) {
-        console.error(`❌ Failed to reinitialize client:`, initError);
-        return res.json({ status: 'success' });
-      }
-      
-      // Check again after reinitialization
-      if (!client.info || !client.info.wid) {
-        console.log(`❌ Client still not ready after reinitialization`);
+        const emergencyResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/emergency/send-message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phoneNumber: phoneNumber,
+            message: message,
+            locationId: locationId
+          })
+        });
+        
+        if (emergencyResponse.ok) {
+          console.log(`✅ Emergency message sent successfully`);
+          return res.json({ status: 'success', method: 'emergency' });
+        } else {
+          console.log(`❌ Emergency message failed`);
+          return res.json({ status: 'success' });
+        }
+      } catch (emergencyError) {
+        console.error(`❌ Emergency message error:`, emergencyError);
         return res.json({ status: 'success' });
       }
     }
