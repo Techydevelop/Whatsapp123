@@ -433,14 +433,34 @@ app.post('/ghl/provider/webhook', async (req, res) => {
                         console.log(`Emergency client state:`, client.state);
                         console.log(`Emergency client info:`, client.info);
                         
-                        if (client.info && client.info.wid) {
-                          console.log(`Emergency client ready, sending message...`);
+                        // Try to send message regardless of client state
+                        console.log(`🚨 Attempting to send message regardless of client state...`);
+                        
+                        try {
                           await client.sendMessage(req.body.phone, message);
                           console.log(`✅ Emergency message sent successfully via client: ${sessionKey}`);
                           messageSent = true;
                           break;
-                        } else {
-                          console.log(`Emergency client not ready, skipping: ${sessionKey}`);
+                        } catch (sendError) {
+                          console.error(`Send error with client ${sessionKey}:`, sendError);
+                          
+                          // Try to initialize client if not ready
+                          if (!client.info || !client.info.wid) {
+                            console.log(`🔄 Attempting to initialize client: ${sessionKey}`);
+                            try {
+                              await client.initialize();
+                              console.log(`✅ Client initialized, retrying message...`);
+                              await client.sendMessage(req.body.phone, message);
+                              console.log(`✅ Emergency message sent after initialization: ${sessionKey}`);
+                              messageSent = true;
+                              break;
+                            } catch (initError) {
+                              console.error(`Initialization failed for client ${sessionKey}:`, initError);
+                              continue;
+                            }
+                          } else {
+                            continue;
+                          }
                         }
                       } catch (clientError) {
                         console.error(`Emergency error with client ${sessionKey}:`, clientError);
@@ -523,14 +543,34 @@ app.post('/ghl/provider/webhook', async (req, res) => {
               console.log(`Emergency client state:`, client.state);
               console.log(`Emergency client info:`, client.info);
               
-              if (client.info && client.info.wid) {
-                console.log(`Emergency client ready, sending message...`);
+              // Try to send message regardless of client state
+              console.log(`🚨 Attempting to send message regardless of client state...`);
+              
+              try {
                 await client.sendMessage(phoneNumber, message);
                 console.log(`✅ Emergency message sent successfully via client: ${sessionKey}`);
                 messageSent = true;
                 break;
-              } else {
-                console.log(`Emergency client not ready, skipping: ${sessionKey}`);
+              } catch (sendError) {
+                console.error(`Send error with client ${sessionKey}:`, sendError);
+                
+                // Try to initialize client if not ready
+                if (!client.info || !client.info.wid) {
+                  console.log(`🔄 Attempting to initialize client: ${sessionKey}`);
+                  try {
+                    await client.initialize();
+                    console.log(`✅ Client initialized, retrying message...`);
+                    await client.sendMessage(phoneNumber, message);
+                    console.log(`✅ Emergency message sent after initialization: ${sessionKey}`);
+                    messageSent = true;
+                    break;
+                  } catch (initError) {
+                    console.error(`Initialization failed for client ${sessionKey}:`, initError);
+                    continue;
+                  }
+                } else {
+                  continue;
+                }
               }
             } catch (clientError) {
               console.error(`Emergency error with client ${sessionKey}:`, clientError);
