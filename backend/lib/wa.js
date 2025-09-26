@@ -17,6 +17,91 @@ class WhatsAppManager {
   constructor() {
     this.clients = new Map();
     this.dataDir = process.env.WA_DATA_DIR || path.join(__dirname, '../.wwebjs_auth');
+    
+    // Restore clients on startup
+    this.restoreClients();
+  }
+
+  /**
+   * Restore clients from database on startup
+   */
+  async restoreClients() {
+    try {
+      console.log('🔄 Restoring WhatsApp clients from database...');
+      
+      const { data: sessions } = await supabaseAdmin
+        .from('sessions')
+        .select('*')
+        .eq('status', 'ready')
+        .order('created_at', { ascending: false });
+      
+      if (sessions && sessions.length > 0) {
+        console.log(`📱 Found ${sessions.length} ready sessions to restore`);
+        
+        for (const session of sessions) {
+          try {
+            // Recreate client for this session
+            const sessionName = `location_${session.subaccount_id}_${session.id}`;
+            console.log(`🔄 Restoring client for session: ${sessionName}`);
+            
+            const client = new Client({
+              authStrategy: new LocalAuth({
+                clientId: `client_${sessionName.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+                dataPath: this.dataDir
+              }),
+              puppeteer: {
+                headless: true,
+                args: [
+                  '--no-sandbox',
+                  '--disable-setuid-sandbox',
+                  '--disable-dev-shm-usage',
+                  '--disable-accelerated-2d-canvas',
+                  '--no-first-run',
+                  '--disable-gpu',
+                  '--disable-web-security',
+                  '--disable-features=VizDisplayCompositor',
+                  '--no-zygote',
+                  '--disable-gpu',
+                  '--disable-background-timer-throttling',
+                  '--disable-backgrounding-occluded-windows',
+                  '--disable-renderer-backgrounding'
+                ],
+                webVersionCache: {
+                  type: 'remote',
+                  remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+                }
+              },
+              restartOnAuthFail: true,
+              takeoverOnConflict: true,
+              takeoverTimeoutMs: 0
+            });
+
+            // Add event handlers
+            client.on('ready', () => {
+              console.log(`✅ WhatsApp client restored and ready: ${sessionName}`);
+            });
+
+            client.on('disconnected', (reason) => {
+              console.log(`❌ Restored client disconnected: ${sessionName}`, reason);
+              this.clients.delete(sessionName);
+            });
+
+            // Store client
+            this.clients.set(sessionName, client);
+            console.log(`✅ Client restored: ${sessionName}`);
+            
+          } catch (error) {
+            console.error(`❌ Failed to restore client for session ${session.id}:`, error);
+          }
+        }
+        
+        console.log(`🎉 Restored ${this.clients.size} WhatsApp clients`);
+      } else {
+        console.log('📱 No ready sessions found to restore');
+      }
+    } catch (error) {
+      console.error('❌ Error restoring clients:', error);
+    }
   }
 
   /**
@@ -107,6 +192,8 @@ class WhatsAppManager {
     }
 
     this.clients.set(sessionId, client);
+    console.log(`✅ WhatsApp client stored with key: ${sessionId}`);
+    console.log(`📊 Total clients now: ${this.clients.size}`);
     return client;
   }
 

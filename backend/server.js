@@ -23,6 +23,11 @@ const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.w
 // WhatsApp Manager
 const waManager = new WhatsAppManager();
 
+// Wait for clients to restore
+setTimeout(() => {
+  console.log('📊 WhatsApp Manager initialized with clients:', waManager.getAllClients().map(([key]) => key));
+}, 5000);
+
 // Middleware
 app.use(helmet({
   contentSecurityPolicy: {
