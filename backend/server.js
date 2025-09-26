@@ -317,14 +317,14 @@ app.post('/ghl/provider/webhook', async (req, res) => {
   try {
     console.log('GHL Provider Webhook:', req.body);
     
-    const { locationId, message, contactId, conversationId } = req.body;
+    const { locationId, message, contactId } = req.body;
     
     if (!locationId || !message) {
       console.log('Missing required fields in webhook');
       return res.json({ status: 'success' });
     }
     
-    // Find GHL account for this location
+    // Get GHL account
     const { data: ghlAccount } = await supabaseAdmin
       .from('ghl_accounts')
       .select('*')
@@ -336,7 +336,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
 
-    // Find active WhatsApp session
+    // Get active WhatsApp session
     const { data: session } = await supabaseAdmin
       .from('sessions')
       .select('*')
@@ -356,26 +356,17 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanLocationId}_${cleanSessionId}`;
     
-    console.log(`Looking for WhatsApp client with key: ${clientKey}`);
     const client = waManager.getClient(clientKey);
     
-    if (!client) {
-      console.log(`❌ WhatsApp client not found for key: ${clientKey}`);
+    if (!client || !client.info || !client.info.wid) {
+      console.log(`❌ WhatsApp client not ready for key: ${clientKey}`);
       return res.json({ status: 'success' });
     }
     
     // Get phone number
-    let phoneNumber = null;
-    if (req.body.phone) {
-      phoneNumber = req.body.phone;
-    } else {
+    const phoneNumber = req.body.phone;
+    if (!phoneNumber) {
       console.log(`No phone number found`);
-      return res.json({ status: 'success' });
-    }
-    
-    // Check if client is ready
-    if (!client.info || !client.info.wid) {
-      console.log(`❌ WhatsApp client not ready`);
       return res.json({ status: 'success' });
     }
     
@@ -393,181 +384,6 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     res.json({ status: 'success' });
   }
 });
-            
-            // Try using phone from webhook payload
-            if (req.body.phone) {
-              console.log(`Using phone from webhook payload: ${req.body.phone}`);
-              
-              // Check if alternative client is ready
-              if (!altClient.info || !altClient.info.wid) {
-                console.log(`❌ Alternative WhatsApp client not ready. Client info:`, altClient.info);
-                console.log(`Alternative client state:`, altClient.state);
-                console.log(`Skipping reinitialization due to compatibility issues`);
-                
-                // Direct emergency message sending without API call
-                console.log(`🚨 Direct emergency message sending...`);
-                try {
-                  // Try to find any available client
-                  const clients = waManager.getAllClients();
-                  let messageSent = false;
-                  
-                  if (clients.length > 0) {
-                    console.log(`Found ${clients.length} available clients for emergency sending`);
-                    
-                    for (const [sessionKey, client] of clients) {
-                      try {
-                        console.log(`Emergency trying client: ${sessionKey}`);
-                        console.log(`Emergency client state:`, client.state);
-                        console.log(`Emergency client info:`, client.info);
-                        
-                        // Try to send message regardless of client state
-                        console.log(`🚨 Attempting to send message regardless of client state...`);
-                        
-                        // Simple message sending
-                        try {
-                          await client.sendMessage(req.body.phone, message);
-                          console.log(`✅ Message sent successfully via client: ${sessionKey}`);
-                          messageSent = true;
-                          break;
-                        } catch (sendError) {
-                          console.error(`Send error with client ${sessionKey}:`, sendError);
-                          continue;
-                        }
-                      } catch (clientError) {
-                        console.error(`Emergency error with client ${sessionKey}:`, clientError);
-                        continue;
-                      }
-                    }
-                  } else {
-                    console.log(`No clients available for emergency sending`);
-                  }
-                  
-                  if (messageSent) {
-                    console.log(`✅ Emergency message sent successfully`);
-                    return res.json({ status: 'success', method: 'emergency' });
-                  } else {
-                    console.log(`❌ Emergency message failed - no working clients`);
-                    return res.json({ status: 'success' });
-                  }
-                } catch (emergencyError) {
-                  console.error(`❌ Emergency message error:`, emergencyError);
-                  return res.json({ status: 'success' });
-                }
-              }
-              
-              try {
-                await altClient.sendMessage(req.body.phone, message);
-                console.log('Message forwarded to WhatsApp using webhook phone');
-                return res.json({ status: 'success' });
-              } catch (sendError) {
-                console.error('Error sending WhatsApp message via alternative client:', sendError);
-                console.log(`Alternative client state:`, altClient.state);
-                console.log(`Alternative client info:`, altClient.info);
-              }
-            }
-          }
-        }
-      }
-      
-      return res.json({ status: 'success' });
-    }
-    
-    // Get contact phone number from GHL
-    const ghlClient = new GHLClient(ghlAccount.access_token);
-    console.log(`Getting contact details for contactId: ${contactId}`);
-    const contact = await ghlClient.getContact(contactId);
-    console.log(`Contact details:`, contact);
-    
-    let phoneNumber = null;
-    
-    if (contact && contact.phone) {
-      phoneNumber = contact.phone;
-      console.log(`Using phone from contact: ${phoneNumber}`);
-    } else if (req.body.phone) {
-      phoneNumber = req.body.phone;
-      console.log(`Using phone from webhook payload: ${phoneNumber}`);
-    } else {
-      console.log(`No phone number found for contact: ${contactId}`);
-      console.log(`Contact data:`, contact);
-      return res.json({ status: 'success' });
-    }
-    
-    // Check if client is ready before sending
-    if (!client.info || !client.info.wid) {
-      console.log(`❌ WhatsApp client not ready. Client info:`, client.info);
-      console.log(`Client state:`, client.state);
-      console.log(`Skipping reinitialization due to compatibility issues`);
-      
-      // Direct emergency message sending without API call
-      console.log(`🚨 Direct emergency message sending...`);
-      try {
-        // Try to find any available client
-        const clients = waManager.getAllClients();
-        let messageSent = false;
-        
-        if (clients.length > 0) {
-          console.log(`Found ${clients.length} available clients for emergency sending`);
-          
-          for (const [sessionKey, client] of clients) {
-            try {
-              console.log(`Emergency trying client: ${sessionKey}`);
-              console.log(`Emergency client state:`, client.state);
-              console.log(`Emergency client info:`, client.info);
-              
-              // Try to send message regardless of client state
-              console.log(`🚨 Attempting to send message regardless of client state...`);
-              
-              try {
-                // Check if client has proper WhatsApp Web connection
-                if (client.pupPage && client.pupPage.isClosed() === false) {
-                  console.log(`✅ Client has active WhatsApp Web page, sending message...`);
-                  await client.sendMessage(phoneNumber, message);
-                  console.log(`✅ Emergency message sent successfully via client: ${sessionKey}`);
-                  messageSent = true;
-                  break;
-                } else {
-                  console.log(`❌ Client WhatsApp Web page not available`);
-                  continue;
-                }
-              } catch (sendError) {
-                console.error(`Send error with client ${sessionKey}:`, sendError);
-                
-                // Try to reinitialize client completely
-                console.log(`🔄 Attempting to completely reinitialize client: ${sessionKey}`);
-                try {
-                  // Destroy existing client
-                  if (client.pupPage) {
-                    await client.pupPage.close();
-                  }
-                  
-                  // Remove from manager
-                  waManager.removeClient(sessionKey);
-                  
-                  // Create new client
-                  const newClient = waManager.createClient(
-                    sessionKey,
-                    (qr) => console.log('New client QR generated'),
-                    (info) => console.log('New client ready:', info.wid.user),
-                    (reason) => console.log('New client disconnected:', reason)
-                  );
-                  
-                  // Wait for new client to be ready
-                  let attempts = 0;
-                  while ((!newClient.info || !newClient.info.wid) && attempts < 5) {
-                    console.log(`Waiting for new client to be ready... attempt ${attempts + 1}`);
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    attempts++;
-                  }
-                  
-                  if (newClient.info && newClient.info.wid) {
-                    console.log(`✅ New client ready, sending message...`);
-                    await newClient.sendMessage(phoneNumber, message);
-                    console.log(`✅ Emergency message sent via new client: ${sessionKey}`);
-                    messageSent = true;
-                    break;
-                  } else {
-                    console.log(`❌ New client not ready after waiting`);
-                    continue;
                   }
                 } catch (initError) {
                   console.error(`Complete reinitialization failed for client ${sessionKey}:`, initError);
