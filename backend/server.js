@@ -1529,6 +1529,73 @@ app.post('/debug/send-message', async (req, res) => {
   }
 });
 
+// Emergency message sending endpoint - creates new client if needed
+app.post('/emergency/send-message', async (req, res) => {
+  try {
+    const { phoneNumber, message, locationId } = req.body;
+    
+    if (!phoneNumber || !message) {
+      return res.status(400).json({ error: 'Phone number and message required' });
+    }
+    
+    console.log(`🚨 Emergency message sending to: ${phoneNumber}`);
+    
+    // Try to find any available client
+    const clients = waManager.getAllClients();
+    let client = null;
+    let sessionKey = null;
+    
+    if (clients.length > 0) {
+      [sessionKey, client] = clients[0];
+      console.log(`Using existing client: ${sessionKey}`);
+    } else {
+      console.log(`No clients available, creating emergency client...`);
+      
+      // Create emergency client
+      const emergencySessionId = `emergency_${Date.now()}`;
+      sessionKey = emergencySessionId;
+      
+      client = waManager.createClient(
+        sessionKey,
+        (qr) => console.log('Emergency QR generated'),
+        (info) => console.log('Emergency client ready:', info.wid.user),
+        (reason) => console.log('Emergency client disconnected:', reason)
+      );
+      
+      console.log(`Emergency client created: ${sessionKey}`);
+    }
+    
+    // Wait for client to be ready
+    let attempts = 0;
+    while ((!client.info || !client.info.wid) && attempts < 10) {
+      console.log(`Waiting for client to be ready... attempt ${attempts + 1}`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      attempts++;
+    }
+    
+    if (!client.info || !client.info.wid) {
+      return res.status(500).json({ error: 'Client not ready after waiting' });
+    }
+    
+    // Send message
+    console.log(`Sending emergency message to: ${phoneNumber}`);
+    await client.sendMessage(phoneNumber, message);
+    
+    res.json({
+      success: true,
+      message: 'Emergency message sent successfully',
+      sessionKey,
+      phoneNumber,
+      message,
+      clientInfo: client.info
+    });
+    
+  } catch (error) {
+    console.error('Emergency message error:', error);
+    res.status(500).json({ error: 'Failed to send emergency message', details: error.message });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
