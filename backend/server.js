@@ -547,28 +547,59 @@ app.post('/ghl/provider/webhook', async (req, res) => {
               console.log(`🚨 Attempting to send message regardless of client state...`);
               
               try {
-                await client.sendMessage(phoneNumber, message);
-                console.log(`✅ Emergency message sent successfully via client: ${sessionKey}`);
-                messageSent = true;
-                break;
+                // Check if client has proper WhatsApp Web connection
+                if (client.pupPage && client.pupPage.isClosed() === false) {
+                  console.log(`✅ Client has active WhatsApp Web page, sending message...`);
+                  await client.sendMessage(phoneNumber, message);
+                  console.log(`✅ Emergency message sent successfully via client: ${sessionKey}`);
+                  messageSent = true;
+                  break;
+                } else {
+                  console.log(`❌ Client WhatsApp Web page not available`);
+                  continue;
+                }
               } catch (sendError) {
                 console.error(`Send error with client ${sessionKey}:`, sendError);
                 
-                // Try to initialize client if not ready
-                if (!client.info || !client.info.wid) {
-                  console.log(`🔄 Attempting to initialize client: ${sessionKey}`);
-                  try {
-                    await client.initialize();
-                    console.log(`✅ Client initialized, retrying message...`);
-                    await client.sendMessage(phoneNumber, message);
-                    console.log(`✅ Emergency message sent after initialization: ${sessionKey}`);
+                // Try to reinitialize client completely
+                console.log(`🔄 Attempting to completely reinitialize client: ${sessionKey}`);
+                try {
+                  // Destroy existing client
+                  if (client.pupPage) {
+                    await client.pupPage.close();
+                  }
+                  
+                  // Remove from manager
+                  waManager.removeClient(sessionKey);
+                  
+                  // Create new client
+                  const newClient = waManager.createClient(
+                    sessionKey,
+                    (qr) => console.log('New client QR generated'),
+                    (info) => console.log('New client ready:', info.wid.user),
+                    (reason) => console.log('New client disconnected:', reason)
+                  );
+                  
+                  // Wait for new client to be ready
+                  let attempts = 0;
+                  while ((!newClient.info || !newClient.info.wid) && attempts < 5) {
+                    console.log(`Waiting for new client to be ready... attempt ${attempts + 1}`);
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    attempts++;
+                  }
+                  
+                  if (newClient.info && newClient.info.wid) {
+                    console.log(`✅ New client ready, sending message...`);
+                    await newClient.sendMessage(phoneNumber, message);
+                    console.log(`✅ Emergency message sent via new client: ${sessionKey}`);
                     messageSent = true;
                     break;
-                  } catch (initError) {
-                    console.error(`Initialization failed for client ${sessionKey}:`, initError);
+                  } else {
+                    console.log(`❌ New client not ready after waiting`);
                     continue;
                   }
-                } else {
+                } catch (initError) {
+                  console.error(`Complete reinitialization failed for client ${sessionKey}:`, initError);
                   continue;
                 }
               }
@@ -1335,7 +1366,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     // Use ghl_account.id as subaccount_id (no need for separate subaccounts table)
     const { data: session, error: sessionError } = await supabaseAdmin
       .from('sessions')
-      .insert({ 
+      .insert({
         user_id: ghlAccount.user_id, 
         subaccount_id: ghlAccount.id, // Use ghl_account ID directly
         status: 'initializing' 
