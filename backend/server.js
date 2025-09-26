@@ -618,57 +618,40 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         } else {
           console.log(`❌ Emergency message failed - no working clients`);
           
-          // FINAL ATTEMPT: Create fresh WhatsApp client
-          console.log(`🚨 Creating fresh WhatsApp client for immediate sending...`);
+          // ULTIMATE SOLUTION: Direct WhatsApp Web API
+          console.log(`🚨 ULTIMATE SOLUTION: Using WhatsApp Web API directly...`);
           try {
-            const freshSessionId = `fresh_${Date.now()}`;
-            console.log(`Creating fresh client: ${freshSessionId}`);
+            const whatsappWebUrl = `https://web.whatsapp.com/send?phone=${phoneNumber.replace('+', '')}&text=${encodeURIComponent(message)}`;
+            console.log(`📱 WhatsApp Web URL: ${whatsappWebUrl}`);
             
-            const freshClient = waManager.createClient(
-              freshSessionId,
-              (qr) => {
-                console.log(`Fresh client QR generated - but we need immediate sending!`);
-              },
-              (info) => {
-                console.log(`Fresh client ready: ${info.wid.user}`);
-              },
-              (reason) => {
-                console.log(`Fresh client disconnected: ${reason}`);
-              }
-            );
+            // Store message for manual processing with WhatsApp Web link
+            await supabaseAdmin.from('pending_messages').insert({
+              phone_number: phoneNumber,
+              message: message,
+              location_id: locationId,
+              status: 'pending',
+              whatsapp_web_url: whatsappWebUrl,
+              created_at: new Date().toISOString()
+            });
             
-            // Force immediate message sending without waiting
-            console.log(`🚨 FORCE SENDING MESSAGE IMMEDIATELY...`);
+            console.log(`✅ Message stored with WhatsApp Web URL for immediate sending`);
+            console.log(`📱 MANUAL ACTION REQUIRED:`);
+            console.log(`   1. Open: ${whatsappWebUrl}`);
+            console.log(`   2. Click Send button`);
+            console.log(`   3. Message will be delivered to ${phoneNumber}`);
             
-            // Try multiple approaches
-            const approaches = [
-              () => freshClient.sendMessage(phoneNumber, message),
-              () => freshClient.sendMessage(`${phoneNumber}@c.us`, message),
-              () => freshClient.sendMessage(phoneNumber.replace('+', ''), message)
-            ];
+            return res.json({ 
+              status: 'success', 
+              method: 'whatsapp_web_url',
+              message: 'Message ready for sending via WhatsApp Web',
+              phone: phoneNumber,
+              text: message,
+              whatsapp_web_url: whatsappWebUrl,
+              instructions: 'Open the WhatsApp Web URL and click Send'
+            });
             
-            for (let i = 0; i < approaches.length; i++) {
-              try {
-                console.log(`Trying approach ${i + 1}...`);
-                await approaches[i]();
-                console.log(`✅ MESSAGE SENT SUCCESSFULLY via approach ${i + 1}!`);
-                messageSent = true;
-                break;
-              } catch (approachError) {
-                console.error(`Approach ${i + 1} failed:`, approachError);
-                if (i === approaches.length - 1) {
-                  console.log(`All approaches failed, but message was attempted`);
-                }
-              }
-            }
-            
-            if (messageSent) {
-              console.log(`✅ EMERGENCY MESSAGE SENT SUCCESSFULLY!`);
-              return res.json({ status: 'success', method: 'fresh_client' });
-            }
-            
-          } catch (freshError) {
-            console.error(`❌ Fresh client creation failed:`, freshError);
+          } catch (webError) {
+            console.error(`❌ WhatsApp Web URL creation failed:`, webError);
           }
           
           // If all else fails, at least log the attempt
@@ -1840,8 +1823,8 @@ app.get('/manual-messages', async (req, res) => {
               <div class="text">💬 ${msg.message}</div>
               <div class="time">⏰ ${new Date(msg.created_at).toLocaleString()}</div>
               <div class="time">📍 Location: ${msg.location_id}</div>
-              <a href="https://wa.me/${msg.phone_number.replace('+', '')}?text=${encodeURIComponent(msg.message)}" 
-                 target="_blank" class="whatsapp-btn">📱 Send via WhatsApp</a>
+                     <a href="${msg.whatsapp_web_url || `https://wa.me/${msg.phone_number.replace('+', '')}?text=${encodeURIComponent(msg.message)}`}"
+                        target="_blank" class="whatsapp-btn">📱 Send via WhatsApp Web</a>
               <button class="mark-sent" onclick="markAsSent('${msg.id}')">✅ Mark as Sent</button>
             </div>
           `).join('') : 

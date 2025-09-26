@@ -219,7 +219,20 @@ BEGIN
   END IF;
 END $$;
 
--- 10. Update existing messages table policies to include new columns
+-- 10. Create pending_messages table for manual message processing
+CREATE TABLE IF NOT EXISTS pending_messages (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  phone_number TEXT NOT NULL,
+  message TEXT NOT NULL,
+  location_id TEXT NOT NULL,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
+  whatsapp_web_url TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  sent_at TIMESTAMP WITH TIME ZONE,
+  error_message TEXT
+);
+
+-- 11. Update existing messages table policies to include new columns
 -- (These should already exist, but adding for completeness)
 DO $$ 
 BEGIN
