@@ -90,11 +90,23 @@ class WhatsAppManager {
             this.clients.set(sessionName, client);
             console.log(`✅ Client restored: ${sessionName}`);
             
-            // Initialize client
-            client.initialize().catch(error => {
+            // Initialize client with timeout
+            console.log(`🔄 Initializing restored client: ${sessionName}`);
+            client.initialize().then(() => {
+              console.log(`✅ Client initialized successfully: ${sessionName}`);
+            }).catch(error => {
               console.error(`❌ Failed to initialize restored client ${sessionName}:`, error);
               this.clients.delete(sessionName);
             });
+            
+            // Add timeout for initialization
+            setTimeout(() => {
+              if (!client.info || !client.info.wid) {
+                console.log(`⏰ Client initialization timeout for ${sessionName}`);
+                console.log(`Client state:`, client.state);
+                console.log(`Client info:`, client.info);
+              }
+            }, 30000); // 30 seconds timeout
             
           } catch (error) {
             console.error(`❌ Failed to restore client for session ${session.id}:`, error);

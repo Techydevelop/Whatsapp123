@@ -414,7 +414,23 @@ app.post('/ghl/provider/webhook', async (req, res) => {
               // Check if alternative client is ready
               if (!altClient.info || !altClient.info.wid) {
                 console.log(`❌ Alternative WhatsApp client not ready. Client info:`, altClient.info);
-                return res.json({ status: 'success' });
+                console.log(`Alternative client state:`, altClient.state);
+                console.log(`Attempting to reinitialize alternative client...`);
+                
+                // Try to reinitialize the alternative client
+                try {
+                  await altClient.initialize();
+                  console.log(`✅ Alternative client reinitialized successfully`);
+                } catch (initError) {
+                  console.error(`❌ Failed to reinitialize alternative client:`, initError);
+                  return res.json({ status: 'success' });
+                }
+                
+                // Check again after reinitialization
+                if (!altClient.info || !altClient.info.wid) {
+                  console.log(`❌ Alternative client still not ready after reinitialization`);
+                  return res.json({ status: 'success' });
+                }
               }
               
               try {
@@ -457,7 +473,23 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     // Check if client is ready before sending
     if (!client.info || !client.info.wid) {
       console.log(`❌ WhatsApp client not ready. Client info:`, client.info);
-      return res.json({ status: 'success' });
+      console.log(`Client state:`, client.state);
+      console.log(`Attempting to reinitialize client...`);
+      
+      // Try to reinitialize the client
+      try {
+        await client.initialize();
+        console.log(`✅ Client reinitialized successfully`);
+      } catch (initError) {
+        console.error(`❌ Failed to reinitialize client:`, initError);
+        return res.json({ status: 'success' });
+      }
+      
+      // Check again after reinitialization
+      if (!client.info || !client.info.wid) {
+        console.log(`❌ Client still not ready after reinitialization`);
+        return res.json({ status: 'success' });
+      }
     }
     
     // Send message via WhatsApp
