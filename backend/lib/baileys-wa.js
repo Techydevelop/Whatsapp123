@@ -63,6 +63,8 @@ class BaileysWhatsAppManager {
       socket.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         
+        console.log(`🔄 Connection update for ${sessionId}:`, { connection, hasQR: !!qr });
+        
         if (qr) {
           console.log(`📱 QR Code generated for session: ${sessionId}`);
           this.clients.set(sessionId, {
@@ -88,6 +90,14 @@ class BaileysWhatsAppManager {
             socket,
             qr: null,
             status: 'connected',
+            lastUpdate: Date.now()
+          });
+        } else if (connection === 'connecting') {
+          console.log(`🔄 Connecting session: ${sessionId}`);
+          this.clients.set(sessionId, {
+            socket,
+            qr: null,
+            status: 'connecting',
             lastUpdate: Date.now()
           });
         }
@@ -118,14 +128,19 @@ class BaileysWhatsAppManager {
       let client = this.clients.get(sessionId);
       
       if (!client) {
+        console.log(`🔄 No client found for ${sessionId}, creating new one...`);
         await this.createClient(sessionId);
+        // Wait a bit for client to initialize
+        await new Promise(resolve => setTimeout(resolve, 2000));
         client = this.clients.get(sessionId);
       }
 
       if (client && client.qr) {
+        console.log(`📱 Returning QR code for session: ${sessionId}`);
         return client.qr;
       }
 
+      console.log(`⏳ No QR code available yet for session: ${sessionId}, status: ${client?.status}`);
       return null;
     } catch (error) {
       console.error(`❌ Error getting QR code for session ${sessionId}:`, error);

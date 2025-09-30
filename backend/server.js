@@ -1158,7 +1158,13 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     console.log(`Creating Baileys WhatsApp client with sessionName: ${sessionName}`);
     
     // Create Baileys client
-    const client = await waManager.createClient(sessionName);
+    try {
+      const client = await waManager.createClient(sessionName);
+      console.log(`✅ Baileys client created for session: ${sessionName}`);
+    } catch (error) {
+      console.error(`❌ Failed to create Baileys client:`, error);
+      return res.status(500).json({ error: 'Failed to create WhatsApp client' });
+    }
     
     // Set up QR code polling
     const qrPolling = setInterval(async () => {
@@ -1174,19 +1180,21 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
           
           if (qrUpdateError) {
             console.error('QR update failed:', qrUpdateError);
-    } else {
-            console.log(`QR generated and saved for location ${locationId}:`, session.id);
+          } else {
+            console.log(`✅ QR generated and saved for location ${locationId}:`, session.id);
           }
         }
       } catch (e) {
         console.error('QR polling error:', e);
       }
-    }, 2000); // Check every 2 seconds
+    }, 3000); // Check every 3 seconds
 
     // Set up connection status polling
     const statusPolling = setInterval(async () => {
       try {
         const status = waManager.getClientStatus(sessionName);
+        console.log(`📊 Status check for ${sessionName}:`, status);
+        
         if (status && status.status === 'connected') {
           clearInterval(qrPolling);
           clearInterval(statusPolling);
@@ -1200,15 +1208,15 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
           if (readyUpdateError) {
             console.error('Ready update failed:', readyUpdateError);
           } else {
-            console.log(`WhatsApp connected and saved for location ${locationId}`);
-            console.log(`Client stored with sessionName: ${sessionName}`);
-            console.log(`Available clients after connection:`, waManager.getAllClients().map(client => client.sessionId));
+            console.log(`✅ WhatsApp connected and saved for location ${locationId}`);
+            console.log(`✅ Client stored with sessionName: ${sessionName}`);
+            console.log(`📋 Available clients after connection:`, waManager.getAllClients().map(client => client.sessionId));
           }
         }
       } catch (e) {
         console.error('Status polling error:', e);
       }
-    }, 3000); // Check every 3 seconds
+    }, 5000); // Check every 5 seconds
 
     // Cleanup polling on timeout
     setTimeout(() => {
@@ -1349,21 +1357,22 @@ app.post('/ghl/provider/messages', async (req, res) => {
   }
 });
 
-// Debug endpoint to check WhatsApp clients
+// Debug endpoint to check WhatsApp clients (Baileys)
 app.get('/debug/whatsapp-clients', (req, res) => {
   try {
     const clients = waManager.getAllClients();
-    const clientInfo = clients.map(([key, client]) => ({
-      sessionKey: key,
-      isReady: client.info ? true : false,
-      phoneNumber: client.info?.wid?.user || 'Not connected',
-      state: client.state || 'Unknown'
+    const clientInfo = clients.map(client => ({
+      sessionId: client.sessionId,
+      status: client.status,
+      lastUpdate: client.lastUpdate,
+      hasQR: client.hasQR,
+      isConnected: client.status === 'connected'
     }));
     
     res.json({
       totalClients: clients.length,
       clients: clientInfo,
-      availableKeys: clients.map(([key]) => key)
+      availableSessions: clients.map(client => client.sessionId)
     });
   } catch (error) {
     console.error('Debug error:', error);
