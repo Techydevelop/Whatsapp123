@@ -9,6 +9,11 @@ class BaileysWhatsAppManager {
     this.ensureDataDir();
   }
 
+  // Make clients accessible for phone number retrieval
+  getClientsMap() {
+    return this.clients;
+  }
+
   ensureDataDir() {
     if (!fs.existsSync(this.dataDir)) {
       fs.mkdirSync(this.dataDir, { recursive: true });
@@ -41,9 +46,9 @@ class BaileysWhatsAppManager {
       const socket = makeWASocket({
         auth: state,
         logger: {
-          level: 'info',
+          level: 'silent',
           child: () => ({ 
-            level: 'info',
+            level: 'silent',
             trace: () => {},
             debug: () => {},
             info: () => {},
@@ -62,24 +67,34 @@ class BaileysWhatsAppManager {
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: true,
         syncFullHistory: false,
-        defaultQueryTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 120000,
         keepAliveIntervalMs: 30000,
-        connectTimeoutMs: 60000,
-        retryRequestDelayMs: 250,
-        maxMsgRetryCount: 5,
+        connectTimeoutMs: 120000,
+        retryRequestDelayMs: 1000,
+        maxMsgRetryCount: 3,
         msgRetryCounterCache: new Map(),
         getMessage: async (key) => {
           return {
             conversation: 'Hello from GHLTechy!'
           };
-        }
+        },
+        shouldSyncHistoryMessage: () => false,
+        shouldIgnoreJid: () => false,
+        fireInitQueries: true,
+        emitOwnEvents: false
       });
 
       // Handle connection updates
       socket.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        const { connection, lastDisconnect, qr, isNewLogin, isOnline } = update;
         
-        console.log(`🔄 Connection update for ${sessionId}:`, { connection, hasQR: !!qr });
+        console.log(`🔄 Connection update for ${sessionId}:`, { 
+          connection, 
+          hasQR: !!qr, 
+          isNewLogin, 
+          isOnline,
+          lastDisconnect: lastDisconnect?.error?.message 
+        });
         
         if (qr) {
           console.log(`📱 QR Code generated for session: ${sessionId}`);
@@ -94,18 +109,21 @@ class BaileysWhatsAppManager {
         if (connection === 'close') {
           const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
           console.log(`🔌 Connection closed for session: ${sessionId}, should reconnect: ${shouldReconnect}`);
+          console.log(`🔌 Disconnect reason:`, lastDisconnect?.error?.message);
           
           if (shouldReconnect) {
-            setTimeout(() => this.createClient(sessionId), 5000);
+            setTimeout(() => this.createClient(sessionId), 10000);
           } else {
             this.clients.delete(sessionId);
           }
         } else if (connection === 'open') {
           console.log(`✅ WhatsApp connected for session: ${sessionId}`);
+          console.log(`📱 Phone number: ${socket.user?.id?.split(':')[0] || 'Unknown'}`);
           this.clients.set(sessionId, {
             socket,
             qr: null,
             status: 'connected',
+            phoneNumber: socket.user?.id?.split(':')[0],
             lastUpdate: Date.now()
           });
         } else if (connection === 'connecting') {

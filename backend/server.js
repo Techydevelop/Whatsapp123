@@ -1249,15 +1249,26 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
           clearInterval(statusPolling);
           clearTimeout(initTimeout);
           
+          // Get phone number from client
+          const client = waManager.getClientsMap()?.get(sessionName);
+          const phoneNumber = client?.phoneNumber || 'Unknown';
+          
+          console.log(`📱 Connected phone number: ${phoneNumber}`);
+          
           const { error: readyUpdateError } = await supabaseAdmin
             .from('sessions')
-            .update({ status: 'ready', qr: null })
+            .update({ 
+              status: 'ready', 
+              qr: null,
+              phone_number: phoneNumber
+            })
             .eq('id', session.id);
           
           if (readyUpdateError) {
             console.error('Ready update failed:', readyUpdateError);
           } else {
             console.log(`✅ WhatsApp connected and saved for location ${locationId}`);
+            console.log(`✅ Phone number stored: ${phoneNumber}`);
             console.log(`✅ Client stored with sessionName: ${sessionName}`);
             console.log(`📋 Available clients after connection:`, waManager.getAllClients().map(client => client.sessionId));
           }
