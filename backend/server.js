@@ -351,15 +351,16 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client using Baileys
-    const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const clientKey = `location_${cleanLocationId}_${cleanSessionId}`;
+    // Get WhatsApp client using Baileys - use the same key format as session creation
+    const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
+    console.log(`🔍 Looking for client with key: ${clientKey}`);
     const clientStatus = waManager.getClientStatus(clientKey);
     
     if (!clientStatus || clientStatus.status !== 'connected') {
       console.log(`❌ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
+      console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
       return res.json({ status: 'success' });
     }
     
@@ -416,20 +417,20 @@ app.post('/ghl/provider/send', async (req, res) => {
       return res.status(404).json({ error: 'No active WhatsApp session found' });
     }
 
-    // Send message via WhatsApp
-    const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const clientKey = `location_${cleanLocationId}_${cleanSessionId}`;
+    // Send message via WhatsApp - use consistent key format
+    const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
-    console.log(`Looking for WhatsApp client with key: ${clientKey}`);
+    console.log(`🔍 Looking for WhatsApp client with key: ${clientKey}`);
     const clientStatus = waManager.getClientStatus(clientKey);
     
     if (clientStatus && clientStatus.status === 'connected') {
-      console.log(`Sending WhatsApp message to ${to}: ${message}`);
+      console.log(`✅ Sending WhatsApp message to ${to}: ${message}`);
       await waManager.sendMessage(clientKey, to, message);
       res.json({ status: 'success', messageId: Date.now().toString() });
     } else {
-      console.error(`WhatsApp client not found or not connected for key: ${clientKey}, status: ${clientStatus?.status}`);
+      console.error(`❌ WhatsApp client not found or not connected for key: ${clientKey}, status: ${clientStatus?.status}`);
+      console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
       res.status(500).json({ error: 'WhatsApp client not available' });
     }
   } catch (error) {
