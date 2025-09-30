@@ -3,7 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { createClient } = require('@supabase/supabase-js');
 const GHLClient = require('./lib/ghl');
-const WhatsAppManager = require('./lib/wa');
+const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
 
 const app = express();
@@ -20,8 +20,8 @@ const GHL_CLIENT_SECRET = process.env.GHL_CLIENT_SECRET;
 const GHL_REDIRECT_URI = process.env.GHL_REDIRECT_URI;
 const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write businesses.readonly users.readonly';
 
-// WhatsApp Manager
-const waManager = new WhatsAppManager();
+// WhatsApp Manager (Baileys)
+const waManager = new BaileysWhatsAppManager();
 
 // Wait for clients to restore
 setTimeout(() => {
@@ -351,15 +351,15 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client
+    // Get WhatsApp client using Baileys
     const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
     const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanLocationId}_${cleanSessionId}`;
     
-    const client = waManager.getClient(clientKey);
+    const clientStatus = waManager.getClientStatus(clientKey);
     
-    if (!client || !client.info || !client.info.wid) {
-      console.log(`❌ WhatsApp client not ready for key: ${clientKey}`);
+    if (!clientStatus || clientStatus.status !== 'connected') {
+      console.log(`❌ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
       return res.json({ status: 'success' });
     }
     
@@ -370,16 +370,16 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Send message
+    // Send message using Baileys
     try {
-      await client.sendMessage(phoneNumber, message);
-      console.log('Message sent successfully');
+      await waManager.sendMessage(clientKey, phoneNumber, message);
+      console.log('Message sent successfully via Baileys');
     } catch (sendError) {
-      console.error('Error sending message:', sendError);
+      console.error('Error sending message via Baileys:', sendError);
     }
     
     res.json({ status: 'success' });
-  } catch (error) {
+        } catch (error) {
     console.error('Webhook processing error:', error);
     res.json({ status: 'success' });
   }
@@ -422,14 +422,14 @@ app.post('/ghl/provider/send', async (req, res) => {
     const clientKey = `location_${cleanLocationId}_${cleanSessionId}`;
     
     console.log(`Looking for WhatsApp client with key: ${clientKey}`);
-    const client = waManager.getClient(clientKey);
+    const clientStatus = waManager.getClientStatus(clientKey);
     
-    if (client) {
+    if (clientStatus && clientStatus.status === 'connected') {
       console.log(`Sending WhatsApp message to ${to}: ${message}`);
-      await client.sendMessage(to, message);
+      await waManager.sendMessage(clientKey, to, message);
       res.json({ status: 'success', messageId: Date.now().toString() });
     } else {
-      console.error(`WhatsApp client not found for key: ${clientKey}`);
+      console.error(`WhatsApp client not found or not connected for key: ${clientKey}, status: ${clientStatus?.status}`);
       res.status(500).json({ error: 'WhatsApp client not available' });
     }
   } catch (error) {
@@ -1155,13 +1155,18 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       }
     }, 300000); // 300 seconds timeout (5 minutes for WhatsApp connection)
 
-    console.log(`Creating WhatsApp client with sessionName: ${sessionName}`);
-    const client = waManager.createClient(
-      sessionName, // Use location-specific session name
-      async (qrValue) => {
-        try {
+    console.log(`Creating Baileys WhatsApp client with sessionName: ${sessionName}`);
+    
+    // Create Baileys client
+    const client = await waManager.createClient(sessionName);
+    
+    // Set up QR code polling
+    const qrPolling = setInterval(async () => {
+      try {
+        const qrCode = await waManager.getQRCode(sessionName);
+        if (qrCode) {
           clearTimeout(initTimeout); // Clear timeout when QR is generated
-          const qrDataUrl = await qrcode.toDataURL(qrValue);
+          const qrDataUrl = await qrcode.toDataURL(qrCode);
           const { error: qrUpdateError } = await supabaseAdmin
             .from('sessions')
             .update({ qr: qrDataUrl, status: 'qr' })
@@ -1169,59 +1174,57 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
           
           if (qrUpdateError) {
             console.error('QR update failed:', qrUpdateError);
-          } else {
+    } else {
             console.log(`QR generated and saved for location ${locationId}:`, session.id);
           }
-        } catch (e) {
-          console.error('QR update error:', e);
         }
-      },
-      async (info) => {
-        try {
-          clearTimeout(initTimeout); // Clear timeout when connected
+      } catch (e) {
+        console.error('QR polling error:', e);
+      }
+    }, 2000); // Check every 2 seconds
+
+    // Set up connection status polling
+    const statusPolling = setInterval(async () => {
+      try {
+        const status = waManager.getClientStatus(sessionName);
+        if (status && status.status === 'connected') {
+          clearInterval(qrPolling);
+          clearInterval(statusPolling);
+          clearTimeout(initTimeout);
+          
           const { error: readyUpdateError } = await supabaseAdmin
             .from('sessions')
-            .update({ status: 'ready', qr: null, phone_number: info.wid.user })
+            .update({ status: 'ready', qr: null })
             .eq('id', session.id);
           
           if (readyUpdateError) {
             console.error('Ready update failed:', readyUpdateError);
           } else {
-            console.log(`WhatsApp connected and saved for location ${locationId}:`, info.wid.user);
+            console.log(`WhatsApp connected and saved for location ${locationId}`);
             console.log(`Client stored with sessionName: ${sessionName}`);
-            console.log(`Available clients after connection:`, waManager.getAllClients().map(([key]) => key));
+            console.log(`Available clients after connection:`, waManager.getAllClients().map(client => client.sessionId));
           }
-        } catch (e) {
-          console.error('Session ready update error:', e);
         }
-      },
-      async () => {
-        try {
-          await supabaseAdmin
-            .from('sessions')
-            .update({ status: 'disconnected' })
-            .eq('id', session.id);
-          waManager.removeClient(session.id);
-        } catch (e) {
-          console.error('Session disconnect update error:', e);
-        }
-      },
-      async () => {}
-    );
+      } catch (e) {
+        console.error('Status polling error:', e);
+      }
+    }, 3000); // Check every 3 seconds
 
-    // Initialize WhatsApp client
-    client.initialize().catch((e) => {
-      console.error('WA init error:', e);
-      // Update session status to error
-      supabaseAdmin
-        .from('sessions')
-        .update({ status: 'disconnected' })
-        .eq('id', session.id)
-        .catch(err => console.error('Error updating session status:', err));
+    // Cleanup polling on timeout
+    setTimeout(() => {
+      clearInterval(qrPolling);
+      clearInterval(statusPolling);
+    }, 300000); // 5 minutes timeout
+
+    // Return session info
+    res.json({ 
+      success: true, 
+      session: {
+        id: session.id,
+        status: 'initializing',
+        qr: null
+      }
     });
-
-    console.log(`WhatsApp client initialized for session: ${session.id}, location: ${locationId}`);
-    res.json({ status: 'initializing' });
   } catch (error) {
     console.error('Create session error:', error);
     res.status(500).json({ error: 'Failed to create session' });
@@ -1312,17 +1315,18 @@ app.post('/ghl/provider/messages', async (req, res) => {
       return res.status(404).json({ error: 'No active WhatsApp session found' });
     }
 
-    // Send message via WhatsApp
-    const client = waManager.getClient(session[0].id);
-    if (!client) {
-      return res.status(404).json({ error: 'WhatsApp client not found' });
+    // Send message via WhatsApp using Baileys
+    const sessionId = session[0].id;
+    const clientStatus = waManager.getClientStatus(sessionId);
+    if (!clientStatus || clientStatus.status !== 'connected') {
+      return res.status(404).json({ error: 'WhatsApp client not found or not connected' });
     }
 
     // Store message in database
     const { data: messageRecord } = await supabaseAdmin
       .from('messages')
       .insert({
-        session_id: session[0].id,
+        session_id: sessionId,
         contact_id: contactId,
         message: message,
         direction: 'outbound',
@@ -1331,11 +1335,11 @@ app.post('/ghl/provider/messages', async (req, res) => {
       .select()
       .single();
 
-    // Send via WhatsApp
-    await client.sendMessage(contactId, message);
+    // Send via WhatsApp using Baileys
+    await waManager.sendMessage(sessionId, contactId, message);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       messageId: messageRecord.id,
       status: 'sent'
     });
@@ -1382,10 +1386,11 @@ app.post('/debug/send-message', async (req, res) => {
       return res.status(404).json({ error: 'No WhatsApp clients available' });
     }
     
-    const [sessionKey, client] = clients[0];
+    const client = clients[0];
+    const sessionKey = client.sessionId;
     console.log(`Sending test message using client: ${sessionKey}`);
     
-    await client.sendMessage(phoneNumber, message);
+    await waManager.sendMessage(sessionKey, phoneNumber, message);
     
     res.json({
       success: true,
@@ -1421,15 +1426,15 @@ app.post('/emergency/send-message', async (req, res) => {
     if (clients.length > 0) {
       console.log(`Found ${clients.length} available clients`);
       
-      for (const [sessionKey, client] of clients) {
+      for (const client of clients) {
         try {
+          const sessionKey = client.sessionId;
           console.log(`Trying client: ${sessionKey}`);
-          console.log(`Client state:`, client.state);
-          console.log(`Client info:`, client.info);
+          console.log(`Client status:`, client.status);
           
-          if (client.info && client.info.wid) {
+          if (client.status === 'connected') {
             console.log(`Client ready, sending message...`);
-            await client.sendMessage(phoneNumber, message);
+            await waManager.sendMessage(sessionKey, phoneNumber, message);
             console.log(`✅ Message sent successfully via client: ${sessionKey}`);
             messageSent = true;
             break;
@@ -1437,7 +1442,7 @@ app.post('/emergency/send-message', async (req, res) => {
             console.log(`Client not ready, skipping: ${sessionKey}`);
           }
         } catch (clientError) {
-          console.error(`Error with client ${sessionKey}:`, clientError);
+          console.error(`Error with client ${client.sessionId}:`, clientError);
           continue;
         }
       }
