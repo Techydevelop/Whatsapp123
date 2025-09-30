@@ -1440,6 +1440,25 @@ app.get('/debug/whatsapp-clients', (req, res) => {
   }
 });
 
+// Debug endpoint to clear session data and force fresh connection
+app.post('/debug/clear-session/:sessionId', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    console.log(`🗑️ Clearing session data for: ${sessionId}`);
+    
+    waManager.clearSessionData(sessionId);
+    
+    res.json({
+      success: true,
+      message: `Session data cleared for ${sessionId}`,
+      sessionId
+    });
+  } catch (error) {
+    console.error('Clear session error:', error);
+    res.status(500).json({ error: 'Failed to clear session data' });
+  }
+});
+
 // Test message sending endpoint
 app.post('/debug/send-message', async (req, res) => {
   try {

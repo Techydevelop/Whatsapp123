@@ -14,6 +14,20 @@ class BaileysWhatsAppManager {
     return this.clients;
   }
 
+  // Clear session data to force fresh connection
+  clearSessionData(sessionId) {
+    try {
+      const authDir = path.join(this.dataDir, `baileys_${sessionId}`);
+      if (fs.existsSync(authDir)) {
+        fs.rmSync(authDir, { recursive: true, force: true });
+        console.log(`🗑️ Cleared session data for: ${sessionId}`);
+      }
+      this.clients.delete(sessionId);
+    } catch (error) {
+      console.error(`❌ Error clearing session data for ${sessionId}:`, error);
+    }
+  }
+
   ensureDataDir() {
     if (!fs.existsSync(this.dataDir)) {
       fs.mkdirSync(this.dataDir, { recursive: true });
@@ -111,10 +125,17 @@ class BaileysWhatsAppManager {
           console.log(`🔌 Connection closed for session: ${sessionId}, should reconnect: ${shouldReconnect}`);
           console.log(`🔌 Disconnect reason:`, lastDisconnect?.error?.message);
           
+          // Clear the client from memory
+          this.clients.delete(sessionId);
+          
           if (shouldReconnect) {
-            setTimeout(() => this.createClient(sessionId), 10000);
-          } else {
-            this.clients.delete(sessionId);
+            console.log(`🔄 Reconnecting session: ${sessionId} in 15 seconds...`);
+            setTimeout(() => {
+              console.log(`🔄 Attempting reconnection for: ${sessionId}`);
+              this.createClient(sessionId).catch(err => {
+                console.error(`❌ Reconnection failed for ${sessionId}:`, err);
+              });
+            }, 15000);
           }
         } else if (connection === 'open') {
           console.log(`✅ WhatsApp connected for session: ${sessionId}`);
