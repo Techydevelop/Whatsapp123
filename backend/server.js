@@ -1142,10 +1142,29 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       .limit(1);
 
     if (existing && existing.length > 0 && existing[0].status !== 'disconnected') {
+      console.log(`📋 Found existing session: ${existing[0].id}, status: ${existing[0].status}`);
+      
+      // If session exists but not connected, try to restore the client
+      if (existing[0].status === 'ready' || existing[0].status === 'qr') {
+        const cleanSubaccountId = existing[0].subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sessionName = `location_${cleanSubaccountId}_${existing[0].id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        
+        console.log(`🔄 Attempting to restore client for existing session: ${sessionName}`);
+        
+        // Try to restore the client
+        try {
+          await waManager.createClient(sessionName);
+          console.log(`✅ Client restored for existing session: ${sessionName}`);
+        } catch (error) {
+          console.error(`❌ Failed to restore client for existing session:`, error);
+        }
+      }
+      
       return res.json({ 
         status: existing[0].status, 
         qr: existing[0].qr, 
-        phone_number: existing[0].phone_number 
+        phone_number: existing[0].phone_number,
+        session_id: existing[0].id
       });
     }
 
@@ -1456,6 +1475,58 @@ app.post('/debug/clear-session/:sessionId', (req, res) => {
   } catch (error) {
     console.error('Clear session error:', error);
     res.status(500).json({ error: 'Failed to clear session data' });
+  }
+});
+
+// Debug endpoint to check session status
+app.get('/debug/session-status/:locationId', async (req, res) => {
+  try {
+    const { locationId } = req.params;
+    
+    // Get GHL account
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+    
+    if (!ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+    
+    // Get session
+    const { data: session } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('user_id', ghlAccount.user_id)
+      .eq('subaccount_id', ghlAccount.id)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    
+    if (!session || session.length === 0) {
+      return res.json({ 
+        session: null, 
+        message: 'No session found' 
+      });
+    }
+    
+    const currentSession = session[0];
+    const cleanSubaccountId = currentSession.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sessionName = `location_${cleanSubaccountId}_${currentSession.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    
+    // Get client status
+    const clientStatus = waManager.getClientStatus(sessionName);
+    
+    res.json({
+      session: currentSession,
+      sessionName,
+      clientStatus,
+      allClients: waManager.getAllClients()
+    });
+    
+  } catch (error) {
+    console.error('Session status error:', error);
+    res.status(500).json({ error: 'Failed to get session status' });
   }
 });
 
