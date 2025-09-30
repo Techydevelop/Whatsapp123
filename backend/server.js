@@ -23,10 +23,58 @@ const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.w
 // WhatsApp Manager (Baileys)
 const waManager = new BaileysWhatsAppManager();
 
-// Wait for clients to restore
-setTimeout(() => {
-  console.log('📊 WhatsApp Manager initialized with clients:', waManager.getAllClients().map(([key]) => key));
-}, 5000);
+// Restore WhatsApp clients from database on startup
+async function restoreWhatsAppClients() {
+  try {
+    console.log('🔄 Restoring WhatsApp clients from database...');
+    
+    const { data: sessions, error } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('status', 'ready')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ Error fetching sessions:', error);
+      return;
+    }
+
+    if (!sessions || sessions.length === 0) {
+      console.log('📋 No active WhatsApp sessions found in database');
+      return;
+    }
+
+    console.log(`📋 Found ${sessions.length} active sessions to restore`);
+
+    for (const session of sessions) {
+      try {
+        const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sessionName = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        
+        console.log(`🔄 Restoring client for session: ${sessionName}`);
+        await waManager.createClient(sessionName);
+        
+        // Wait a bit for client to initialize
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        const status = waManager.getClientStatus(sessionName);
+        console.log(`📊 Client status for ${sessionName}:`, status?.status);
+        
+      } catch (error) {
+        console.error(`❌ Error restoring client for session ${session.id}:`, error);
+      }
+    }
+
+    console.log('✅ WhatsApp client restoration completed');
+    console.log('📊 Active clients:', waManager.getAllClients().map(c => c.sessionId));
+    
+  } catch (error) {
+    console.error('❌ Error in client restoration:', error);
+  }
+}
+
+// Restore clients after a short delay
+setTimeout(restoreWhatsAppClients, 3000);
 
 // Middleware
 app.use(helmet({

@@ -15,12 +15,28 @@ class BaileysWhatsAppManager {
     }
   }
 
+  hasExistingCredentials(sessionId) {
+    const authDir = path.join(this.dataDir, `baileys_${sessionId}`);
+    const credsFile = path.join(authDir, 'creds.json');
+    return fs.existsSync(credsFile);
+  }
+
   async createClient(sessionId) {
     try {
       console.log(`🚀 Creating Baileys client for session: ${sessionId}`);
       
+      // Check if client already exists
+      if (this.clients.has(sessionId)) {
+        console.log(`⚠️ Client already exists for session: ${sessionId}`);
+        return this.clients.get(sessionId).socket;
+      }
+      
       const authDir = path.join(this.dataDir, `baileys_${sessionId}`);
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
+      
+      // Check if we have existing credentials
+      const hasCredentials = this.hasExistingCredentials(sessionId);
+      console.log(`📋 Session ${sessionId} has existing credentials: ${hasCredentials}`);
 
       const socket = makeWASocket({
         auth: state,
@@ -102,6 +118,17 @@ class BaileysWhatsAppManager {
           });
         }
       });
+
+      // If we have existing credentials, set status to connecting immediately
+      if (hasCredentials) {
+        this.clients.set(sessionId, {
+          socket,
+          qr: null,
+          status: 'connecting',
+          lastUpdate: Date.now()
+        });
+        console.log(`🔄 Restoring existing session: ${sessionId}`);
+      }
 
       // Handle credentials update
       socket.ev.on('creds.update', saveCreds);
