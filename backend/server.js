@@ -622,31 +622,87 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // Get valid token
     const validToken = await ensureValidToken(ghlAccount);
     
-    // Forward message to GHL conversations API
+    // First, create or find contact in GHL
+    let contactId = null;
+    const phoneNumber = from.replace('@s.whatsapp.net', '');
+    
     try {
-      const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
-        method: 'POST',
+      // Try to find existing contact
+      const searchResponse = await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${ghlAccount.location_id}&phone=${phoneNumber}`, {
+        method: 'GET',
         headers: {
           'Authorization': `Bearer ${validToken}`,
-          'Content-Type': 'application/json',
           'Version': '2021-07-28'
-        },
-        body: JSON.stringify({
-          locationId: ghlAccount.location_id,
-          contactId: from.replace('@s.whatsapp.net', ''),
-          message: message,
-          type: 'SMS',
-          direction: 'inbound'
-        })
+        }
       });
       
-      if (ghlResponse.ok) {
-        console.log(`✅ Message forwarded to GHL for location: ${ghlAccount.location_id}`);
-      } else {
-        console.error(`❌ Failed to forward message to GHL:`, await ghlResponse.text());
+      if (searchResponse.ok) {
+        const searchData = await searchResponse.json();
+        if (searchData.contacts && searchData.contacts.length > 0) {
+          contactId = searchData.contacts[0].id;
+          console.log(`✅ Found existing contact: ${contactId}`);
+        }
       }
-    } catch (ghlError) {
-      console.error(`❌ Error forwarding message to GHL:`, ghlError);
+      
+      // If no contact found, create new one
+      if (!contactId) {
+        console.log(`📝 Creating new contact for phone: ${phoneNumber}`);
+        const createResponse = await fetch(`https://services.leadconnectorhq.com/contacts/`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${validToken}`,
+            'Content-Type': 'application/json',
+            'Version': '2021-07-28'
+          },
+          body: JSON.stringify({
+            locationId: ghlAccount.location_id,
+            phone: phoneNumber,
+            firstName: 'WhatsApp',
+            lastName: 'User'
+          })
+        });
+        
+        if (createResponse.ok) {
+          const createData = await createResponse.json();
+          contactId = createData.contact.id;
+          console.log(`✅ Created new contact: ${contactId}`);
+        } else {
+          console.error(`❌ Failed to create contact:`, await createResponse.text());
+        }
+      }
+    } catch (contactError) {
+      console.error(`❌ Error with contact:`, contactError);
+    }
+    
+    // Forward message to GHL conversations API
+    if (contactId) {
+      try {
+        const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${validToken}`,
+            'Content-Type': 'application/json',
+            'Version': '2021-07-28'
+          },
+          body: JSON.stringify({
+            locationId: ghlAccount.location_id,
+            contactId: contactId,
+            message: message,
+            type: 'SMS',
+            direction: 'inbound'
+          })
+        });
+        
+        if (ghlResponse.ok) {
+          console.log(`✅ Message forwarded to GHL for location: ${ghlAccount.location_id}`);
+        } else {
+          console.error(`❌ Failed to forward message to GHL:`, await ghlResponse.text());
+        }
+      } catch (ghlError) {
+        console.error(`❌ Error forwarding message to GHL:`, ghlError);
+      }
+    } else {
+      console.log(`❌ No contact ID available, cannot forward message to GHL`);
     }
     
     res.json({ status: 'success' });
@@ -1884,7 +1940,6 @@ app.post('/store-message', async (req, res) => {
     const { data: messageRecord, error } = await supabaseAdmin
       .from('messages')
       .insert({
-        contact_id: from.replace('@s.whatsapp.net', ''),
         message: message,
         direction: 'inbound',
         status: 'pending',

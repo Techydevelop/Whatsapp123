@@ -228,6 +228,12 @@ class BaileysWhatsAppManager {
             const from = msg.key.remoteJid;
             const messageText = msg.message?.conversation || msg.message?.extendedTextMessage?.text || 'Media/Other';
             
+            // Filter out broadcast messages and status messages
+            if (from.includes('@broadcast') || from.includes('status@') || from.includes('@newsletter')) {
+              console.log(`🚫 Ignoring broadcast/status message from: ${from}`);
+              return;
+            }
+            
             console.log(`📨 Received message from ${from}: ${messageText}`);
             
             // Forward to GHL webhook
