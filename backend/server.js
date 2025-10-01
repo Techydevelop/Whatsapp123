@@ -602,167 +602,54 @@ app.post('/ghl/provider/webhook', async (req, res) => {
 app.post('/whatsapp/webhook', async (req, res) => {
   try {
     console.log('📨 Received WhatsApp message:', req.body);
-    console.log('🔗 Webhook endpoint called successfully!');
     
-    const { from, message, timestamp: messageTimestamp, locationId } = req.body;
+    const { from, message, sessionId } = req.body;
     
     if (!from || !message) {
-      console.log('Missing required fields in WhatsApp webhook');
       return res.json({ status: 'success' });
     }
     
-    let ghlAccount = null;
+    // Find GHL account from session
+    const { data: session } = await supabaseAdmin
+      .from('sessions')
+      .select('*, ghl_accounts(*)')
+      .eq('id', sessionId)
+      .single();
     
-    // If locationId is provided, use it directly
-    if (locationId) {
-      console.log(`📍 Using provided location ID: ${locationId}`);
-      const { data: account } = await supabaseAdmin
-        .from('ghl_accounts')
-        .select('*')
-        .eq('location_id', locationId)
-        .maybeSingle();
-      
-      if (account) {
-        ghlAccount = account;
-      }
-    }
-    
-    // If no locationId or account not found, try to find by phone number
-    if (!ghlAccount) {
-      console.log(`🔍 Searching for GHL account by phone number: ${from}`);
-      
-      // Clean phone number (remove @s.whatsapp.net)
-      const cleanPhone = from.replace('@s.whatsapp.net', '');
-      console.log(`📱 Clean phone number: ${cleanPhone}`);
-      
-      // Try to find session by phone number
-      const { data: sessions } = await supabaseAdmin
-            .from('sessions')
-        .select('*, ghl_accounts(*)')
-        .eq('status', 'ready')
-        .eq('phone_number', cleanPhone)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      
-      if (sessions && sessions.length > 0) {
-        ghlAccount = sessions[0].ghl_accounts;
-        console.log(`✅ Found GHL account via session: ${ghlAccount?.id}`);
-      } else {
-        // If no session found, try to find any GHL account
-        console.log(`🔍 No session found, trying any GHL account...`);
-        const { data: anyAccount } = await supabaseAdmin
-          .from('ghl_accounts')
-          .select('*')
-          .limit(1)
-          .maybeSingle();
-        
-        if (anyAccount) {
-          ghlAccount = anyAccount;
-          console.log(`✅ Using any available GHL account: ${ghlAccount.id}`);
-        }
-      }
-    }
-    
-    if (!ghlAccount) {
-      console.log(`❌ No GHL account found for message from: ${from}`);
+    if (!session || !session.ghl_accounts) {
+      console.log('❌ No GHL account found for session');
       return res.json({ status: 'success' });
     }
     
-    console.log(`✅ Found GHL account: ${ghlAccount.id} for location: ${ghlAccount.location_id}`);
-    
-    // Track recent message to prevent echo (AGGRESSIVE)
-    if (!global.recentMessages) {
-      global.recentMessages = new Set();
-    }
-    if (!global.messageTimestamps) {
-      global.messageTimestamps = new Map();
-    }
-    
+    const ghlAccount = session.ghl_accounts;
     const phoneNumber = from.replace('@s.whatsapp.net', '');
-    const recentMessageKey = `whatsapp_${phoneNumber}_${message}`;
-    const timestamp = Date.now();
-    
-    global.recentMessages.add(recentMessageKey);
-    global.messageTimestamps.set(recentMessageKey, timestamp);
-    
-    // Remove from cache after 5 minutes (AGGRESSIVE)
-    setTimeout(() => {
-      global.recentMessages.delete(recentMessageKey);
-      global.messageTimestamps.delete(recentMessageKey);
-    }, 5 * 60 * 1000);
     
     // Get valid token
     const validToken = await ensureValidToken(ghlAccount);
     
-    // First, create or find contact in GHL
+    // Find or create contact
     let contactId = null;
     
-    try {
-      // Try to find existing contact
-      const searchResponse = await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${ghlAccount.location_id}&phone=${phoneNumber}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${validToken}`,
-          'Version': '2021-07-28'
-        }
-      });
-      
-      if (searchResponse.ok) {
-        const searchData = await searchResponse.json();
-        if (searchData.contacts && searchData.contacts.length > 0) {
-          contactId = searchData.contacts[0].id;
-          console.log(`✅ Found existing contact: ${contactId}`);
-        }
+    // Try to find existing contact
+    const searchResponse = await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${ghlAccount.location_id}&phone=${phoneNumber}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${validToken}`,
+        'Version': '2021-07-28'
       }
-      
-      // If no contact found, try to get contact ID from error response
-      if (!contactId) {
-        console.log(`📝 Contact not found, trying to get existing contact ID...`);
-        
-        // Try to search with different phone format
-        const phoneFormats = [
-          phoneNumber,
-          `+${phoneNumber}`,
-          phoneNumber.replace(/^92/, '+92'),
-          phoneNumber.replace(/^\+92/, '92')
-        ];
-        
-        for (const format of phoneFormats) {
-          try {
-            const searchResponse2 = await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${ghlAccount.location_id}&phone=${format}`, {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${validToken}`,
-                'Version': '2021-07-28'
-              }
-            });
-            
-            if (searchResponse2.ok) {
-              const searchData2 = await searchResponse2.json();
-              if (searchData2.contacts && searchData2.contacts.length > 0) {
-                contactId = searchData2.contacts[0].id;
-                console.log(`✅ Found existing contact with format ${format}: ${contactId}`);
-                break;
-              }
-            }
-          } catch (e) {
-            // Continue to next format
-          }
-        }
-        
-        // If still no contact found, use the existing contact ID from error message
-        if (!contactId) {
-          console.log(`📝 Using existing contact ID: xMU5rfMYlsWpt852cYi1`);
-          contactId = 'xMU5rfMYlsWpt852cYi1';
-        }
+    });
+    
+    if (searchResponse.ok) {
+      const searchData = await searchResponse.json();
+      if (searchData.contacts && searchData.contacts.length > 0) {
+        contactId = searchData.contacts[0].id;
+        console.log(`✅ Found existing contact: ${contactId}`);
       }
-    } catch (contactError) {
-      console.error(`❌ Error with contact:`, contactError);
     }
     
-    // Forward message to GHL conversations API with INBOUND structure
-    try {
-      const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
+    // Create contact if not found
+    if (!contactId) {
+      const createResponse = await fetch(`https://services.leadconnectorhq.com/contacts/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${validToken}`,
@@ -771,35 +658,47 @@ app.post('/whatsapp/webhook', async (req, res) => {
         },
         body: JSON.stringify({
           locationId: ghlAccount.location_id,
-          contactId: contactId,
-          message: message,
-          type: 'SMS',
-          direction: 'inbound',
-          source: 'whatsapp',
-          from: phoneNumber,
-          to: ghlAccount.location_id,
-          timestamp: new Date().toISOString(),
-          isInbound: true,
-          sender: phoneNumber,
-          recipient: ghlAccount.location_id,
-          messageDirection: 'inbound',
-          messageSource: 'whatsapp',
-          messageType: 'SMS',
-          messageStatus: 'received'
+          phone: phoneNumber,
+          firstName: 'WhatsApp',
+          lastName: 'User'
         })
       });
       
-      if (ghlResponse.ok) {
-        console.log(`✅ Message forwarded to GHL for location: ${ghlAccount.location_id} to contact: ${contactId}`);
+      if (createResponse.ok) {
+        const createData = await createResponse.json();
+        contactId = createData.contact.id;
+        console.log(`✅ Created new contact: ${contactId}`);
       } else {
-        console.error(`❌ Failed to forward message to GHL:`, await ghlResponse.text());
+        console.log('❌ Failed to create contact');
+        return res.json({ status: 'success' });
       }
-          } catch (ghlError) {
-      console.error(`❌ Error forwarding message to GHL:`, ghlError);
-          }
+    }
+    
+    // Forward message to GHL
+    const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${validToken}`,
+        'Content-Type': 'application/json',
+        'Version': '2021-07-28'
+      },
+      body: JSON.stringify({
+        locationId: ghlAccount.location_id,
+        contactId: contactId,
+        message: message,
+        type: 'SMS',
+        direction: 'inbound'
+      })
+    });
+    
+    if (ghlResponse.ok) {
+      console.log(`✅ Message forwarded to GHL`);
+    } else {
+      console.error(`❌ Failed to forward message to GHL:`, await ghlResponse.text());
+    }
     
     res.json({ status: 'success' });
-        } catch (error) {
+  } catch (error) {
     console.error('WhatsApp webhook error:', error);
     res.json({ status: 'success' });
   }
