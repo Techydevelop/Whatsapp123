@@ -603,7 +603,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     console.log('📨 Received WhatsApp message:', req.body);
     console.log('🔗 Webhook endpoint called successfully!');
     
-    const { from, message, timestamp, locationId } = req.body;
+    const { from, message, timestamp: messageTimestamp, locationId } = req.body;
     
     if (!from || !message) {
       console.log('Missing required fields in WhatsApp webhook');
