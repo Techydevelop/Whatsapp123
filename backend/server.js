@@ -543,12 +543,14 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get phone number
+    // Get phone number from webhook data
     const phoneNumber = req.body.phone;
     if (!phoneNumber) {
-      console.log(`No phone number found`);
+      console.log(`No phone number found in webhook data`);
       return res.json({ status: 'success' });
     }
+    
+    console.log(`📱 Sending message to phone: ${phoneNumber}`);
     
     // Check if this message was just received from WhatsApp (prevent echo)
     const recentMessageKey = `whatsapp_${phoneNumber}_${message}`;
@@ -581,6 +583,8 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     if (isEcho) {
       return res.json({ status: 'success', reason: 'echo_prevented_by_content' });
     }
+    
+    console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
     // Send message using Baileys
     try {
@@ -749,72 +753,70 @@ app.post('/whatsapp/webhook', async (req, res) => {
           }
         }
         
-        // If still no contact found, use the contact ID from error message
+        // If still no contact found, try to create contact with proper phone format
         if (!contactId) {
-          console.log(`📝 Using contact ID from error message: xMU5rfMYlsWpt852cYi1`);
-          contactId = 'xMU5rfMYlsWpt852cYi1'; // Use the contact ID from the error
+          console.log(`📝 No contact found, trying to create new contact for: ${phoneNumber}`);
+          
+          try {
+            const createResponse = await fetch(`https://services.leadconnectorhq.com/contacts/`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${validToken}`,
+                'Content-Type': 'application/json',
+                'Version': '2021-07-28'
+              },
+              body: JSON.stringify({
+                locationId: ghlAccount.location_id,
+                phone: phoneNumber,
+                firstName: 'WhatsApp',
+                lastName: 'User'
+              })
+            });
+            
+            if (createResponse.ok) {
+              const createData = await createResponse.json();
+              contactId = createData.contact.id;
+              console.log(`✅ Created new contact: ${contactId}`);
+            } else {
+              console.error(`❌ Failed to create contact:`, await createResponse.text());
+              // Use any available contact as last resort
+              contactId = 'xMU5rfMYlsWpt852cYi1';
+            }
+          } catch (createError) {
+            console.error(`❌ Error creating contact:`, createError);
+            contactId = 'xMU5rfMYlsWpt852cYi1';
+          }
         }
       }
     } catch (contactError) {
       console.error(`❌ Error with contact:`, contactError);
     }
     
-    // Forward message to GHL conversations API
-    if (contactId) {
-      try {
-        const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${validToken}`,
-            'Content-Type': 'application/json',
-            'Version': '2021-07-28'
-          },
-          body: JSON.stringify({
-            locationId: ghlAccount.location_id,
-            contactId: contactId,
-            message: message,
-            type: 'SMS',
-            direction: 'inbound'
-          })
-        });
-        
-        if (ghlResponse.ok) {
-          console.log(`✅ Message forwarded to GHL for location: ${ghlAccount.location_id}`);
-        } else {
-          console.error(`❌ Failed to forward message to GHL:`, await ghlResponse.text());
-        }
-      } catch (ghlError) {
-        console.error(`❌ Error forwarding message to GHL:`, ghlError);
-      }
-    } else {
-      console.log(`❌ No contact ID available, trying direct GHL API call...`);
+    // Forward message to GHL conversations API using phone number directly
+    try {
+      const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${validToken}`,
+          'Content-Type': 'application/json',
+          'Version': '2021-07-28'
+        },
+        body: JSON.stringify({
+          locationId: ghlAccount.location_id,
+          phone: phoneNumber,
+          message: message,
+          type: 'SMS',
+          direction: 'inbound'
+        })
+      });
       
-      // Try direct GHL API call with phone number
-      try {
-        const directResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${validToken}`,
-            'Content-Type': 'application/json',
-            'Version': '2021-07-28'
-          },
-          body: JSON.stringify({
-            locationId: ghlAccount.location_id,
-            phone: phoneNumber,
-            message: message,
-            type: 'SMS',
-            direction: 'inbound'
-          })
-        });
-        
-        if (directResponse.ok) {
-          console.log(`✅ Message forwarded to GHL via direct API for location: ${ghlAccount.location_id}`);
-        } else {
-          console.error(`❌ Direct GHL API call failed:`, await directResponse.text());
-        }
-      } catch (directError) {
-        console.error(`❌ Direct GHL API error:`, directError);
+      if (ghlResponse.ok) {
+        console.log(`✅ Message forwarded to GHL for location: ${ghlAccount.location_id} to phone: ${phoneNumber}`);
+      } else {
+        console.error(`❌ Failed to forward message to GHL:`, await ghlResponse.text());
       }
+    } catch (ghlError) {
+      console.error(`❌ Error forwarding message to GHL:`, ghlError);
     }
     
     res.json({ status: 'success' });
