@@ -760,7 +760,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
       console.error(`❌ Error with contact:`, contactError);
     }
     
-    // Forward message to GHL conversations API with proper inbound structure
+    // Forward message to GHL conversations API with INBOUND structure
     try {
       const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
         method: 'POST',
@@ -781,7 +781,11 @@ app.post('/whatsapp/webhook', async (req, res) => {
           timestamp: new Date().toISOString(),
           isInbound: true,
           sender: phoneNumber,
-          recipient: ghlAccount.location_id
+          recipient: ghlAccount.location_id,
+          messageDirection: 'inbound',
+          messageSource: 'whatsapp',
+          messageType: 'SMS',
+          messageStatus: 'received'
         })
       });
       
