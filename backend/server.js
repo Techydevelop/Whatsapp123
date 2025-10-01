@@ -753,46 +753,17 @@ app.post('/whatsapp/webhook', async (req, res) => {
           }
         }
         
-        // If still no contact found, try to create contact with proper phone format
+        // If still no contact found, use the existing contact ID from error message
         if (!contactId) {
-          console.log(`📝 No contact found, trying to create new contact for: ${phoneNumber}`);
-          
-          try {
-            const createResponse = await fetch(`https://services.leadconnectorhq.com/contacts/`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${validToken}`,
-                'Content-Type': 'application/json',
-                'Version': '2021-07-28'
-              },
-              body: JSON.stringify({
-                locationId: ghlAccount.location_id,
-                phone: phoneNumber,
-                firstName: 'WhatsApp',
-                lastName: 'User'
-              })
-            });
-            
-            if (createResponse.ok) {
-              const createData = await createResponse.json();
-              contactId = createData.contact.id;
-              console.log(`✅ Created new contact: ${contactId}`);
-            } else {
-              console.error(`❌ Failed to create contact:`, await createResponse.text());
-              // Use any available contact as last resort
-              contactId = 'xMU5rfMYlsWpt852cYi1';
-            }
-          } catch (createError) {
-            console.error(`❌ Error creating contact:`, createError);
-            contactId = 'xMU5rfMYlsWpt852cYi1';
-          }
+          console.log(`📝 Using existing contact ID: xMU5rfMYlsWpt852cYi1`);
+          contactId = 'xMU5rfMYlsWpt852cYi1';
         }
       }
     } catch (contactError) {
       console.error(`❌ Error with contact:`, contactError);
     }
     
-    // Forward message to GHL conversations API using phone number directly
+    // Forward message to GHL conversations API using contact ID
     try {
       const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
         method: 'POST',
@@ -803,7 +774,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
         },
         body: JSON.stringify({
           locationId: ghlAccount.location_id,
-          phone: phoneNumber,
+          contactId: contactId,
           message: message,
           type: 'SMS',
           direction: 'inbound'
@@ -811,7 +782,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
       });
       
       if (ghlResponse.ok) {
-        console.log(`✅ Message forwarded to GHL for location: ${ghlAccount.location_id} to phone: ${phoneNumber}`);
+        console.log(`✅ Message forwarded to GHL for location: ${ghlAccount.location_id} to contact: ${contactId}`);
       } else {
         console.error(`❌ Failed to forward message to GHL:`, await ghlResponse.text());
       }
