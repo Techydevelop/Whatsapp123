@@ -450,7 +450,7 @@ app.get('/ghl/provider/config', (req, res) => {
       name: "WhatsApp SMS",
       description: "Send and receive SMS via WhatsApp",
       capabilities: ["send", "receive", "status"],
-      webhook_url: `${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/ghl/provider/webhook`
+      webhook_url: `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/ghl/provider/webhook`
     },
     settings: {
       webhook_url: {
@@ -458,7 +458,7 @@ app.get('/ghl/provider/config', (req, res) => {
         label: "Webhook URL",
         description: "URL for receiving incoming messages",
         required: true,
-        default: `${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/ghl/provider/webhook`
+        default: `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/ghl/provider/webhook`
       }
     }
   });
@@ -1819,7 +1819,7 @@ app.post('/debug/test-incoming', async (req, res) => {
     console.log('🧪 Testing webhook with data:', webhookData);
     
     // Call the webhook internally
-    const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'http://localhost:3001'}/whatsapp/webhook`, {
+    const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/whatsapp/webhook`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -1851,6 +1851,45 @@ app.post('/debug/test-webhook', (req, res) => {
     receivedData: req.body,
     timestamp: new Date().toISOString()
   });
+});
+
+// Simple message storage endpoint (no webhook dependency)
+app.post('/store-message', async (req, res) => {
+  try {
+    const { from, message, sessionId, locationId } = req.body;
+    
+    console.log('📝 Storing message:', { from, message, sessionId, locationId });
+    
+    // Store in database for manual processing
+    const { data: messageRecord, error } = await supabaseAdmin
+      .from('pending_messages')
+      .insert({
+        phone_number: from.replace('@s.whatsapp.net', ''),
+        message: message,
+        location_id: locationId || 'unknown',
+        session_id: sessionId,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('❌ Error storing message:', error);
+      return res.status(500).json({ error: 'Failed to store message' });
+    }
+    
+    console.log('✅ Message stored for manual processing:', messageRecord.id);
+    
+    res.json({
+      success: true,
+      message: 'Message stored successfully',
+      messageId: messageRecord.id
+    });
+  } catch (error) {
+    console.error('❌ Store message error:', error);
+    res.status(500).json({ error: 'Failed to store message' });
+  }
 });
 
 // Emergency message sending endpoint - creates new client if needed
@@ -2020,5 +2059,5 @@ app.post('/mark-message-sent', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`GHL OAuth URL: https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`);
-  console.log(`📱 Manual Messages Dashboard: https://whatsapp-saas-backend.onrender.com/manual-messages`);
+  console.log(`📱 Manual Messages Dashboard: https://whatsapp123-dhn1.onrender.com/manual-messages`);
 });

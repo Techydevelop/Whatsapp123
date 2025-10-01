@@ -45,7 +45,7 @@ class BaileysWhatsAppManager {
       
       // Call the webhook endpoint directly
       try {
-        const response = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/whatsapp/webhook`, {
+        const response = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/whatsapp/webhook`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -232,7 +232,7 @@ class BaileysWhatsAppManager {
             
             // Forward to GHL webhook
             try {
-              const webhookUrl = `${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/whatsapp/webhook`;
+              const webhookUrl = `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/whatsapp/webhook`;
               console.log(`🔗 Calling webhook: ${webhookUrl}`);
               
               const webhookResponse = await fetch(webhookUrl, {
@@ -268,7 +268,7 @@ class BaileysWhatsAppManager {
             
             // Also try the debug webhook endpoint as additional fallback
             try {
-              const debugWebhookUrl = `${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/debug/test-webhook`;
+              const debugWebhookUrl = `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/debug/test-webhook`;
               console.log(`🔗 Trying debug webhook: ${debugWebhookUrl}`);
               
               const debugResponse = await fetch(debugWebhookUrl, {
@@ -290,6 +290,41 @@ class BaileysWhatsAppManager {
             } catch (debugError) {
               console.error(`❌ Debug webhook also failed:`, debugError);
             }
+            
+            // Final fallback: Store message in database
+            try {
+              const storeUrl = `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/store-message`;
+              console.log(`🔗 Storing message: ${storeUrl}`);
+              
+              const storeResponse = await fetch(storeUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  from,
+                  message: messageText,
+                  sessionId,
+                  locationId: sessionId.match(/location_([^_]+)_/)?.[1] || 'unknown'
+                })
+              });
+              
+              if (storeResponse.ok) {
+                console.log(`✅ Message stored in database for processing`);
+              } else {
+                console.error(`❌ Failed to store message: ${storeResponse.status}`);
+              }
+            } catch (storeError) {
+              console.error(`❌ Error storing message:`, storeError);
+            }
+            
+            // Final fallback: Log message for manual processing
+            console.log(`📝 MESSAGE FOR MANUAL PROCESSING:`);
+            console.log(`📝 From: ${from}`);
+            console.log(`📝 Message: ${messageText}`);
+            console.log(`📝 Session: ${sessionId}`);
+            console.log(`📝 Timestamp: ${new Date().toISOString()}`);
+            console.log(`📝 Please forward this message to GHL manually or check webhook configuration`);
           }
         } catch (error) {
           console.error(`❌ Error processing incoming message:`, error);
