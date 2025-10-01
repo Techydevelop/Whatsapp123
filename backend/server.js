@@ -551,6 +551,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
 app.post('/whatsapp/webhook', async (req, res) => {
   try {
     console.log('📨 Received WhatsApp message:', req.body);
+    console.log('🔗 Webhook endpoint called successfully!');
     
     const { from, message, timestamp, locationId } = req.body;
     

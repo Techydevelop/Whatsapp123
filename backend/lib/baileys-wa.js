@@ -265,6 +265,31 @@ class BaileysWhatsAppManager {
               console.log(`🔄 Attempting direct GHL API call as fallback...`);
               await this.forwardToGHLDirectly(from, messageText, sessionId);
             }
+            
+            // Also try the debug webhook endpoint as additional fallback
+            try {
+              const debugWebhookUrl = `${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/debug/test-webhook`;
+              console.log(`🔗 Trying debug webhook: ${debugWebhookUrl}`);
+              
+              const debugResponse = await fetch(debugWebhookUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  from,
+                  message: messageText,
+                  timestamp: msg.messageTimestamp,
+                  sessionId
+                })
+              });
+              
+              if (debugResponse.ok) {
+                console.log(`✅ Message logged via debug webhook`);
+              }
+            } catch (debugError) {
+              console.error(`❌ Debug webhook also failed:`, debugError);
+            }
           }
         } catch (error) {
           console.error(`❌ Error processing incoming message:`, error);
