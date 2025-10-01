@@ -28,53 +28,6 @@ class BaileysWhatsAppManager {
     }
   }
 
-  // Direct GHL API forwarding method
-  async forwardToGHLDirectly(from, message, sessionId) {
-    try {
-      console.log(`🔄 Forwarding message directly to GHL: ${from} -> ${message}`);
-      
-      // Extract location ID from session ID
-      const locationMatch = sessionId.match(/location_([^_]+)_/);
-      if (!locationMatch) {
-        console.error(`❌ Could not extract location ID from session: ${sessionId}`);
-        return false;
-      }
-      
-      const locationId = locationMatch[1];
-      console.log(`📍 Extracted location ID: ${locationId}`);
-      
-      // Call the webhook endpoint directly
-      try {
-        const response = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/whatsapp/webhook`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            from,
-            message,
-            timestamp: Date.now(),
-            sessionId,
-            locationId
-          })
-        });
-        
-        if (response.ok) {
-          console.log(`✅ Message forwarded to GHL via direct call`);
-          return true;
-        } else {
-          console.error(`❌ Direct GHL call failed: ${response.status}`);
-          return false;
-        }
-      } catch (fetchError) {
-        console.error(`❌ Direct GHL call error:`, fetchError);
-        return false;
-      }
-    } catch (error) {
-      console.error(`❌ Error in direct GHL forwarding:`, error);
-      return false;
-    }
-  }
 
   ensureDataDir() {
     if (!fs.existsSync(this.dataDir)) {
@@ -259,78 +212,10 @@ class BaileysWhatsAppManager {
               } else {
                 const errorText = await webhookResponse.text();
                 console.error(`❌ Failed to forward message to GHL webhook (${webhookResponse.status}):`, errorText);
-                
-                // Try direct GHL API call as fallback
-                console.log(`🔄 Attempting direct GHL API call as fallback...`);
-                await this.forwardToGHLDirectly(from, messageText, sessionId);
               }
             } catch (webhookError) {
               console.error(`❌ Error forwarding message to GHL webhook:`, webhookError);
-              
-              // Try direct GHL API call as fallback
-              console.log(`🔄 Attempting direct GHL API call as fallback...`);
-              await this.forwardToGHLDirectly(from, messageText, sessionId);
             }
-            
-            // Also try the debug webhook endpoint as additional fallback
-            try {
-              const debugWebhookUrl = `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/debug/test-webhook`;
-              console.log(`🔗 Trying debug webhook: ${debugWebhookUrl}`);
-              
-              const debugResponse = await fetch(debugWebhookUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  from,
-                  message: messageText,
-                  timestamp: msg.messageTimestamp,
-                  sessionId
-                })
-              });
-              
-              if (debugResponse.ok) {
-                console.log(`✅ Message logged via debug webhook`);
-              }
-            } catch (debugError) {
-              console.error(`❌ Debug webhook also failed:`, debugError);
-            }
-            
-            // Final fallback: Store message in database
-            try {
-              const storeUrl = `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/store-message`;
-              console.log(`🔗 Storing message: ${storeUrl}`);
-              
-              const storeResponse = await fetch(storeUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  from,
-                  message: messageText,
-                  sessionId,
-                  locationId: sessionId.match(/location_([^_]+)_/)?.[1] || 'unknown'
-                })
-              });
-              
-              if (storeResponse.ok) {
-                console.log(`✅ Message stored in database for processing`);
-              } else {
-                console.error(`❌ Failed to store message: ${storeResponse.status}`);
-              }
-            } catch (storeError) {
-              console.error(`❌ Error storing message:`, storeError);
-            }
-            
-            // Final fallback: Log message for manual processing
-            console.log(`📝 MESSAGE FOR MANUAL PROCESSING:`);
-            console.log(`📝 From: ${from}`);
-            console.log(`📝 Message: ${messageText}`);
-            console.log(`📝 Session: ${sessionId}`);
-            console.log(`📝 Timestamp: ${new Date().toISOString()}`);
-            console.log(`📝 Please forward this message to GHL manually or check webhook configuration`);
           }
         } catch (error) {
           console.error(`❌ Error processing incoming message:`, error);

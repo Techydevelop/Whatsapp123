@@ -557,6 +557,31 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success', reason: 'echo_prevented' });
     }
     
+    // Additional check: if message contains same content as recent WhatsApp message
+    const messageContent = message.toLowerCase().trim();
+    const recentMessages = global.recentMessages || new Set();
+    const messageTimestamps = global.messageTimestamps || new Map();
+    let isEcho = false;
+    
+    for (const key of recentMessages) {
+      if (key.startsWith(`whatsapp_${phoneNumber}_`)) {
+        const recentContent = key.split('_').slice(2).join('_').toLowerCase().trim();
+        const messageTime = messageTimestamps.get(key) || 0;
+        const timeDiff = Date.now() - messageTime;
+        
+        // Check if content matches and message is recent (within 2 minutes)
+        if (recentContent === messageContent && timeDiff < 120000) {
+          isEcho = true;
+          console.log(`🚫 Echo detected by content match (${timeDiff}ms ago): ${message}`);
+          break;
+        }
+      }
+    }
+    
+    if (isEcho) {
+      return res.json({ status: 'success', reason: 'echo_prevented_by_content' });
+    }
+    
     // Send message using Baileys
     try {
       await waManager.sendMessage(clientKey, phoneNumber, message);
@@ -648,14 +673,22 @@ app.post('/whatsapp/webhook', async (req, res) => {
     if (!global.recentMessages) {
       global.recentMessages = new Set();
     }
+    if (!global.messageTimestamps) {
+      global.messageTimestamps = new Map();
+    }
+    
     const phoneNumber = from.replace('@s.whatsapp.net', '');
     const recentMessageKey = `whatsapp_${phoneNumber}_${message}`;
-    global.recentMessages.add(recentMessageKey);
+    const timestamp = Date.now();
     
-    // Remove from cache after 30 seconds
+    global.recentMessages.add(recentMessageKey);
+    global.messageTimestamps.set(recentMessageKey, timestamp);
+    
+    // Remove from cache after 60 seconds
     setTimeout(() => {
       global.recentMessages.delete(recentMessageKey);
-    }, 30 * 1000);
+      global.messageTimestamps.delete(recentMessageKey);
+    }, 60 * 1000);
     
     // Get valid token
     const validToken = await ensureValidToken(ghlAccount);
@@ -1997,43 +2030,6 @@ app.post('/debug/test-incoming', async (req, res) => {
   }
 });
 
-// Simple webhook test endpoint
-app.post('/debug/test-webhook', (req, res) => {
-  console.log('🧪 Test webhook called with:', req.body);
-  res.json({ 
-    status: 'success', 
-    message: 'Test webhook working',
-    receivedData: req.body,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Simple message storage endpoint (no webhook dependency)
-app.post('/store-message', async (req, res) => {
-  try {
-    const { from, message, sessionId, locationId } = req.body;
-    
-    console.log('📝 Storing message:', { from, message, sessionId, locationId });
-    
-    // Log message for manual processing (no database dependency)
-    console.log('📝 MESSAGE FOR MANUAL PROCESSING:');
-    console.log('📝 From:', from);
-    console.log('📝 Message:', message);
-    console.log('📝 Session:', sessionId);
-    console.log('📝 Location:', locationId);
-    console.log('📝 Timestamp:', new Date().toISOString());
-    console.log('📝 WhatsApp Link: https://wa.me/' + from.replace('@s.whatsapp.net', ''));
-    
-    res.json({
-      success: true,
-      message: 'Message logged successfully',
-      whatsappLink: `https://wa.me/${from.replace('@s.whatsapp.net', '')}`
-    });
-  } catch (error) {
-    console.error('❌ Store message error:', error);
-    res.status(500).json({ error: 'Failed to store message' });
-  }
-});
 
 // Emergency message sending endpoint - creates new client if needed
 app.post('/emergency/send-message', async (req, res) => {
@@ -2104,103 +2100,9 @@ app.post('/emergency/send-message', async (req, res) => {
   }
 });
 
-// Manual message dashboard
-app.get('/manual-messages', async (req, res) => {
-  try {
-    const { data: pendingMessages } = await supabaseAdmin
-      .from('messages')
-      .select('*')
-      .eq('status', 'pending')
-      .eq('direction', 'inbound')
-      .order('created_at', { ascending: false })
-      .limit(50);
-    
-    const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Manual WhatsApp Messages</title>
-      <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .message { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; background: #f9f9f9; }
-        .phone { font-weight: bold; color: #25D366; }
-        .text { margin: 5px 0; }
-        .time { font-size: 12px; color: #666; }
-        .whatsapp-btn { background: #25D366; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px; display: inline-block; margin-top: 10px; }
-        .whatsapp-btn:hover { background: #128C7E; }
-        .mark-sent { background: #007bff; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; margin-left: 10px; }
-        .mark-sent:hover { background: #0056b3; }
-        h1 { color: #333; text-align: center; }
-        .stats { background: #e9ecef; padding: 10px; border-radius: 5px; margin-bottom: 20px; text-align: center; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <h1>📱 Manual WhatsApp Messages</h1>
-        <div class="stats">
-          <strong>Pending Messages: ${pendingMessages ? pendingMessages.length : 0}</strong>
-        </div>
-        ${pendingMessages && pendingMessages.length > 0 ? 
-          pendingMessages.map(msg => `
-            <div class="message">
-               <div class="phone">📞 ${msg.contact_id}</div>
-               <div class="text">💬 ${msg.message}</div>
-               <div class="time">⏰ ${new Date(msg.created_at).toLocaleString()}</div>
-                      <a href="${`https://wa.me/${msg.contact_id.replace('+', '')}?text=${encodeURIComponent(msg.message)}`}"
-                        target="_blank" class="whatsapp-btn">📱 Send via WhatsApp Web</a>
-              <button class="mark-sent" onclick="markAsSent('${msg.id}')">✅ Mark as Sent</button>
-            </div>
-          `).join('') : 
-          '<div class="message"><p>No pending messages! 🎉</p></div>'
-        }
-      </div>
-      <script>
-        async function markAsSent(messageId) {
-          try {
-            const response = await fetch('/mark-message-sent', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ messageId })
-            });
-            if (response.ok) {
-              location.reload();
-            }
-          } catch (error) {
-            alert('Error marking message as sent');
-          }
-        }
-      </script>
-    </body>
-    </html>
-    `;
-    
-    res.send(html);
-  } catch (error) {
-    console.error('Manual messages error:', error);
-    res.status(500).send('Error loading manual messages');
-  }
-});
-
-// Mark message as sent
-app.post('/mark-message-sent', async (req, res) => {
-  try {
-    const { messageId } = req.body;
-    await supabaseAdmin
-      .from('messages')
-      .update({ status: 'sent', sent_at: new Date().toISOString() })
-      .eq('id', messageId);
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Mark sent error:', error);
-    res.status(500).json({ error: 'Failed to mark message as sent' });
-  }
-});
 
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`GHL OAuth URL: https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`);
-  console.log(`📱 Manual Messages Dashboard: https://whatsapp123-dhn1.onrender.com/manual-messages`);
 });
