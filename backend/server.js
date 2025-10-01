@@ -251,6 +251,11 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Simple webhook test
+app.get('/whatsapp/webhook', (req, res) => {
+  res.json({ status: 'WhatsApp webhook endpoint is working', timestamp: new Date().toISOString() });
+});
+
 // GHL OAuth Routes
 app.get('/auth/ghl/connect', (req, res) => {
   const authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`;
@@ -1806,8 +1811,11 @@ app.post('/debug/test-incoming', async (req, res) => {
       from: from.includes('@') ? from : `${from}@s.whatsapp.net`,
       message,
       timestamp: Date.now(),
-      sessionId: 'test-session'
+      sessionId: 'test-session',
+      locationId: locationId || 'LxCDfKzrlFEZ7rNiJtjc'
     };
+    
+    console.log('🧪 Testing webhook with data:', webhookData);
     
     // Call the webhook internally
     const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'http://localhost:3001'}/whatsapp/webhook`, {
@@ -1818,16 +1826,30 @@ app.post('/debug/test-incoming', async (req, res) => {
       body: JSON.stringify(webhookData)
     });
     
+    const responseText = await webhookResponse.text();
+    
     res.json({
       success: true,
       message: 'Test webhook called',
       webhookData,
-      webhookStatus: webhookResponse.status
+      webhookStatus: webhookResponse.status,
+      webhookResponse: responseText
     });
   } catch (error) {
     console.error('Test incoming webhook error:', error);
     res.status(500).json({ error: 'Failed to test webhook', details: error.message });
   }
+});
+
+// Simple webhook test endpoint
+app.post('/debug/test-webhook', (req, res) => {
+  console.log('🧪 Test webhook called with:', req.body);
+  res.json({ 
+    status: 'success', 
+    message: 'Test webhook working',
+    receivedData: req.body,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Emergency message sending endpoint - creates new client if needed
