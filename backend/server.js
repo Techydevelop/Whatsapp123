@@ -637,7 +637,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
       
       // Try to find session by phone number
       const { data: sessions } = await supabaseAdmin
-        .from('sessions')
+            .from('sessions')
         .select('*, ghl_accounts(*)')
         .eq('status', 'ready')
         .eq('phone_number', cleanPhone)
@@ -794,12 +794,12 @@ app.post('/whatsapp/webhook', async (req, res) => {
       } else {
         console.error(`❌ Failed to forward message to GHL:`, await ghlResponse.text());
       }
-    } catch (ghlError) {
+          } catch (ghlError) {
       console.error(`❌ Error forwarding message to GHL:`, ghlError);
-    }
+          }
     
     res.json({ status: 'success' });
-  } catch (error) {
+        } catch (error) {
     console.error('WhatsApp webhook error:', error);
     res.json({ status: 'success' });
   }
@@ -1619,7 +1619,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
           
           if (qrUpdateError) {
             console.error('QR update failed:', qrUpdateError);
-          } else {
+    } else {
             console.log(`✅ QR generated and saved for location ${locationId}:`, session.id);
           }
         }
@@ -1864,7 +1864,7 @@ app.get('/debug/session-status/:locationId', async (req, res) => {
     if (!ghlAccount) {
       return res.status(404).json({ error: 'GHL account not found' });
     }
-    
+
     // Get session
     const { data: session } = await supabaseAdmin
       .from('sessions')
@@ -1905,7 +1905,7 @@ app.get('/debug/session-status/:locationId', async (req, res) => {
 app.post('/debug/refresh-token/:locationId', async (req, res) => {
   try {
     const { locationId } = req.params;
-    
+
     // Get GHL account
     const { data: ghlAccount } = await supabaseAdmin
       .from('ghl_accounts')
@@ -1916,7 +1916,7 @@ app.post('/debug/refresh-token/:locationId', async (req, res) => {
     if (!ghlAccount) {
       return res.status(404).json({ error: 'GHL account not found' });
     }
-    
+
     // Force token refresh
     const newToken = await refreshGHLToken(ghlAccount);
     

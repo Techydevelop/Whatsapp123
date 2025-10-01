@@ -151,8 +151,8 @@ export default function Dashboard() {
           button.textContent = 'Open QR'
         }
         return
-      }
-    } catch (error) {
+          }
+        } catch (error) {
       console.error('Error creating session:', error)
       alert(`Error creating session: ${error}`)
       
