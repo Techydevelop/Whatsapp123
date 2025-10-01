@@ -174,10 +174,40 @@ class BaileysWhatsAppManager {
 
       // Handle messages
       socket.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg.key.fromMe && m.type === 'notify') {
-          console.log(`📨 Received message: ${msg.message?.conversation || 'Media/Other'}`);
-          // Handle incoming messages here
+        try {
+          const msg = m.messages[0];
+          if (!msg.key.fromMe && m.type === 'notify') {
+            const from = msg.key.remoteJid;
+            const messageText = msg.message?.conversation || msg.message?.extendedTextMessage?.text || 'Media/Other';
+            
+            console.log(`📨 Received message from ${from}: ${messageText}`);
+            
+            // Forward to GHL webhook
+            try {
+              const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/whatsapp/webhook`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  from,
+                  message: messageText,
+                  timestamp: msg.messageTimestamp,
+                  sessionId
+                })
+              });
+              
+              if (webhookResponse.ok) {
+                console.log(`✅ Message forwarded to GHL webhook for session: ${sessionId}`);
+              } else {
+                console.error(`❌ Failed to forward message to GHL webhook:`, await webhookResponse.text());
+              }
+            } catch (webhookError) {
+              console.error(`❌ Error forwarding message to GHL webhook:`, webhookError);
+            }
+          }
+        } catch (error) {
+          console.error(`❌ Error processing incoming message:`, error);
         }
       });
 

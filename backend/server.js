@@ -542,6 +542,77 @@ app.post('/ghl/provider/webhook', async (req, res) => {
   }
 });
 
+// WhatsApp message receiver webhook (for incoming WhatsApp messages)
+app.post('/whatsapp/webhook', async (req, res) => {
+  try {
+    console.log('📨 Received WhatsApp message:', req.body);
+    
+    const { from, message, timestamp } = req.body;
+    
+    if (!from || !message) {
+      console.log('Missing required fields in WhatsApp webhook');
+      return res.json({ status: 'success' });
+    }
+    
+    // Find the GHL account and session for this phone number
+    const { data: sessions } = await supabaseAdmin
+      .from('sessions')
+      .select('*, ghl_accounts(*)')
+      .eq('status', 'ready')
+      .eq('phone_number', from.replace('@s.whatsapp.net', ''))
+      .order('created_at', { ascending: false })
+      .limit(1);
+    
+    if (!sessions || sessions.length === 0) {
+      console.log(`No active session found for phone number: ${from}`);
+      return res.json({ status: 'success' });
+    }
+    
+    const session = sessions[0];
+    const ghlAccount = session.ghl_accounts;
+    
+    if (!ghlAccount) {
+      console.log(`No GHL account found for session: ${session.id}`);
+      return res.json({ status: 'success' });
+    }
+    
+    // Get valid token
+    const validToken = await ensureValidToken(ghlAccount);
+    
+    // Forward message to GHL conversations API
+    try {
+      const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${validToken}`,
+          'Content-Type': 'application/json',
+          'Version': '2021-07-28'
+        },
+        body: JSON.stringify({
+          locationId: ghlAccount.location_id,
+          contactId: from.replace('@s.whatsapp.net', ''),
+          message: message,
+          type: 'SMS',
+          direction: 'inbound'
+        })
+      });
+      
+      if (ghlResponse.ok) {
+        console.log(`✅ Message forwarded to GHL for location: ${ghlAccount.location_id}`);
+      } else {
+        console.error(`❌ Failed to forward message to GHL:`, await ghlResponse.text());
+      }
+    } catch (ghlError) {
+      console.error(`❌ Error forwarding message to GHL:`, ghlError);
+    }
+    
+    res.json({ status: 'success' });
+  } catch (error) {
+    console.error('WhatsApp webhook error:', error);
+    res.json({ status: 'success' });
+  }
+});
+
 // GHL Provider Send Message
 app.post('/ghl/provider/send', async (req, res) => {
   try {
@@ -1701,6 +1772,44 @@ app.post('/debug/send-message', async (req, res) => {
   } catch (error) {
     console.error('Test message error:', error);
     res.status(500).json({ error: 'Failed to send message', details: error.message });
+  }
+});
+
+// Test incoming message webhook
+app.post('/debug/test-incoming', async (req, res) => {
+  try {
+    const { from, message, locationId } = req.body;
+    
+    if (!from || !message) {
+      return res.status(400).json({ error: 'From and message required' });
+    }
+    
+    // Simulate incoming WhatsApp message
+    const webhookData = {
+      from: from.includes('@') ? from : `${from}@s.whatsapp.net`,
+      message,
+      timestamp: Date.now(),
+      sessionId: 'test-session'
+    };
+    
+    // Call the webhook internally
+    const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'http://localhost:3001'}/whatsapp/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(webhookData)
+    });
+    
+    res.json({
+      success: true,
+      message: 'Test webhook called',
+      webhookData,
+      webhookStatus: webhookResponse.status
+    });
+  } catch (error) {
+    console.error('Test incoming webhook error:', error);
+    res.status(500).json({ error: 'Failed to test webhook', details: error.message });
   }
 });
 
