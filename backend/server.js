@@ -547,34 +547,51 @@ app.post('/whatsapp/webhook', async (req, res) => {
   try {
     console.log('📨 Received WhatsApp message:', req.body);
     
-    const { from, message, timestamp } = req.body;
+    const { from, message, timestamp, locationId } = req.body;
     
     if (!from || !message) {
       console.log('Missing required fields in WhatsApp webhook');
       return res.json({ status: 'success' });
     }
     
-    // Find the GHL account and session for this phone number
-    const { data: sessions } = await supabaseAdmin
-      .from('sessions')
-      .select('*, ghl_accounts(*)')
-      .eq('status', 'ready')
-      .eq('phone_number', from.replace('@s.whatsapp.net', ''))
-      .order('created_at', { ascending: false })
-      .limit(1);
+    let ghlAccount = null;
     
-    if (!sessions || sessions.length === 0) {
-      console.log(`No active session found for phone number: ${from}`);
-      return res.json({ status: 'success' });
+    // If locationId is provided, use it directly
+    if (locationId) {
+      console.log(`📍 Using provided location ID: ${locationId}`);
+      const { data: account } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('*')
+        .eq('location_id', locationId)
+        .maybeSingle();
+      
+      if (account) {
+        ghlAccount = account;
+      }
     }
     
-    const session = sessions[0];
-    const ghlAccount = session.ghl_accounts;
+    // If no locationId or account not found, try to find by phone number
+    if (!ghlAccount) {
+      console.log(`🔍 Searching for GHL account by phone number: ${from}`);
+      const { data: sessions } = await supabaseAdmin
+        .from('sessions')
+        .select('*, ghl_accounts(*)')
+        .eq('status', 'ready')
+        .eq('phone_number', from.replace('@s.whatsapp.net', ''))
+        .order('created_at', { ascending: false })
+        .limit(1);
+      
+      if (sessions && sessions.length > 0) {
+        ghlAccount = sessions[0].ghl_accounts;
+      }
+    }
     
     if (!ghlAccount) {
-      console.log(`No GHL account found for session: ${session.id}`);
+      console.log(`❌ No GHL account found for message from: ${from}`);
       return res.json({ status: 'success' });
     }
+    
+    console.log(`✅ Found GHL account: ${ghlAccount.id} for location: ${ghlAccount.location_id}`);
     
     // Get valid token
     const validToken = await ensureValidToken(ghlAccount);

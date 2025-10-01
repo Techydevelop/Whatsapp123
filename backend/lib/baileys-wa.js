@@ -28,6 +28,54 @@ class BaileysWhatsAppManager {
     }
   }
 
+  // Direct GHL API forwarding method
+  async forwardToGHLDirectly(from, message, sessionId) {
+    try {
+      console.log(`🔄 Forwarding message directly to GHL: ${from} -> ${message}`);
+      
+      // Extract location ID from session ID
+      const locationMatch = sessionId.match(/location_([^_]+)_/);
+      if (!locationMatch) {
+        console.error(`❌ Could not extract location ID from session: ${sessionId}`);
+        return false;
+      }
+      
+      const locationId = locationMatch[1];
+      console.log(`📍 Extracted location ID: ${locationId}`);
+      
+      // Call the webhook endpoint directly
+      try {
+        const response = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/whatsapp/webhook`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            from,
+            message,
+            timestamp: Date.now(),
+            sessionId,
+            locationId
+          })
+        });
+        
+        if (response.ok) {
+          console.log(`✅ Message forwarded to GHL via direct call`);
+          return true;
+        } else {
+          console.error(`❌ Direct GHL call failed: ${response.status}`);
+          return false;
+        }
+      } catch (fetchError) {
+        console.error(`❌ Direct GHL call error:`, fetchError);
+        return false;
+      }
+    } catch (error) {
+      console.error(`❌ Error in direct GHL forwarding:`, error);
+      return false;
+    }
+  }
+
   ensureDataDir() {
     if (!fs.existsSync(this.dataDir)) {
       fs.mkdirSync(this.dataDir, { recursive: true });
@@ -184,7 +232,10 @@ class BaileysWhatsAppManager {
             
             // Forward to GHL webhook
             try {
-              const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/whatsapp/webhook`, {
+              const webhookUrl = `${process.env.BACKEND_URL || 'https://whatsapp-saas-backend.onrender.com'}/whatsapp/webhook`;
+              console.log(`🔗 Calling webhook: ${webhookUrl}`);
+              
+              const webhookResponse = await fetch(webhookUrl, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json'
@@ -200,10 +251,19 @@ class BaileysWhatsAppManager {
               if (webhookResponse.ok) {
                 console.log(`✅ Message forwarded to GHL webhook for session: ${sessionId}`);
               } else {
-                console.error(`❌ Failed to forward message to GHL webhook:`, await webhookResponse.text());
+                const errorText = await webhookResponse.text();
+                console.error(`❌ Failed to forward message to GHL webhook (${webhookResponse.status}):`, errorText);
+                
+                // Try direct GHL API call as fallback
+                console.log(`🔄 Attempting direct GHL API call as fallback...`);
+                await this.forwardToGHLDirectly(from, messageText, sessionId);
               }
             } catch (webhookError) {
               console.error(`❌ Error forwarding message to GHL webhook:`, webhookError);
+              
+              // Try direct GHL API call as fallback
+              console.log(`🔄 Attempting direct GHL API call as fallback...`);
+              await this.forwardToGHLDirectly(from, messageText, sessionId);
             }
           }
         } catch (error) {
