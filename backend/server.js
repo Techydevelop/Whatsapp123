@@ -598,170 +598,101 @@ app.post('/ghl/provider/webhook', async (req, res) => {
   }
 });
 
+// Global GHL Configuration
+const BASE = "https://services.leadconnectorhq.com";
+const HEADERS = {
+  Authorization: `Bearer ${process.env.GHL_LOCATION_API_KEY}`,
+  Version: "2021-07-28",
+  "Content-Type": "application/json",
+};
+
 // WhatsApp message receiver webhook (for incoming WhatsApp messages)
 app.post('/whatsapp/webhook', async (req, res) => {
   try {
     console.log('📨 Received WhatsApp message:', req.body);
-    console.log('🔗 Webhook endpoint called successfully!');
     
-    const { from, message, timestamp: messageTimestamp, locationId } = req.body;
+    const { from, message, timestamp: messageTimestamp, whatsappMsgId } = req.body;
     
     if (!from || !message) {
       console.log('Missing required fields in WhatsApp webhook');
       return res.json({ status: 'success' });
     }
     
-    let ghlAccount = null;
+    // Deterministic mapping: phone → locationId → providerId → location_api_key
+    const waNumber = from.replace('@s.whatsapp.net', '');
+    const phone = "+" + waNumber; // E.164 format
+    const locationId = process.env.GHL_LOCATION_ID;
+    const providerId = process.env.GHL_PROVIDER_ID;
     
-    if (locationId) {
-      console.log(`📍 Using provided location ID: ${locationId}`);
-      const { data: account } = await supabaseAdmin
-        .from('ghl_accounts')
-        .select('*')
-        .eq('location_id', locationId)
-        .maybeSingle();
-      
-      if (account) {
-        ghlAccount = account;
-      }
-    }
+    console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
     
-    if (!ghlAccount) {
-      console.log(`🔍 Searching for GHL account by phone number: ${from}`);
-      const cleanPhone = from.replace('@s.whatsapp.net', '');
-      console.log(`📱 Clean phone number: ${cleanPhone}`);
-      
-      const { data: sessions } = await supabaseAdmin
-        .from('sessions')
-        .select('*, ghl_accounts(*)')
-        .eq('status', 'ready')
-        .eq('phone_number', cleanPhone)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      
-      if (sessions && sessions.length > 0) {
-        ghlAccount = sessions[0].ghl_accounts;
-        console.log(`✅ Found GHL account via session: ${ghlAccount?.id}`);
-      } else {
-        console.log(`🔍 No session found, trying any GHL account...`);
-        const { data: anyAccount } = await supabaseAdmin
-          .from('ghl_accounts')
-          .select('*')
-          .limit(1)
-          .maybeSingle();
-        
-        if (anyAccount) {
-          ghlAccount = anyAccount;
-          console.log(`✅ Using any available GHL account: ${ghlAccount.id}`);
-        }
-      }
-    }
-    
-    if (!ghlAccount) {
-      console.log(`❌ No GHL account found for message from: ${from}`);
-      return res.json({ status: 'success' });
-    }
-    
-    console.log(`✅ Found GHL account: ${ghlAccount.id} for location: ${ghlAccount.location_id}`);
-    
-    const validToken = await ensureValidToken(ghlAccount);
-    
+    // Upsert contact (same location)
     let contactId = null;
-    const phoneNumber = from.replace('@s.whatsapp.net', '');
-    
     try {
-      const searchResponse = await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${ghlAccount.location_id}&phone=${phoneNumber}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${validToken}`,
-          'Version': '2021-07-28'
-        }
+      const contactRes = await fetch(`${BASE}/contacts/`, {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify({
+          phone: phone,
+          name: phone,
+          locationId: locationId
+        })
       });
       
-      if (searchResponse.ok) {
-        const searchData = await searchResponse.json();
-        if (searchData.contacts && searchData.contacts.length > 0) {
-          contactId = searchData.contacts[0].id;
-          console.log(`✅ Found existing contact: ${contactId}`);
-        }
-      }
-      
-      if (!contactId) {
-        console.log(`📝 No contact found, trying to create new contact for: ${phoneNumber}`);
-        const createResponse = await fetch(`https://services.leadconnectorhq.com/contacts/`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${validToken}`,
-            'Content-Type': 'application/json',
-            'Version': '2021-07-28'
-          },
-          body: JSON.stringify({
-            locationId: ghlAccount.location_id,
-            phone: phoneNumber,
-            firstName: 'WhatsApp',
-            lastName: 'User'
-          })
-        });
+      if (contactRes.ok) {
+        const contactData = await contactRes.json();
+        contactId = contactData.contact?.id;
+        console.log(`✅ Contact upserted: ${contactId}`);
+      } else {
+        const errorText = await contactRes.text();
+        console.error(`❌ Failed to upsert contact:`, errorText);
         
-        if (createResponse.ok) {
-          const createData = await createResponse.json();
-          contactId = createData.contact.id;
-          console.log(`✅ Created new contact: ${contactId}`);
-        } else {
-          const errorText = await createResponse.text();
-          console.error(`❌ Failed to create contact:`, errorText);
-          // Attempt to extract contactId from error if it's a duplicate contact error
+        // Try to extract contactId from error if it's a duplicate contact error
+        try {
           const errorJson = JSON.parse(errorText);
           if (errorJson.meta && errorJson.meta.contactId) {
             contactId = errorJson.meta.contactId;
             console.log(`📝 Using contact ID from error message: ${contactId}`);
           }
+        } catch (parseError) {
+          console.error(`❌ Could not parse error response:`, parseError);
         }
       }
     } catch (contactError) {
-      console.error(`❌ Error with contact:`, contactError);
+      console.error(`❌ Error upserting contact:`, contactError);
     }
     
-    if (contactId) {
-      try {
-        const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${validToken}`,
-            'Content-Type': 'application/json',
-            'Version': '2021-07-28'
-          },
-          body: JSON.stringify({
-            locationId: ghlAccount.location_id,
-            contactId: contactId,
-            message: message,
-            type: 'SMS',
-            direction: 'inbound',
-            source: 'whatsapp',
-            from: phoneNumber,
-            to: ghlAccount.location_id,
-            timestamp: new Date().toISOString(),
-            isInbound: true,
-            sender: phoneNumber,
-            recipient: ghlAccount.location_id,
-            messageDirection: 'inbound',
-            messageSource: 'whatsapp',
-            messageType: 'SMS',
-            messageStatus: 'received'
-          })
-        });
-        
-        if (ghlResponse.ok) {
-          console.log(`✅ Message forwarded to GHL for location: ${ghlAccount.location_id} to contact: ${contactId}`);
-        } else {
-          console.error(`❌ Failed to forward message to GHL:`, await ghlResponse.text());
-        }
-      } catch (ghlError) {
-        console.error(`❌ Error forwarding message to GHL:`, ghlError);
-      }
-    } else {
+    if (!contactId) {
       console.log(`❌ No contact ID available, cannot forward message to GHL`);
+      return res.json({ status: 'success' });
     }
+    
+    // Add INBOUND message (Custom provider)
+    try {
+      const inboundRes = await fetch(`${BASE}/conversations/add/inbound`, {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify({
+          type: "Custom",
+          conversationProviderId: providerId,
+          contactId: contactId,
+          text: message || "—",
+          altId: whatsappMsgId || `wa_${Date.now()}`, // idempotency
+          timestamp: Date.now()
+        })
+      });
+      
+      if (inboundRes.ok) {
+        console.log(`✅ Inbound message added to GHL conversation for contact: ${contactId}`);
+      } else {
+        const errorText = await inboundRes.text();
+        console.error(`❌ Failed to add inbound message to GHL:`, errorText);
+      }
+    } catch (inboundError) {
+      console.error(`❌ Error adding inbound message to GHL:`, inboundError);
+    }
+    
+    // IMPORTANT: Yahan WhatsApp ko kuch wapas send na karein (no echo)
     
     res.json({ status: 'success' });
   } catch (error) {
@@ -770,7 +701,68 @@ app.post('/whatsapp/webhook', async (req, res) => {
   }
 });
 
-// GHL Provider Send Message
+// GHL Provider Outbound Message Webhook
+app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
+  try {
+    console.log('📤 GHL Provider Outbound Message:', req.body);
+    
+    const evt = req.body;
+    const { contactId, text, locationId } = evt;
+    
+    if (!contactId || !text) {
+      console.log('Missing required fields in GHL outbound webhook');
+      return res.sendStatus(200);
+    }
+    
+    // Lookup phone by contact
+    let phone = null;
+    try {
+      const contactRes = await fetch(`${BASE}/contacts/${contactId}`, {
+        method: 'GET',
+        headers: HEADERS
+      });
+      
+      if (contactRes.ok) {
+        const contactData = await contactRes.json();
+        phone = contactData.contact?.phone;
+        console.log(`📱 Found phone for contact ${contactId}: ${phone}`);
+      }
+    } catch (contactError) {
+      console.error(`❌ Error looking up contact:`, contactError);
+    }
+    
+    if (!phone) {
+      console.log(`❌ No phone found for contact: ${contactId}`);
+      return res.sendStatus(200);
+    }
+    
+    // Send message via WhatsApp
+    try {
+      const waNumber = phone.replace('+', '').replace('@s.whatsapp.net', '');
+      const waJid = `${waNumber}@s.whatsapp.net`;
+      
+      // Find active WhatsApp client for this location
+      const clientKey = `location_${locationId || process.env.GHL_LOCATION_ID}`;
+      const client = waManager.clients.get(clientKey);
+      
+      if (client && client.socket) {
+        await client.socket.sendMessage(waJid, { text: text });
+        console.log(`✅ Message sent to WhatsApp: ${waJid}`);
+      } else {
+        console.log(`❌ No active WhatsApp client found for key: ${clientKey}`);
+      }
+    } catch (waError) {
+      console.error(`❌ Error sending WhatsApp message:`, waError);
+    }
+    
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('GHL outbound webhook error:', error);
+    res.sendStatus(200);
+  }
+});
+
+// GHL Provider Send Message (Legacy endpoint - keep for compatibility)
 app.post('/ghl/provider/send', async (req, res) => {
   try {
     const { to, message, locationId } = req.body;
@@ -1946,8 +1938,7 @@ app.post('/debug/test-incoming', async (req, res) => {
       from: from.includes('@') ? from : `${from}@s.whatsapp.net`,
       message,
       timestamp: Date.now(),
-      sessionId: 'test-session',
-      locationId: locationId || 'LxCDfKzrlFEZ7rNiJtjc'
+      whatsappMsgId: `test_${Date.now()}`
     };
     
     console.log('🧪 Testing webhook with data:', webhookData);
@@ -2046,6 +2037,44 @@ app.post('/emergency/send-message', async (req, res) => {
   }
 });
 
+
+// Test GHL outbound webhook
+app.post('/debug/test-outbound', async (req, res) => {
+  try {
+    const { contactId, text } = req.body;
+    
+    if (!contactId || !text) {
+      return res.status(400).json({ error: 'ContactId and text required' });
+    }
+    
+    // Simulate GHL outbound message
+    const webhookData = {
+      contactId: contactId,
+      text: text,
+      locationId: process.env.GHL_LOCATION_ID
+    };
+    
+    console.log('🧪 Testing outbound webhook with data:', webhookData);
+    
+    // Call the webhook internally
+    const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/webhooks/ghl/provider-outbound`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(webhookData)
+    });
+    
+    res.json({ 
+      status: 'success', 
+      webhookResponse: webhookResponse.ok,
+      message: 'Test outbound message sent to webhook'
+    });
+  } catch (error) {
+    console.error('Test outbound error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Start server
 app.listen(PORT, () => {

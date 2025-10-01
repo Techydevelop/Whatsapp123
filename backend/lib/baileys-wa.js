@@ -203,7 +203,8 @@ class BaileysWhatsAppManager {
                   from,
                   message: messageText,
                   timestamp: msg.messageTimestamp,
-                  sessionId
+                  sessionId,
+                  whatsappMsgId: msg.key.id // For idempotency
                 })
               });
               
