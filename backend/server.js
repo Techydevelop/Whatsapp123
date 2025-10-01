@@ -559,30 +559,26 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success', reason: 'echo_prevented' });
     }
     
-    // Additional check: if message contains same content as recent WhatsApp message
+    // Additional check: if this exact message was received recently from this phone
     const messageContent = message.toLowerCase().trim();
     const recentMessages = global.recentMessages || new Set();
-    const messageTimestamps = global.messageTimestamps || new Map();
-    let isEcho = false;
+    let isRecentEcho = false;
     
     for (const key of recentMessages) {
       if (key.startsWith(`whatsapp_${phoneNumber}_`)) {
         const recentContent = key.split('_').slice(2).join('_').toLowerCase().trim();
-        const messageTime = messageTimestamps.get(key) || 0;
-        const timeDiff = Date.now() - messageTime;
-        
-        // Check if content matches and message is recent (within 2 minutes)
-        if (recentContent === messageContent && timeDiff < 120000) {
-          isEcho = true;
-          console.log(`🚫 Echo detected by content match (${timeDiff}ms ago): ${message}`);
+        if (recentContent === messageContent) {
+          isRecentEcho = true;
+          console.log(`🚫 Recent echo detected: ${message} from ${phoneNumber}`);
           break;
         }
       }
     }
     
-    if (isEcho) {
-      return res.json({ status: 'success', reason: 'echo_prevented_by_content' });
+    if (isRecentEcho) {
+      return res.json({ status: 'success', reason: 'recent_echo_prevented' });
     }
+    
     
     console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
@@ -777,7 +773,8 @@ app.post('/whatsapp/webhook', async (req, res) => {
           contactId: contactId,
           message: message,
           type: 'SMS',
-          direction: 'inbound'
+          direction: 'inbound',
+          source: 'whatsapp'
         })
       });
       
