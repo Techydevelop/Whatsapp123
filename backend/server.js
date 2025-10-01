@@ -579,16 +579,36 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // If no locationId or account not found, try to find by phone number
     if (!ghlAccount) {
       console.log(`🔍 Searching for GHL account by phone number: ${from}`);
+      
+      // Clean phone number (remove @s.whatsapp.net)
+      const cleanPhone = from.replace('@s.whatsapp.net', '');
+      console.log(`📱 Clean phone number: ${cleanPhone}`);
+      
+      // Try to find session by phone number
       const { data: sessions } = await supabaseAdmin
         .from('sessions')
         .select('*, ghl_accounts(*)')
         .eq('status', 'ready')
-        .eq('phone_number', from.replace('@s.whatsapp.net', ''))
+        .eq('phone_number', cleanPhone)
         .order('created_at', { ascending: false })
         .limit(1);
       
       if (sessions && sessions.length > 0) {
         ghlAccount = sessions[0].ghl_accounts;
+        console.log(`✅ Found GHL account via session: ${ghlAccount?.id}`);
+      } else {
+        // If no session found, try to find any GHL account
+        console.log(`🔍 No session found, trying any GHL account...`);
+        const { data: anyAccount } = await supabaseAdmin
+          .from('ghl_accounts')
+          .select('*')
+          .limit(1)
+          .maybeSingle();
+        
+        if (anyAccount) {
+          ghlAccount = anyAccount;
+          console.log(`✅ Using any available GHL account: ${ghlAccount.id}`);
+        }
       }
     }
     
@@ -1862,12 +1882,11 @@ app.post('/store-message', async (req, res) => {
     
     // Store in database for manual processing
     const { data: messageRecord, error } = await supabaseAdmin
-      .from('pending_messages')
+      .from('messages')
       .insert({
-        phone_number: from.replace('@s.whatsapp.net', ''),
+        contact_id: from.replace('@s.whatsapp.net', ''),
         message: message,
-        location_id: locationId || 'unknown',
-        session_id: sessionId,
+        direction: 'inbound',
         status: 'pending',
         created_at: new Date().toISOString()
       })
@@ -1965,9 +1984,10 @@ app.post('/emergency/send-message', async (req, res) => {
 app.get('/manual-messages', async (req, res) => {
   try {
     const { data: pendingMessages } = await supabaseAdmin
-      .from('pending_messages')
+      .from('messages')
       .select('*')
       .eq('status', 'pending')
+      .eq('direction', 'inbound')
       .order('created_at', { ascending: false })
       .limit(50);
     
@@ -2000,11 +2020,10 @@ app.get('/manual-messages', async (req, res) => {
         ${pendingMessages && pendingMessages.length > 0 ? 
           pendingMessages.map(msg => `
             <div class="message">
-              <div class="phone">📞 ${msg.phone_number}</div>
-              <div class="text">💬 ${msg.message}</div>
-              <div class="time">⏰ ${new Date(msg.created_at).toLocaleString()}</div>
-              <div class="time">📍 Location: ${msg.location_id}</div>
-                     <a href="${msg.whatsapp_web_url || `https://wa.me/${msg.phone_number.replace('+', '')}?text=${encodeURIComponent(msg.message)}`}"
+               <div class="phone">📞 ${msg.contact_id}</div>
+               <div class="text">💬 ${msg.message}</div>
+               <div class="time">⏰ ${new Date(msg.created_at).toLocaleString()}</div>
+                      <a href="${`https://wa.me/${msg.contact_id.replace('+', '')}?text=${encodeURIComponent(msg.message)}`}"
                         target="_blank" class="whatsapp-btn">📱 Send via WhatsApp Web</a>
               <button class="mark-sent" onclick="markAsSent('${msg.id}')">✅ Mark as Sent</button>
             </div>
@@ -2044,7 +2063,7 @@ app.post('/mark-message-sent', async (req, res) => {
   try {
     const { messageId } = req.body;
     await supabaseAdmin
-      .from('pending_messages')
+      .from('messages')
       .update({ status: 'sent', sent_at: new Date().toISOString() })
       .eq('id', messageId);
     
