@@ -469,7 +469,25 @@ app.post('/ghl/provider/webhook', async (req, res) => {
   try {
     console.log('GHL Provider Webhook:', req.body);
     
-    const { locationId, message, contactId } = req.body;
+    const { locationId, message, contactId, phone } = req.body;
+    
+    // Check if this is a duplicate message (prevent echo)
+    const messageKey = `${locationId}_${contactId}_${message}_${Date.now()}`;
+    if (global.messageCache && global.messageCache.has(messageKey)) {
+      console.log(`🚫 Duplicate message detected, ignoring: ${messageKey}`);
+      return res.json({ success: true, status: 'duplicate_ignored' });
+    }
+    
+    // Initialize message cache if not exists
+    if (!global.messageCache) {
+      global.messageCache = new Set();
+    }
+    
+    // Add to cache with 5 minute expiry
+    global.messageCache.add(messageKey);
+    setTimeout(() => {
+      global.messageCache.delete(messageKey);
+    }, 5 * 60 * 1000);
     
     if (!locationId || !message) {
       console.log('Missing required fields in webhook');
@@ -530,6 +548,13 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     if (!phoneNumber) {
       console.log(`No phone number found`);
       return res.json({ status: 'success' });
+    }
+    
+    // Check if this message was just received from WhatsApp (prevent echo)
+    const recentMessageKey = `whatsapp_${phoneNumber}_${message}`;
+    if (global.recentMessages && global.recentMessages.has(recentMessageKey)) {
+      console.log(`🚫 Message echo detected, not sending back to WhatsApp: ${message}`);
+      return res.json({ status: 'success', reason: 'echo_prevented' });
     }
     
     // Send message using Baileys
@@ -619,12 +644,24 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     console.log(`✅ Found GHL account: ${ghlAccount.id} for location: ${ghlAccount.location_id}`);
     
+    // Track recent message to prevent echo
+    if (!global.recentMessages) {
+      global.recentMessages = new Set();
+    }
+    const phoneNumber = from.replace('@s.whatsapp.net', '');
+    const recentMessageKey = `whatsapp_${phoneNumber}_${message}`;
+    global.recentMessages.add(recentMessageKey);
+    
+    // Remove from cache after 30 seconds
+    setTimeout(() => {
+      global.recentMessages.delete(recentMessageKey);
+    }, 30 * 1000);
+    
     // Get valid token
     const validToken = await ensureValidToken(ghlAccount);
     
     // First, create or find contact in GHL
     let contactId = null;
-    const phoneNumber = from.replace('@s.whatsapp.net', '');
     
     try {
       // Try to find existing contact
