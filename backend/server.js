@@ -559,7 +559,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success', reason: 'echo_prevented' });
     }
     
-    // Additional check: if this exact message was received recently from this phone
+    // Simple echo prevention - only block exact recent messages
     const messageContent = message.toLowerCase().trim();
     const recentMessages = global.recentMessages || new Set();
     let isRecentEcho = false;
@@ -569,14 +569,15 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         const recentContent = key.split('_').slice(2).join('_').toLowerCase().trim();
         if (recentContent === messageContent) {
           isRecentEcho = true;
-          console.log(`🚫 Recent echo detected: ${message} from ${phoneNumber}`);
+          console.log(`🚫 Echo detected: ${message} from ${phoneNumber}`);
           break;
         }
       }
     }
     
     if (isRecentEcho) {
-      return res.json({ status: 'success', reason: 'recent_echo_prevented' });
+      console.log(`🚫 Blocking echo message: ${message}`);
+      return res.json({ status: 'success', reason: 'echo_prevented' });
     }
     
     
@@ -669,7 +670,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     console.log(`✅ Found GHL account: ${ghlAccount.id} for location: ${ghlAccount.location_id}`);
     
-    // Track recent message to prevent echo
+    // Track recent message to prevent echo (AGGRESSIVE)
     if (!global.recentMessages) {
       global.recentMessages = new Set();
     }
@@ -684,11 +685,11 @@ app.post('/whatsapp/webhook', async (req, res) => {
     global.recentMessages.add(recentMessageKey);
     global.messageTimestamps.set(recentMessageKey, timestamp);
     
-    // Remove from cache after 60 seconds
+    // Remove from cache after 5 minutes (AGGRESSIVE)
     setTimeout(() => {
       global.recentMessages.delete(recentMessageKey);
       global.messageTimestamps.delete(recentMessageKey);
-    }, 60 * 1000);
+    }, 5 * 60 * 1000);
     
     // Get valid token
     const validToken = await ensureValidToken(ghlAccount);
@@ -759,7 +760,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
       console.error(`❌ Error with contact:`, contactError);
     }
     
-    // Forward message to GHL conversations API using contact ID
+    // Forward message to GHL conversations API with proper inbound structure
     try {
       const ghlResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages/`, {
         method: 'POST',
@@ -774,7 +775,13 @@ app.post('/whatsapp/webhook', async (req, res) => {
           message: message,
           type: 'SMS',
           direction: 'inbound',
-          source: 'whatsapp'
+          source: 'whatsapp',
+          from: phoneNumber,
+          to: ghlAccount.location_id,
+          timestamp: new Date().toISOString(),
+          isInbound: true,
+          sender: phoneNumber,
+          recipient: ghlAccount.location_id
         })
       });
       
