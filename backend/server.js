@@ -709,7 +709,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     // Add INBOUND message (Custom provider)
     try {
-      const inboundRes = await fetch(`${BASE}/conversations/add/inbound`, {
+      const inboundRes = await fetch(`${BASE}/conversations/messages`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${validToken}`,
@@ -717,12 +717,12 @@ app.post('/whatsapp/webhook', async (req, res) => {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          type: "Custom",
+          type: "SMS",
           conversationProviderId: providerId,
           contactId: contactId,
-          text: message || "—",
-          altId: whatsappMsgId || `wa_${Date.now()}`, // idempotency
-          timestamp: Date.now()
+          locationId: locationId,
+          message: message || "—",
+          altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
         })
       });
       
