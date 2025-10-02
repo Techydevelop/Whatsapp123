@@ -614,16 +614,16 @@ async function initProviderId() {
   try {
     console.log('🔄 Fetching conversation providers...');
     
-    // Get the first available GHL account to fetch providers
+    // Get GHL account for the specific location
     const { data: ghlAccount } = await supabaseAdmin
       .from('ghl_accounts')
       .select('*')
+      .eq('location_id', process.env.GHL_LOCATION_ID)
       .limit(1)
       .maybeSingle();
     
     if (!ghlAccount) {
-      console.log('⚠️ No GHL account found for provider initialization');
-      return;
+      throw new Error(`No GHL account found for location: ${process.env.GHL_LOCATION_ID}`);
     }
     
     const validToken = await ensureValidToken(ghlAccount);
@@ -645,22 +645,22 @@ async function initProviderId() {
         GLOBAL_PROVIDER_ID = customProvider.id;
         console.log(`✅ Loaded Conversation Provider: ${GLOBAL_PROVIDER_ID}`);
       } else {
-        console.error('❌ No Custom Conversation Provider found for this location');
+        throw new Error('No Custom Conversation Provider found for this location');
       }
     } else {
-      console.error('❌ Failed to fetch conversation providers:', await res.text());
+      const errorText = await res.text();
+      throw new Error(`Failed to fetch conversation providers: ${errorText}`);
     }
   } catch (error) {
     console.error('❌ Error initializing provider ID:', error);
+    throw error; // Don't continue with invalid provider
   }
 }
 
-// Get provider ID (with fallback)
+// Get provider ID (no fallback - must be initialized)
 function getProviderId() {
   if (!GLOBAL_PROVIDER_ID) {
-    console.log('⚠️ ProviderId not initialized, using fallback...');
-    // Fallback: try to get from environment or use a default
-    return process.env.GHL_CONVERSATION_PROVIDER_ID || 'fallback-provider-id';
+    throw new Error('ProviderId not initialized - call initProviderId() first');
   }
   return GLOBAL_PROVIDER_ID;
 }
@@ -715,17 +715,18 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     const locationId = ghlAccount.location_id;
     
-    // Get provider ID with fallback to account's provider ID
+    // Get provider ID with retry if not initialized
     let providerId;
     try {
       providerId = getProviderId();
     } catch (error) {
-      console.log('⚠️ Provider ID not ready, using account provider ID...');
-      // Fallback to the account's conversation provider ID
-      providerId = ghlAccount.conversation_provider_id;
-      if (!providerId) {
-        console.error('❌ No conversation provider ID found in account');
-        return res.json({ status: 'success' });
+      console.log('⚠️ Provider ID not ready, attempting to initialize...');
+      try {
+        await initProviderId();
+        providerId = getProviderId();
+      } catch (initError) {
+        console.error('❌ Failed to initialize provider ID:', initError);
+        return res.json({ status: 'error', message: 'Provider ID not available' });
       }
     }
     
