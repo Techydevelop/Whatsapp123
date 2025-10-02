@@ -613,9 +613,28 @@ let GLOBAL_PROVIDER_ID = null;
 async function initProviderId() {
   try {
     console.log('🔄 Fetching conversation providers...');
+    
+    // Get the first available GHL account to fetch providers
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
+    
+    if (!ghlAccount) {
+      console.log('⚠️ No GHL account found for provider initialization');
+      return;
+    }
+    
+    const validToken = await ensureValidToken(ghlAccount);
+    
     const res = await fetch(`${BASE}/conversations/providers`, {
       method: 'GET',
-      headers: HEADERS
+      headers: {
+        Authorization: `Bearer ${validToken}`,
+        Version: "2021-07-28",
+        "Content-Type": "application/json"
+      }
     });
     
     if (res.ok) {
@@ -631,7 +650,7 @@ async function initProviderId() {
     } else {
       console.error('❌ Failed to fetch conversation providers:', await res.text());
     }
-        } catch (error) {
+  } catch (error) {
     console.error('❌ Error initializing provider ID:', error);
   }
 }
@@ -696,14 +715,18 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     const locationId = ghlAccount.location_id;
     
-    // Get provider ID with retry if not initialized
+    // Get provider ID with fallback to account's provider ID
     let providerId;
     try {
       providerId = getProviderId();
     } catch (error) {
-      console.log('⚠️ Provider ID not ready, attempting to initialize...');
-      await initProviderId();
-      providerId = getProviderId();
+      console.log('⚠️ Provider ID not ready, using account provider ID...');
+      // Fallback to the account's conversation provider ID
+      providerId = ghlAccount.conversation_provider_id;
+      if (!providerId) {
+        console.error('❌ No conversation provider ID found in account');
+        return res.json({ status: 'success' });
+      }
     }
     
     console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
