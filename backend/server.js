@@ -592,7 +592,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     }
     
     res.json({ status: 'success' });
-  } catch (error) {
+        } catch (error) {
     console.error('Webhook processing error:', error);
     res.json({ status: 'success' });
   }
@@ -605,6 +605,44 @@ const HEADERS = {
   Version: "2021-07-28",
   "Content-Type": "application/json",
 };
+
+// Global provider ID cache
+let GLOBAL_PROVIDER_ID = null;
+
+// Auto-fetch conversation provider ID on startup
+async function initProviderId() {
+  try {
+    console.log('🔄 Fetching conversation providers...');
+    const res = await fetch(`${BASE}/conversations/providers`, {
+      method: 'GET',
+      headers: HEADERS
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      const customProvider = data.providers?.find(p => p.type === "Custom");
+      
+      if (customProvider?.id) {
+        GLOBAL_PROVIDER_ID = customProvider.id;
+        console.log(`✅ Loaded Conversation Provider: ${GLOBAL_PROVIDER_ID}`);
+      } else {
+        console.error('❌ No Custom Conversation Provider found for this location');
+      }
+    } else {
+      console.error('❌ Failed to fetch conversation providers:', await res.text());
+    }
+        } catch (error) {
+    console.error('❌ Error initializing provider ID:', error);
+  }
+}
+
+// Get provider ID (with validation)
+function getProviderId() {
+  if (!GLOBAL_PROVIDER_ID) {
+    throw new Error('ProviderId not initialized - call initProviderId() first');
+  }
+  return GLOBAL_PROVIDER_ID;
+}
 
 // WhatsApp message receiver webhook (for incoming WhatsApp messages)
 app.post('/whatsapp/webhook', async (req, res) => {
@@ -626,7 +664,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     let ghlAccount = null;
     if (sessionId) {
       const { data: session } = await supabaseAdmin
-        .from('sessions')
+            .from('sessions')
         .select('*, ghl_accounts(*)')
         .eq('id', sessionId)
         .maybeSingle();
@@ -655,7 +693,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     }
     
     const locationId = ghlAccount.location_id;
-    const providerId = ghlAccount.conversation_provider_id;
+    const providerId = getProviderId(); // Use global provider ID
     
     console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
     
@@ -2184,7 +2222,10 @@ app.post('/debug/test-outbound', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`GHL OAuth URL: https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`);
+  
+  // Initialize provider ID on startup
+  await initProviderId();
 });
