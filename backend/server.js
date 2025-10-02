@@ -728,6 +728,16 @@ app.post('/whatsapp/webhook', async (req, res) => {
       
       if (inboundRes.ok) {
         console.log(`✅ Inbound message added to GHL conversation for contact: ${contactId}`);
+        
+        // Track this message to prevent echo
+        if (!global.recentInboundMessages) {
+          global.recentInboundMessages = new Set();
+        }
+        const messageKey = `${contactId}_${message}`;
+        global.recentInboundMessages.add(messageKey);
+        setTimeout(() => {
+          global.recentInboundMessages.delete(messageKey);
+        }, 10000); // 10 seconds
       } else {
         const errorText = await inboundRes.text();
         console.error(`❌ Failed to add inbound message to GHL:`, errorText);
@@ -750,8 +760,22 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
   try {
     console.log('📤 GHL Provider Outbound Message:', req.body);
     
+    // Check if this is an echo from our own inbound message
     const evt = req.body;
-    const { contactId, text, locationId } = evt;
+    const { contactId, text, locationId, messageId, altId } = evt;
+    
+    // If altId starts with 'wa_' it's from our WhatsApp webhook - ignore it
+    if (altId && altId.startsWith('wa_')) {
+      console.log('🚫 Ignoring echo from our own WhatsApp message:', altId);
+      return res.sendStatus(200);
+    }
+    
+    // If message was sent in last 10 seconds, likely an echo
+    const now = Date.now();
+    if (global.recentInboundMessages && global.recentInboundMessages.has(`${contactId}_${text}`)) {
+      console.log('🚫 Ignoring recent echo message');
+      return res.sendStatus(200);
+    }
     
     if (!contactId || !text) {
       console.log('Missing required fields in GHL outbound webhook');
