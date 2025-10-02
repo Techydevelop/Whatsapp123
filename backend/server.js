@@ -621,17 +621,57 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // Deterministic mapping: phone → locationId → providerId → location_api_key
     const waNumber = from.replace('@s.whatsapp.net', '');
     const phone = "+" + waNumber; // E.164 format
-    const locationId = process.env.GHL_LOCATION_ID;
-    const providerId = process.env.GHL_PROVIDER_ID;
+    
+    // Get GHL account from session or use first available
+    let ghlAccount = null;
+    if (sessionId) {
+      const { data: session } = await supabaseAdmin
+        .from('sessions')
+        .select('*, ghl_accounts(*)')
+        .eq('id', sessionId)
+        .maybeSingle();
+      
+      if (session && session.ghl_accounts) {
+        ghlAccount = session.ghl_accounts;
+      }
+    }
+    
+    // Fallback to any GHL account if session not found
+    if (!ghlAccount) {
+      const { data: anyAccount } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+      
+      if (anyAccount) {
+        ghlAccount = anyAccount;
+      }
+    }
+    
+    if (!ghlAccount) {
+      console.log(`❌ No GHL account found for message from: ${from}`);
+      return res.json({ status: 'success' });
+    }
+    
+    const locationId = ghlAccount.location_id;
+    const providerId = ghlAccount.conversation_provider_id;
     
     console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
+    
+    // Get valid token for this GHL account
+    const validToken = await ensureValidToken(ghlAccount);
     
     // Upsert contact (same location)
     let contactId = null;
     try {
       const contactRes = await fetch(`${BASE}/contacts/`, {
         method: 'POST',
-        headers: HEADERS,
+        headers: {
+          Authorization: `Bearer ${validToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify({
           phone: phone,
           name: phone,
@@ -671,7 +711,11 @@ app.post('/whatsapp/webhook', async (req, res) => {
     try {
       const inboundRes = await fetch(`${BASE}/conversations/add/inbound`, {
         method: 'POST',
-        headers: HEADERS,
+        headers: {
+          Authorization: `Bearer ${validToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify({
           type: "Custom",
           conversationProviderId: providerId,
@@ -714,12 +758,52 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
       return res.sendStatus(200);
     }
     
+    // Get GHL account for this location
+    let ghlAccount = null;
+    const targetLocationId = locationId || process.env.GHL_LOCATION_ID;
+    
+    if (targetLocationId) {
+      const { data: account } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('*')
+        .eq('location_id', targetLocationId)
+        .maybeSingle();
+      
+      if (account) {
+        ghlAccount = account;
+      }
+    }
+    
+    // Fallback to any GHL account
+    if (!ghlAccount) {
+      const { data: anyAccount } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+      
+      if (anyAccount) {
+        ghlAccount = anyAccount;
+      }
+    }
+    
+    if (!ghlAccount) {
+      console.log(`❌ No GHL account found for outbound message`);
+      return res.sendStatus(200);
+    }
+    
+    const validToken = await ensureValidToken(ghlAccount);
+    
     // Lookup phone by contact
     let phone = null;
     try {
       const contactRes = await fetch(`${BASE}/contacts/${contactId}`, {
         method: 'GET',
-        headers: HEADERS
+        headers: {
+          Authorization: `Bearer ${validToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json"
+        }
       });
       
       if (contactRes.ok) {
@@ -742,7 +826,7 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
       const waJid = `${waNumber}@s.whatsapp.net`;
       
       // Find active WhatsApp client for this location
-      const clientKey = `location_${locationId || process.env.GHL_LOCATION_ID}`;
+      const clientKey = `location_${ghlAccount.location_id}`;
       const client = waManager.clients.get(clientKey);
       
       if (client && client.socket) {
