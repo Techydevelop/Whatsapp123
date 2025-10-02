@@ -687,6 +687,9 @@ app.post('/whatsapp/webhook', async (req, res) => {
     }
     
     console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
+    console.log(`📨 Raw message from WhatsApp:`, JSON.stringify(req.body, null, 2));
+    console.log(`💬 Extracted message text:`, `"${message}"`);
+    console.log(`🔍 Message type:`, typeof message);
     
     // Get valid token for this GHL account
     const validToken = await ensureValidToken(ghlAccount);
@@ -749,6 +752,8 @@ app.post('/whatsapp/webhook', async (req, res) => {
       console.log(`📤 Sending to GHL:`, JSON.stringify(payload, null, 2));
       console.log(`🔑 Using Provider ID:`, providerId);
       console.log(`👤 Using Contact ID:`, contactId);
+      console.log(`💬 Message Content:`, `"${message}"`);
+      console.log(`📏 Message Length:`, message.length);
       
       const inboundRes = await fetch(`${BASE}/conversations/messages/inbound`, {
         method: 'POST',
