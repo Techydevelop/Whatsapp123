@@ -738,6 +738,18 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     // Add INBOUND message (Custom provider)
     try {
+      const payload = {
+        type: "SMS",
+        conversationProviderId: providerId,
+        contactId: contactId,
+        message: { text: message || "—" },
+        altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
+      };
+      
+      console.log(`📤 Sending to GHL:`, JSON.stringify(payload, null, 2));
+      console.log(`🔑 Using Provider ID:`, providerId);
+      console.log(`👤 Using Contact ID:`, contactId);
+      
       const inboundRes = await fetch(`${BASE}/conversations/messages/inbound`, {
         method: 'POST',
         headers: {
@@ -745,17 +757,13 @@ app.post('/whatsapp/webhook', async (req, res) => {
           Version: "2021-07-28",
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          type: "SMS",
-          conversationProviderId: providerId,
-          contactId: contactId,
-          message: { text: message || "—" },
-          altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
-        })
+        body: JSON.stringify(payload)
       });
       
       if (inboundRes.ok) {
+        const responseData = await inboundRes.json();
         console.log(`✅ Inbound message added to GHL conversation for contact: ${contactId}`);
+        console.log(`📊 GHL Response:`, JSON.stringify(responseData, null, 2));
         
         // Track this message to prevent echo
         if (!global.recentInboundMessages) {
@@ -769,6 +777,8 @@ app.post('/whatsapp/webhook', async (req, res) => {
       } else {
         const errorText = await inboundRes.text();
         console.error(`❌ Failed to add inbound message to GHL:`, errorText);
+        console.error(`📊 Status Code:`, inboundRes.status);
+        console.error(`📊 Headers:`, Object.fromEntries(inboundRes.headers.entries()));
       }
     } catch (inboundError) {
       console.error(`❌ Error adding inbound message to GHL:`, inboundError);
