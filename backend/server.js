@@ -606,63 +606,27 @@ const HEADERS = {
   "Content-Type": "application/json",
 };
 
-// Global provider ID cache
-let GLOBAL_PROVIDER_ID = null;
+// Provider ID is now loaded from environment variables
 
-// Auto-fetch conversation provider ID on startup
-async function initProviderId() {
-  try {
-    console.log('🔄 Fetching conversation providers...');
-    
-    // Get GHL account for the specific location
-    const { data: ghlAccount } = await supabaseAdmin
-      .from('ghl_accounts')
-      .select('*')
-      .eq('location_id', process.env.GHL_LOCATION_ID)
-      .limit(1)
-      .maybeSingle();
-    
-    if (!ghlAccount) {
-      throw new Error(`No GHL account found for location: ${process.env.GHL_LOCATION_ID}`);
-    }
-    
-    const validToken = await ensureValidToken(ghlAccount);
-    
-    const res = await fetch(`${BASE}/conversations/providers`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${validToken}`,
-        Version: "2021-07-28",
-        "Content-Type": "application/json"
-      }
-    });
-    
-    if (res.ok) {
-      const data = await res.json();
-      const customProvider = data.providers?.find(p => p.type === "Custom");
-      
-      if (customProvider?.id) {
-        GLOBAL_PROVIDER_ID = customProvider.id;
-        console.log(`✅ Loaded Conversation Provider: ${GLOBAL_PROVIDER_ID}`);
-      } else {
-        throw new Error('No Custom Conversation Provider found for this location');
-      }
-    } else {
-      const errorText = await res.text();
-      throw new Error(`Failed to fetch conversation providers: ${errorText}`);
-    }
-  } catch (error) {
-    console.error('❌ Error initializing provider ID:', error);
-    throw error; // Don't continue with invalid provider
+// Validate environment variables on startup
+function validateEnvironment() {
+  const requiredVars = ['GHL_LOCATION_ID', 'GHL_PROVIDER_ID', 'GHL_LOCATION_API_KEY'];
+  const missing = requiredVars.filter(varName => !process.env[varName]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
+  
+  console.log('✅ Environment variables validated');
 }
 
-// Get provider ID (no fallback - must be initialized)
+// Get provider ID from environment
 function getProviderId() {
-  if (!GLOBAL_PROVIDER_ID) {
-    throw new Error('ProviderId not initialized - call initProviderId() first');
+  const providerId = process.env.GHL_PROVIDER_ID;
+  if (!providerId) {
+    throw new Error('GHL_PROVIDER_ID environment variable not set');
   }
-  return GLOBAL_PROVIDER_ID;
+  return providerId;
 }
 
 // WhatsApp message receiver webhook (for incoming WhatsApp messages)
@@ -715,20 +679,8 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     const locationId = ghlAccount.location_id;
     
-    // Get provider ID with retry if not initialized
-    let providerId;
-    try {
-      providerId = getProviderId();
-    } catch (error) {
-      console.log('⚠️ Provider ID not ready, attempting to initialize...');
-      try {
-        await initProviderId();
-        providerId = getProviderId();
-      } catch (initError) {
-        console.error('❌ Failed to initialize provider ID:', initError);
-        return res.json({ status: 'error', message: 'Provider ID not available' });
-      }
-    }
+    // Get provider ID from environment
+    const providerId = getProviderId();
     
     console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
     
@@ -2256,19 +2208,16 @@ app.post('/debug/test-outbound', async (req, res) => {
   }
 });
 
-// Initialize provider ID before starting server
-async function startServer() {
-  console.log('🔄 Initializing provider ID...');
-  await initProviderId();
-  
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`GHL OAuth URL: https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`);
-  });
-}
-
 // Start server
-startServer().catch(error => {
-  console.error('❌ Failed to start server:', error);
-  process.exit(1);
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`GHL OAuth URL: https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`);
+  
+  // Validate environment variables
+  try {
+    validateEnvironment();
+  } catch (error) {
+    console.error('❌ Environment validation failed:', error);
+    process.exit(1);
+  }
 });
