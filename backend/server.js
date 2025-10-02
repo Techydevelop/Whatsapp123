@@ -592,7 +592,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     }
     
     res.json({ status: 'success' });
-        } catch (error) {
+  } catch (error) {
     console.error('Webhook processing error:', error);
     res.json({ status: 'success' });
   }
@@ -742,7 +742,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // Add INBOUND message (Custom provider)
     try {
       const payload = {
-        type: "SMS",
+        type: "Custom",
         conversationProviderId: providerId,
         contactId: contactId,
         text: message || "—",
