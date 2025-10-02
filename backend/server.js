@@ -608,25 +608,21 @@ const HEADERS = {
 
 // Provider ID is now loaded from environment variables
 
-// Validate environment variables on startup
+// Validate environment variables on startup (optional)
 function validateEnvironment() {
-  const requiredVars = ['GHL_LOCATION_ID', 'GHL_PROVIDER_ID', 'GHL_LOCATION_API_KEY'];
-  const missing = requiredVars.filter(varName => !process.env[varName]);
-  
-  if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  // Only check for GHL_PROVIDER_ID, others are optional
+  if (!process.env.GHL_PROVIDER_ID) {
+    console.log('⚠️ GHL_PROVIDER_ID not set - will use fallback provider ID');
+    return false;
   }
   
-  console.log('✅ Environment variables validated');
+  console.log('✅ GHL_PROVIDER_ID found');
+  return true;
 }
 
-// Get provider ID from environment
+// Get provider ID from environment (with fallback)
 function getProviderId() {
-  const providerId = process.env.GHL_PROVIDER_ID;
-  if (!providerId) {
-    throw new Error('GHL_PROVIDER_ID environment variable not set');
-  }
-  return providerId;
+  return process.env.GHL_PROVIDER_ID || null;
 }
 
 // WhatsApp message receiver webhook (for incoming WhatsApp messages)
@@ -679,8 +675,16 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     const locationId = ghlAccount.location_id;
     
-    // Get provider ID from environment
-    const providerId = getProviderId();
+    // Get provider ID from environment or fallback
+    let providerId = getProviderId();
+    if (!providerId) {
+      // Fallback to account's conversation provider ID
+      providerId = ghlAccount.conversation_provider_id;
+      if (!providerId) {
+        console.error('❌ No conversation provider ID found');
+        return res.json({ status: 'error', message: 'Provider ID not available' });
+      }
+    }
     
     console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
     
@@ -2213,11 +2217,6 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`GHL OAuth URL: https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`);
   
-  // Validate environment variables
-  try {
-    validateEnvironment();
-  } catch (error) {
-    console.error('❌ Environment validation failed:', error);
-    process.exit(1);
-  }
+  // Validate environment variables (non-blocking)
+  validateEnvironment();
 });
