@@ -742,7 +742,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
         type: "SMS",
         conversationProviderId: providerId,
         contactId: contactId,
-        message: { text: message || "—" },
+        text: message || "—",
         altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
       };
       
