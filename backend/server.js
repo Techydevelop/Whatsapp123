@@ -592,7 +592,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     }
     
     res.json({ status: 'success' });
-        } catch (error) {
+  } catch (error) {
     console.error('Webhook processing error:', error);
     res.json({ status: 'success' });
   }
@@ -640,7 +640,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     if (!ghlAccount) {
       const { data: anyAccount } = await supabaseAdmin
         .from('ghl_accounts')
-        .select('*')
+      .select('*')
         .limit(1)
         .maybeSingle();
       
@@ -739,7 +739,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // IMPORTANT: Yahan WhatsApp ko kuch wapas send na karein (no echo)
     
     res.json({ status: 'success' });
-  } catch (error) {
+        } catch (error) {
     console.error('WhatsApp webhook error:', error);
     res.json({ status: 'success' });
   }
@@ -1894,7 +1894,7 @@ app.post('/debug/clear-session/:sessionId', (req, res) => {
 app.get('/debug/session-status/:locationId', async (req, res) => {
   try {
     const { locationId } = req.params;
-    
+
     // Get GHL account
     const { data: ghlAccount } = await supabaseAdmin
       .from('ghl_accounts')
