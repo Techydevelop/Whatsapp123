@@ -636,10 +636,12 @@ async function initProviderId() {
   }
 }
 
-// Get provider ID (with validation)
+// Get provider ID (with fallback)
 function getProviderId() {
   if (!GLOBAL_PROVIDER_ID) {
-    throw new Error('ProviderId not initialized - call initProviderId() first');
+    console.log('⚠️ ProviderId not initialized, using fallback...');
+    // Fallback: try to get from environment or use a default
+    return process.env.GHL_CONVERSATION_PROVIDER_ID || 'fallback-provider-id';
   }
   return GLOBAL_PROVIDER_ID;
 }
@@ -693,7 +695,16 @@ app.post('/whatsapp/webhook', async (req, res) => {
     }
     
     const locationId = ghlAccount.location_id;
-    const providerId = getProviderId(); // Use global provider ID
+    
+    // Get provider ID with retry if not initialized
+    let providerId;
+    try {
+      providerId = getProviderId();
+    } catch (error) {
+      console.log('⚠️ Provider ID not ready, attempting to initialize...');
+      await initProviderId();
+      providerId = getProviderId();
+    }
     
     console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
     
@@ -2221,11 +2232,19 @@ app.post('/debug/test-outbound', async (req, res) => {
   }
 });
 
-// Start server
-app.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`GHL OAuth URL: https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`);
-  
-  // Initialize provider ID on startup
+// Initialize provider ID before starting server
+async function startServer() {
+  console.log('🔄 Initializing provider ID...');
   await initProviderId();
+  
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`GHL OAuth URL: https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`);
+  });
+}
+
+// Start server
+startServer().catch(error => {
+  console.error('❌ Failed to start server:', error);
+  process.exit(1);
 });
