@@ -745,7 +745,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
         type: "Custom",
         conversationProviderId: providerId,
         contactId: contactId,
-        text: message || "—",
+        message: { text: message || "—" }, // ✅ Correct: Text inside message object
         altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
       };
       
