@@ -336,7 +336,7 @@ export default function Dashboard() {
                 <div className="whatsapp-gradient p-2 rounded-lg">
                   <span className="text-white font-bold text-sm">3</span>
                 </div>
-                <p className="text-white/80">Click "Open QR" to scan WhatsApp QR code</p>
+                <p className="text-white/80">Click &quot;Open QR&quot; to scan WhatsApp QR code</p>
               </div>
             </div>
             <div className="space-y-4">
