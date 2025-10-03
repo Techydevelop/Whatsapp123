@@ -742,10 +742,13 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // Add INBOUND message (Custom provider)
     try {
       const payload = {
-        type: "Custom",
+        type: "SMS",
         conversationProviderId: providerId,
         contactId: contactId,
-        body: message || "—", // ✅ Correct: Use body field for message content
+        body: message || "—",
+        direction: "inbound",
+        messageType: "SMS",
+        status: "delivered",
         altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
       };
       
