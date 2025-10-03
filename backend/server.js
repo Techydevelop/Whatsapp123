@@ -769,6 +769,35 @@ app.post('/whatsapp/webhook', async (req, res) => {
         const responseData = await inboundRes.json();
         console.log(`✅ Inbound message added to GHL conversation for contact: ${contactId}`);
         console.log(`📊 GHL Response:`, JSON.stringify(responseData, null, 2));
+        console.log(`📊 Response Status:`, inboundRes.status);
+        console.log(`📊 Response Headers:`, Object.fromEntries(inboundRes.headers.entries()));
+        
+        // Check if message was actually created
+        if (responseData.messageId) {
+          console.log(`📝 Message ID created: ${responseData.messageId}`);
+          console.log(`💬 Message should be visible in GHL with content: "${message}"`);
+          
+          // Try to fetch the message back to verify it was created
+          try {
+            const verifyRes = await fetch(`${BASE}/conversations/${responseData.conversationId}/messages/${responseData.messageId}`, {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${validToken}`,
+                Version: "2021-07-28",
+                "Content-Type": "application/json"
+              }
+            });
+            
+            if (verifyRes.ok) {
+              const verifyData = await verifyRes.json();
+              console.log(`🔍 Message verification:`, JSON.stringify(verifyData, null, 2));
+            } else {
+              console.log(`⚠️ Could not verify message: ${verifyRes.status}`);
+            }
+          } catch (verifyError) {
+            console.log(`⚠️ Message verification failed:`, verifyError.message);
+          }
+        }
         
         // Track this message to prevent echo
         if (!global.recentInboundMessages) {
