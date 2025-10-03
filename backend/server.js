@@ -743,7 +743,6 @@ app.post('/whatsapp/webhook', async (req, res) => {
     try {
       const payload = {
         type: "WhatsApp",
-        conversationProviderId: providerId,
         contactId: contactId,
         message: message || "—",
         direction: "inbound",
