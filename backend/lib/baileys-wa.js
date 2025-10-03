@@ -256,7 +256,7 @@ class BaileysWhatsAppManager {
     }
   }
 
-  async sendMessage(sessionId, phoneNumber, message) {
+  async sendMessage(sessionId, phoneNumber, message, messageType = 'text', mediaUrl = null) {
     try {
       const client = this.clients.get(sessionId);
       
@@ -268,17 +268,44 @@ class BaileysWhatsAppManager {
       const formattedNumber = phoneNumber.replace(/\D/g, '');
       const jid = `${formattedNumber}@s.whatsapp.net`;
 
-      console.log(`📤 Sending message to ${jid}: ${message}`);
+      console.log(`📤 Sending ${messageType} to ${jid}: ${message}`);
 
-      const result = await client.socket.sendMessage(jid, {
-        text: message
-      });
+      let messageContent = {};
 
-      console.log(`✅ Message sent successfully:`, result);
+      if (messageType === 'image' && mediaUrl) {
+        // Send image
+        messageContent = {
+          image: { url: mediaUrl },
+          caption: message || ''
+        };
+        console.log(`🖼️ Sending image: ${mediaUrl}`);
+      } else if (messageType === 'video' && mediaUrl) {
+        // Send video
+        messageContent = {
+          video: { url: mediaUrl },
+          caption: message || ''
+        };
+        console.log(`🎥 Sending video: ${mediaUrl}`);
+      } else if (messageType === 'document' && mediaUrl) {
+        // Send document
+        messageContent = {
+          document: { url: mediaUrl },
+          mimetype: 'application/pdf',
+          fileName: 'document.pdf'
+        };
+        console.log(`📄 Sending document: ${mediaUrl}`);
+      } else {
+        // Send text message
+        messageContent = { text: message };
+      }
+
+      const result = await client.socket.sendMessage(jid, messageContent);
+
+      console.log(`✅ ${messageType} sent successfully:`, result);
       return result;
 
     } catch (error) {
-      console.error(`❌ Error sending message for session ${sessionId}:`, error);
+      console.error(`❌ Error sending ${messageType} for session ${sessionId}:`, error);
       throw error;
     }
   }

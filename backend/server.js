@@ -469,7 +469,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
   try {
     console.log('GHL Provider Webhook:', req.body);
     
-    const { locationId, message, contactId, phone } = req.body;
+    const { locationId, message, contactId, phone, attachments = [] } = req.body;
     
     // Check if this is a duplicate message (prevent echo)
     const messageKey = `${locationId}_${contactId}_${message}_${Date.now()}`;
@@ -585,7 +585,18 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     // Send message using Baileys
     try {
-      await waManager.sendMessage(clientKey, phoneNumber, message);
+      if (attachments && attachments.length > 0) {
+        // Handle media message
+        const attachment = attachments[0]; // Take first attachment
+        const mediaType = attachment.type || 'image';
+        const mediaUrl = attachment.url;
+        
+        console.log(`📎 Sending ${mediaType} with URL: ${mediaUrl}`);
+        await waManager.sendMessage(clientKey, phoneNumber, message, mediaType, mediaUrl);
+      } else {
+        // Send text message
+        await waManager.sendMessage(clientKey, phoneNumber, message);
+      }
       console.log('Message sent successfully via Baileys');
     } catch (sendError) {
       console.error('Error sending message via Baileys:', sendError);
