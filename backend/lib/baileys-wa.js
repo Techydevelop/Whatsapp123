@@ -349,7 +349,7 @@ class BaileysWhatsAppManager {
         console.log(`🔄 No client found for ${sessionId}, creating new one...`);
         await this.createClient(sessionId);
         // Wait a bit for client to initialize
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait longer
         client = this.clients.get(sessionId);
       }
 
@@ -358,7 +358,7 @@ class BaileysWhatsAppManager {
         return client.qr;
       }
 
-      console.log(`⏳ No QR code available yet for session: ${sessionId}, status: ${client?.status}`);
+      console.log(`⏳ No QR code available yet for session: ${sessionId}, status: ${client?.status}, hasQR: ${!!client?.qr}`);
       return null;
     } catch (error) {
       console.error(`❌ Error getting QR code for session ${sessionId}:`, error);

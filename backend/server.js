@@ -266,8 +266,12 @@ app.use(cors({
 
 // Add CSP headers for iframe embedding
 app.use((req, res, next) => {
-  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com");
+  // Allow iframe embedding from GHL domains
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com https://app.gohighlevel.com https://*.gohighlevel.com");
   res.setHeader('X-Frame-Options', 'ALLOWALL');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
   next();
 });
 
@@ -486,7 +490,7 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
     // Generate GHL OAuth URL for this specific location
     const authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}&state=${encodeURIComponent(user.id)}`;
 
-    res.json({ 
+  res.json({ 
       success: true, 
       message: 'Subaccount created, redirect to GHL OAuth',
       authUrl: authUrl,
@@ -569,7 +573,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     try {
       const validToken = await ensureValidToken(ghlAccount);
       console.log(`✅ Token validated for GHL account: ${ghlAccount.id}`);
-    } catch (error) {
+  } catch (error) {
       console.error(`❌ Token validation failed for GHL account ${ghlAccount.id}:`, error);
       return res.json({ status: 'error', message: 'Token validation failed' });
     }
@@ -865,7 +869,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
               if (response.ok) {
                 mediaBuffer = Buffer.from(await response.arrayBuffer());
                 console.log(`✅ Downloaded ${mediaBuffer.length} bytes`);
-              } else {
+      } else {
                 throw new Error('Failed to download encrypted media');
               }
             } else {
@@ -1239,6 +1243,11 @@ app.get('/ghl/provider/status', async (req, res) => {
 // GHL Provider UI (for custom menu link)
 app.get('/ghl/provider', async (req, res) => {
   try {
+    // Set specific headers for iframe embedding
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com");
+    res.setHeader('X-Frame-Options', 'ALLOWALL');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
     let { locationId, companyId } = req.query;
     
     // If no locationId provided, try to detect from GHL context or company
@@ -1948,25 +1957,32 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     // Set up QR code polling
     const qrPolling = setInterval(async () => {
       try {
+        console.log(`🔍 Checking for QR code for session: ${sessionName}`);
         const qrCode = await waManager.getQRCode(sessionName);
+        console.log(`📱 QR code result:`, qrCode ? 'Found' : 'Not found');
+        
         if (qrCode) {
           clearTimeout(initTimeout); // Clear timeout when QR is generated
+          console.log(`🔄 Converting QR to data URL...`);
           const qrDataUrl = await qrcode.toDataURL(qrCode);
+          console.log(`💾 Saving QR to database...`);
+          
           const { error: qrUpdateError } = await supabaseAdmin
             .from('sessions')
             .update({ qr: qrDataUrl, status: 'qr' })
             .eq('id', session.id);
           
           if (qrUpdateError) {
-            console.error('QR update failed:', qrUpdateError);
-    } else {
+            console.error('❌ QR update failed:', qrUpdateError);
+          } else {
             console.log(`✅ QR generated and saved for location ${locationId}:`, session.id);
+            clearInterval(qrPolling); // Stop polling once QR is saved
           }
         }
       } catch (e) {
-        console.error('QR polling error:', e);
+        console.error('❌ QR polling error:', e);
       }
-    }, 3000); // Check every 3 seconds
+    }, 2000); // Check every 2 seconds (faster)
 
     // Set up connection status polling
     const statusPolling = setInterval(async () => {
@@ -2255,7 +2271,7 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
               await waManager.createClient(sessionName);
               sessionReconnected = true;
               console.log(`✅ WhatsApp session reconnected for: ${ghlAccount.location_id}`);
-            } else {
+    } else {
               console.log(`✅ WhatsApp session already active for: ${ghlAccount.location_id}`);
               sessionReconnected = true;
             }
