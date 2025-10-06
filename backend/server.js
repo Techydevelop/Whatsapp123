@@ -1102,15 +1102,35 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
       const waNumber = phone.replace('+', '').replace('@s.whatsapp.net', '');
       const waJid = `${waNumber}@s.whatsapp.net`;
       
-      // Find active WhatsApp client for this location
-      const clientKey = `location_${ghlAccount.location_id}`;
-      const client = waManager.clients.get(clientKey);
+      // Find active WhatsApp session for this location
+      const { data: session } = await supabaseAdmin
+        .from('sessions')
+        .select('*')
+        .eq('subaccount_id', ghlAccount.id)
+        .eq('status', 'ready')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!session) {
+        console.log(`❌ No active WhatsApp session found for location: ${ghlAccount.location_id}`);
+        return res.sendStatus(200);
+      }
+
+      // Use consistent client key format
+      const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       
-      if (client && client.socket) {
-        await client.socket.sendMessage(waJid, { text: text });
+      console.log(`🔍 Looking for client with key: ${clientKey}`);
+      const clientStatus = waManager.getClientStatus(clientKey);
+      
+      if (clientStatus && clientStatus.status === 'connected') {
+        console.log(`✅ Sending WhatsApp message to ${waJid}: ${text}`);
+        await waManager.sendMessage(clientKey, waNumber, text, 'text', null);
         console.log(`✅ Message sent to WhatsApp: ${waJid}`);
       } else {
-        console.log(`❌ No active WhatsApp client found for key: ${clientKey}`);
+        console.log(`❌ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
+        console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
       }
     } catch (waError) {
       console.error(`❌ Error sending WhatsApp message:`, waError);
