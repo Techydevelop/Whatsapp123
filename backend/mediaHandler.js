@@ -2,6 +2,18 @@ const axios = require('axios');
 const FormData = require('form-data');
 const mime = require('mime-types');
 
+// Helper function for media message text
+function getMediaMessageText(messageType) {
+  const messages = {
+    'image': '🖼️ Image received',
+    'voice': '🎵 Voice note received',
+    'audio': '🎵 Audio file received',
+    'video': '🎥 Video received',
+    'document': '📄 Document received'
+  };
+  return messages[messageType] || '📎 Media received';
+}
+
 /**
  * Downloads media from WhatsApp encrypted URL
  * @param {string} mediaUrl - WhatsApp encrypted media URL
@@ -53,17 +65,16 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
     const fileInfo = fileMap[messageType] || { ext: 'bin', mime: 'application/octet-stream' };
     const filename = `whatsapp_${messageType}_${Date.now()}.${fileInfo.ext}`;
     
-    // Create form data
+    // Create form data for media upload
     const formData = new FormData();
     formData.append('file', mediaBuffer, {
       filename: filename,
       contentType: fileInfo.mime
     });
-    formData.append('contactId', contactId);
     
-    // Upload to GHL conversations endpoint
-    const response = await axios.post(
-      'https://services.leadconnectorhq.com/conversations/messages',
+    // Upload to GHL media library first
+    const mediaResponse = await axios.post(
+      'https://services.leadconnectorhq.com/medias',
       formData,
       {
         headers: {
@@ -77,11 +88,45 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
       }
     );
     
+    console.log('📊 Media upload response:', mediaResponse.status, mediaResponse.data);
+    
+    console.log('✅ Media uploaded to GHL library:', mediaResponse.data);
+    
+    // Now create the conversation message with the uploaded media
+    const messageData = {
+      type: "WhatsApp",
+      contactId: contactId,
+      message: getMediaMessageText(messageType),
+      direction: "inbound",
+      status: "delivered",
+      attachments: [{
+        type: messageType,
+        url: mediaResponse.data.url || mediaResponse.data.mediaUrl,
+        name: filename
+      }]
+    };
+    
+    const response = await axios.post(
+      'https://services.leadconnectorhq.com/conversations/messages/inbound',
+      messageData,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Version': '2021-07-28',
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
     console.log('✅ Media uploaded to GHL:', response.data);
     return response.data;
     
   } catch (error) {
-    console.error('❌ GHL media upload failed:', error.response?.data || error.message);
+    console.error('❌ GHL media upload failed:');
+    console.error('Status:', error.response?.status);
+    console.error('Data:', error.response?.data);
+    console.error('Headers:', error.response?.headers);
+    console.error('Message:', error.message);
     throw new Error(`GHL upload failed: ${error.response?.data?.message || error.message}`);
   }
 }
