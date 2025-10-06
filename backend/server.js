@@ -18,7 +18,7 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 const GHL_CLIENT_ID = process.env.GHL_CLIENT_ID;
 const GHL_CLIENT_SECRET = process.env.GHL_CLIENT_SECRET;
 const GHL_REDIRECT_URI = process.env.GHL_REDIRECT_URI;
-const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write businesses.readonly users.readonly';
+const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write businesses.readonly users.readonly medias.write';
 
 // Token refresh function
 async function refreshGHLToken(ghlAccount) {
@@ -699,7 +699,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
   try {
     console.log('📨 Received WhatsApp message:', req.body);
     
-    const { from, message, timestamp: messageTimestamp, sessionId, whatsappMsgId } = req.body;
+    const { from, message, messageType = 'text', mediaUrl, timestamp: messageTimestamp, sessionId, whatsappMsgId } = req.body;
     
     if (!from || !message) {
       console.log('Missing required fields in WhatsApp webhook');
@@ -727,7 +727,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // Fallback to any GHL account if session not found
     if (!ghlAccount) {
       const { data: anyAccount } = await supabaseAdmin
-        .from('ghl_accounts')
+      .from('ghl_accounts')
       .select('*')
         .limit(1)
         .maybeSingle();
@@ -810,14 +810,16 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     // Add INBOUND message (Custom provider)
     try {
-      const payload = {
-        type: "WhatsApp",
-        contactId: contactId,
-        message: message || "—",
-        direction: "inbound",
-        status: "delivered",
-        altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
-      };
+        const payload = {
+          type: "WhatsApp",
+          contactId: contactId,
+          message: message || "—",
+          direction: "inbound",
+          status: "delivered",
+          altId: whatsappMsgId || `wa_${Date.now()}`, // idempotency
+          messageType: messageType,
+          mediaUrl: mediaUrl
+        };
       
       console.log(`📤 Sending to GHL:`, JSON.stringify(payload, null, 2));
       console.log(`🔑 Using Provider ID:`, providerId);
@@ -891,7 +893,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // IMPORTANT: Yahan WhatsApp ko kuch wapas send na karein (no echo)
     
     res.json({ status: 'success' });
-        } catch (error) {
+  } catch (error) {
     console.error('WhatsApp webhook error:', error);
     res.json({ status: 'success' });
   }
@@ -904,7 +906,7 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
     
     // Check if this is an echo from our own inbound message
     const evt = req.body;
-    const { contactId, text, locationId, messageId, altId } = evt;
+    const { contactId, text, message, messageType, mediaUrl, locationId, messageId, altId } = evt;
     
     // If altId starts with 'wa_' it's from our WhatsApp webhook - ignore it
     if (altId && altId.startsWith('wa_')) {
@@ -1051,8 +1053,15 @@ app.post('/ghl/provider/send', async (req, res) => {
     const clientStatus = waManager.getClientStatus(clientKey);
     
     if (clientStatus && clientStatus.status === 'connected') {
-      console.log(`✅ Sending WhatsApp message to ${to}: ${message}`);
-      await waManager.sendMessage(clientKey, to, message);
+      const messageText = text || message || 'Hello from GHL!';
+      const msgType = messageType || 'text';
+      const media = mediaUrl || null;
+      
+      console.log(`✅ Sending WhatsApp ${msgType} to ${to}: ${messageText}`);
+      if (media) {
+        console.log(`📎 Media URL: ${media}`);
+      }
+      await waManager.sendMessage(clientKey, to, messageText, msgType, media);
       res.json({ status: 'success', messageId: Date.now().toString() });
     } else {
       console.error(`❌ WhatsApp client not found or not connected for key: ${clientKey}, status: ${clientStatus?.status}`);
@@ -1127,7 +1136,7 @@ app.get('/ghl/provider', async (req, res) => {
     
     if (!locationId) {
       return res.status(400).send(`
-        <html>
+      <html>
           <body style="font-family: Arial, sans-serif; padding: 20px; text-align: center;">
             <h2>⚠️ Setup Required</h2>
             <p>Please add your Location ID to the custom menu link:</p>
@@ -1523,7 +1532,7 @@ app.get('/ghl/provider', async (req, res) => {
             });
 
             closeBtn.addEventListener('click', () => {
-              window.close();
+            window.close();
             });
 
             // Initialize
@@ -1753,7 +1762,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       .insert({
         user_id: ghlAccount.user_id, 
         subaccount_id: ghlAccount.id, // Use ghl_account ID directly
-        status: 'initializing' 
+        status: 'initializing'
       })
       .select()
       .single();
@@ -1773,7 +1782,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
 
     // Verify session was saved to database
     const { data: verifySession, error: verifyError } = await supabaseAdmin
-      .from('sessions')
+            .from('sessions')
       .select('*')
       .eq('id', session.id)
       .single();
@@ -1790,11 +1799,11 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     
     // Add timeout for WhatsApp client initialization
     const initTimeout = setTimeout(async () => {
-      try {
-        await supabaseAdmin
-          .from('sessions')
+        try {
+          await supabaseAdmin
+            .from('sessions')
           .update({ status: 'disconnected' })
-          .eq('id', session.id);
+            .eq('id', session.id);
         console.log(`WhatsApp initialization timeout for location ${locationId}`);
       } catch (e) {
         console.error('Timeout update error:', e);
@@ -1807,7 +1816,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     try {
       const client = await waManager.createClient(sessionName);
       console.log(`✅ Baileys client created for session: ${sessionName}`);
-    } catch (error) {
+        } catch (error) {
       console.error(`❌ Failed to create Baileys client:`, error);
       return res.status(500).json({ error: 'Failed to create WhatsApp client' });
     }
@@ -2055,6 +2064,110 @@ app.delete('/admin/ghl/delete-subaccount', async (req, res) => {
   }
 });
 
+// Sync all subaccounts (refresh tokens and reconnect WhatsApp)
+app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
+  try {
+    console.log('🔄 Starting sync for all subaccounts...');
+    
+    // Get all GHL accounts
+    const { data: ghlAccounts } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .not('refresh_token', 'is', null);
+
+    if (!ghlAccounts || ghlAccounts.length === 0) {
+      return res.json({ 
+        success: true, 
+        message: 'No subaccounts found to sync',
+        syncedCount: 0 
+      });
+    }
+
+    console.log(`📋 Found ${ghlAccounts.length} subaccounts to sync`);
+
+    let syncedCount = 0;
+    let errorCount = 0;
+    const results = [];
+
+    for (const ghlAccount of ghlAccounts) {
+      try {
+        console.log(`🔄 Syncing subaccount: ${ghlAccount.location_id}`);
+        
+        // 1. Refresh token
+        let tokenRefreshed = false;
+        try {
+          await ensureValidToken(ghlAccount);
+          tokenRefreshed = true;
+          console.log(`✅ Token refreshed for: ${ghlAccount.location_id}`);
+        } catch (tokenError) {
+          console.error(`❌ Token refresh failed for ${ghlAccount.location_id}:`, tokenError);
+        }
+
+        // 2. Get existing sessions
+        const { data: sessions } = await supabaseAdmin
+      .from('sessions')
+          .select('*')
+          .eq('subaccount_id', ghlAccount.id)
+          .order('created_at', { ascending: false });
+
+        // 3. Reconnect WhatsApp sessions
+        let sessionReconnected = false;
+        if (sessions && sessions.length > 0) {
+          const latestSession = sessions[0];
+          const sessionName = `location_${ghlAccount.location_id}_${latestSession.id}`;
+          
+          try {
+            // Disconnect existing client
+            await waManager.disconnectClient(sessionName);
+            waManager.clearSessionData(sessionName);
+            
+            // Create new client
+            await waManager.createClient(sessionName);
+            sessionReconnected = true;
+            console.log(`✅ WhatsApp session reconnected for: ${ghlAccount.location_id}`);
+          } catch (sessionError) {
+            console.error(`❌ Session reconnect failed for ${ghlAccount.location_id}:`, sessionError);
+          }
+        }
+
+        syncedCount++;
+        results.push({
+          locationId: ghlAccount.location_id,
+          tokenRefreshed,
+          sessionReconnected,
+          status: 'success'
+        });
+
+      } catch (error) {
+        errorCount++;
+        console.error(`❌ Sync failed for ${ghlAccount.location_id}:`, error);
+        results.push({
+          locationId: ghlAccount.location_id,
+          status: 'error',
+          error: error.message
+        });
+      }
+    }
+
+    console.log(`✅ Sync completed: ${syncedCount} successful, ${errorCount} failed`);
+
+    res.json({ 
+      success: true, 
+      message: `Sync completed: ${syncedCount} subaccounts processed`,
+      syncedCount,
+      errorCount,
+      results
+    });
+
+  } catch (error) {
+    console.error('Sync all subaccounts error:', error);
+    res.status(500).json({ 
+      error: 'Failed to sync subaccounts',
+      details: error.message 
+    });
+  }
+});
+
 // GHL Conversations Provider endpoints
 app.post('/ghl/provider/messages', async (req, res) => {
   try {
@@ -2251,7 +2364,7 @@ app.post('/debug/refresh-token/:locationId', async (req, res) => {
 app.get('/debug/test-token/:locationId', async (req, res) => {
   try {
     const { locationId } = req.params;
-    
+
     const { data: ghlAccount } = await supabaseAdmin
       .from('ghl_accounts')
       .select('*')

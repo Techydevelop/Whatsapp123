@@ -249,7 +249,41 @@ class BaileysWhatsAppManager {
           const msg = m.messages[0];
           if (!msg.key.fromMe && m.type === 'notify') {
             const from = msg.key.remoteJid;
-            const messageText = msg.message?.conversation || msg.message?.extendedTextMessage?.text || 'Media/Other';
+            // Detect message type and content
+            let messageText = '';
+            let messageType = 'text';
+            let mediaUrl = null;
+            
+            if (msg.message?.conversation) {
+              messageText = msg.message.conversation;
+              messageType = 'text';
+            } else if (msg.message?.extendedTextMessage?.text) {
+              messageText = msg.message.extendedTextMessage.text;
+              messageType = 'text';
+            } else if (msg.message?.imageMessage) {
+              messageText = msg.message.imageMessage.caption || '🖼️ Image';
+              messageType = 'image';
+              mediaUrl = msg.message.imageMessage.url || msg.message.imageMessage.directPath;
+            } else if (msg.message?.videoMessage) {
+              messageText = msg.message.videoMessage.caption || '🎥 Video';
+              messageType = 'video';
+              mediaUrl = msg.message.videoMessage.url || msg.message.videoMessage.directPath;
+            } else if (msg.message?.audioMessage) {
+              messageText = '🎵 Voice Note';
+              messageType = 'voice';
+              mediaUrl = msg.message.audioMessage.url || msg.message.audioMessage.directPath;
+            } else if (msg.message?.documentMessage) {
+              messageText = msg.message.documentMessage.fileName || '📄 Document';
+              messageType = 'document';
+              mediaUrl = msg.message.documentMessage.url || msg.message.documentMessage.directPath;
+            } else if (msg.message?.stickerMessage) {
+              messageText = '😊 Sticker';
+              messageType = 'sticker';
+              mediaUrl = msg.message.stickerMessage.url || msg.message.stickerMessage.directPath;
+            } else {
+              messageText = '📎 Media/Other';
+              messageType = 'other';
+            }
             
             // Filter out broadcast messages and status messages
             if (from.includes('@broadcast') || from.includes('status@') || from.includes('@newsletter')) {
@@ -272,6 +306,8 @@ class BaileysWhatsAppManager {
                 body: JSON.stringify({
                   from,
                   message: messageText,
+                  messageType,
+                  mediaUrl,
                   timestamp: msg.messageTimestamp,
                   sessionId,
                   whatsappMsgId: msg.key.id // For idempotency
@@ -356,6 +392,14 @@ class BaileysWhatsAppManager {
           caption: message || ''
         };
         console.log(`🎥 Sending video: ${mediaUrl}`);
+      } else if (messageType === 'voice' && mediaUrl) {
+        // Send voice note
+        messageContent = {
+          audio: { url: mediaUrl },
+          ptt: true, // Push to talk (voice note)
+          mimetype: 'audio/ogg; codecs=opus'
+        };
+        console.log(`🎵 Sending voice note: ${mediaUrl}`);
       } else if (messageType === 'document' && mediaUrl) {
         // Send document
         messageContent = {
@@ -364,6 +408,12 @@ class BaileysWhatsAppManager {
           fileName: 'document.pdf'
         };
         console.log(`📄 Sending document: ${mediaUrl}`);
+      } else if (messageType === 'sticker' && mediaUrl) {
+        // Send sticker
+        messageContent = {
+          sticker: { url: mediaUrl }
+        };
+        console.log(`😊 Sending sticker: ${mediaUrl}`);
       } else {
         // Send text message
         messageContent = { text: message };

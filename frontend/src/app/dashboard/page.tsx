@@ -65,7 +65,7 @@ export default function Dashboard() {
             
             setSubaccountStatuses([locationStatus])
             console.log('Location status set:', locationStatus)
-          } catch (error) {
+    } catch (error) {
             console.error('Error fetching session status:', error)
             const fallbackStatus: SubaccountStatus = {
               id: ghlAccount.location_id,
@@ -128,7 +128,7 @@ export default function Dashboard() {
       
       // First create session if it doesn't exist
       const createResponse = await apiCall(API_ENDPOINTS.createSession(locationId), {
-        method: 'POST',
+            method: 'POST',
         body: JSON.stringify({ locationId })
       })
 
@@ -140,7 +140,7 @@ export default function Dashboard() {
         // Then open the provider page
         const link = API_ENDPOINTS.providerUI(locationId)
         window.open(link, '_blank')
-      } else {
+            } else {
         const errorData = await createResponse.json()
         console.error('Failed to create session:', errorData)
         alert(`Failed to create session: ${errorData.error || 'Unknown error'}`)
@@ -161,8 +161,8 @@ export default function Dashboard() {
       if (button) {
         button.disabled = false
         button.textContent = 'Open QR'
-      }
-      return
+        }
+        return
     }
   }
 
@@ -195,8 +195,8 @@ export default function Dashboard() {
 
   const deleteSubaccount = async (locationId: string) => {
     if (!confirm('Are you sure you want to delete this subaccount? This will permanently remove the WhatsApp connection and all associated data.')) {
-      return
-    }
+        return
+      }
 
     try {
       console.log(`Deleting subaccount for locationId: ${locationId}`)
@@ -218,6 +218,48 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error deleting subaccount:', error)
       alert(`Error deleting subaccount: ${error}`)
+    }
+  }
+
+  const syncAllSubaccounts = async () => {
+    if (!confirm('This will refresh all tokens and reconnect all WhatsApp sessions. Continue?')) {
+      return
+    }
+
+    try {
+      console.log('Starting sync for all subaccounts...')
+      
+      // Show loading state
+      const button = document.querySelector('button[onclick="syncAllSubaccounts"]') as HTMLButtonElement
+      if (button) {
+        button.disabled = true
+        button.textContent = '🔄 Syncing...'
+      }
+
+      const response = await apiCall(`${API_BASE_URL}/admin/ghl/sync-all-subaccounts`, {
+        method: 'POST'
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log('Sync completed:', result)
+        alert(`Sync completed successfully! ${result.syncedCount} subaccounts processed.`)
+        await fetchGHLLocations()
+      } else {
+        const errorData = await response.json()
+        console.error('Failed to sync subaccounts:', errorData)
+        alert(`Failed to sync subaccounts: ${errorData.error || 'Unknown error'}`)
+          }
+        } catch (error) {
+      console.error('Error syncing subaccounts:', error)
+      alert(`Error syncing subaccounts: ${error}`)
+    } finally {
+      // Reset button state
+      const button = document.querySelector('button[onclick="syncAllSubaccounts"]') as HTMLButtonElement
+      if (button) {
+        button.disabled = false
+        button.textContent = '🔄 Sync Subaccounts'
+      }
     }
   }
 
@@ -253,12 +295,20 @@ export default function Dashboard() {
         <p className="text-gray-600 max-w-2xl mx-auto mb-4">
           Seamlessly connect WhatsApp with GoHighLevel for powerful business communication
         </p>
-        <button
-          onClick={fetchGHLLocations}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
-        >
-          🔄 Refresh Status
-        </button>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={fetchGHLLocations}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+          >
+            🔄 Refresh Status
+          </button>
+          <button
+            onClick={syncAllSubaccounts}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+          >
+            🔄 Sync Subaccounts
+          </button>
+        </div>
       </div>
 
       {/* GHL Connection Status */}
@@ -364,14 +414,14 @@ export default function Dashboard() {
                         </button>
                       )}
                       
-                      <button
+            <button
                         onClick={() => deleteSubaccount(subaccount.ghl_location_id)}
                         className="bg-gray-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
                         title="Delete Subaccount"
                       >
                         🗑️ Delete
-                      </button>
-                    </div>
+            </button>
+          </div>
           </div>
                 </div>
               </div>
