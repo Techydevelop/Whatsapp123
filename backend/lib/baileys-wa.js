@@ -1,4 +1,4 @@
-const { makeWASocket, DisconnectReason, useMultiFileAuthState } = require('baileys');
+const { makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMessage } = require('baileys');
 const fs = require('fs');
 const path = require('path');
 
@@ -271,6 +271,7 @@ class BaileysWhatsAppManager {
             } else if (msg.message?.audioMessage) {
               messageText = '🎵 Voice Note';
               messageType = 'voice';
+              // For encrypted media, we'll handle it in the webhook
               mediaUrl = msg.message.audioMessage.url || msg.message.audioMessage.directPath;
             } else if (msg.message?.documentMessage) {
               messageText = msg.message.documentMessage.fileName || '📄 Document';

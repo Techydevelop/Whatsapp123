@@ -5,7 +5,8 @@ const { createClient } = require('@supabase/supabase-js');
 const GHLClient = require('./lib/ghl');
 const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
-const FormData = require('form-data');
+const { processWhatsAppMedia } = require('./mediaHandler');
+const { downloadMediaMessage } = require('baileys');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -87,56 +88,16 @@ async function refreshGHLToken(ghlAccount) {
   }
 }
 
-// Upload media to GHL media library
-async function uploadMediaToGHL(ghlAccount, mediaUrl, mediaType = 'audio') {
-  try {
-    console.log(`📤 Uploading media to GHL: ${mediaUrl}`);
-    
-    // First, download the media from WhatsApp
-    const mediaResponse = await fetch(mediaUrl);
-    if (!mediaResponse.ok) {
-      throw new Error(`Failed to download media: ${mediaResponse.status}`);
-    }
-    
-    const mediaBuffer = await mediaResponse.arrayBuffer();
-    const mediaBlob = new Blob([mediaBuffer]);
-    
-    // Get valid token
-    const accessToken = await ensureValidToken(ghlAccount);
-    
-    // Create form data for upload
-    const formData = new FormData();
-    formData.append('file', Buffer.from(mediaBuffer), {
-      filename: `voice_note_${Date.now()}.ogg`,
-      contentType: mediaType === 'voice' ? 'audio/ogg' : 'application/octet-stream'
-    });
-    formData.append('type', mediaType);
-    
-    // Upload to GHL media library
-    const uploadResponse = await fetch(`https://services.leadconnectorhq.com/medias/upload-file`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Version': '2021-07-28',
-        ...formData.getHeaders()
-      },
-      body: formData
-    });
-    
-    if (!uploadResponse.ok) {
-      const errorText = await uploadResponse.text();
-      console.error(`❌ Media upload failed: ${uploadResponse.status} - ${errorText}`);
-      throw new Error(`Media upload failed: ${uploadResponse.status}`);
-    }
-    
-    const uploadResult = await uploadResponse.json();
-    console.log(`✅ Media uploaded to GHL:`, uploadResult);
-    
-    return uploadResult;
-  } catch (error) {
-    console.error(`❌ Error uploading media to GHL:`, error);
-    return null;
-  }
+// Helper function for media message text
+function getMediaMessageText(messageType) {
+  const messages = {
+    'image': '🖼️ Image received',
+    'voice': '🎵 Voice note received',
+    'audio': '🎵 Audio file received',
+    'video': '🎥 Video received',
+    'document': '📄 Document received'
+  };
+  return messages[messageType] || '📎 Media received';
 }
 
 // Check and refresh token if needed (DISABLED - using sync button instead)
@@ -854,30 +815,45 @@ app.post('/whatsapp/webhook', async (req, res) => {
         
         let finalMessage = message || "—";
         
-        // If this is a media message, try to upload to GHL first
-        if (mediaUrl && messageType !== 'text') {
+        // If this is a media message, process and upload to GHL
+        if (mediaUrl && (messageType === 'image' || messageType === 'voice' || messageType === 'video' || messageType === 'audio')) {
           console.log(`📎 Processing media message: ${messageType}`);
           
           try {
-            const mediaUpload = await uploadMediaToGHL(ghlAccount, mediaUrl, messageType);
+            // Get GHL access token
+            const accessToken = await ensureValidToken(ghlAccount);
             
-            if (mediaUpload && mediaUpload.mediaId) {
-              attachments = [{
-                type: messageType,
-                url: mediaUpload.url || mediaUpload.mediaId,
-                mediaId: mediaUpload.mediaId,
-                fileName: mediaUpload.fileName || `voice_note_${Date.now()}.ogg`
-              }];
-              console.log(`✅ Media attachment added:`, attachments);
-            } else {
-              console.log(`⚠️ Media upload failed, sending as text message with media URL`);
-              // Fallback: include media URL in message
-              finalMessage = `${message}\n\n📎 Media: ${mediaUrl}`;
+            // Check if this is a Baileys encrypted URL
+            let processedMediaUrl = mediaUrl;
+            
+            if (mediaUrl && mediaUrl.includes('.enc')) {
+              console.log(`🔓 Detected encrypted media, using direct URL approach`);
+              // For now, use the direct URL - GHL should handle it
+              processedMediaUrl = mediaUrl;
             }
-          } catch (uploadError) {
-            console.log(`⚠️ Media upload error, sending as text message with media URL:`, uploadError.message);
-            // Fallback: include media URL in message
-            finalMessage = `${message}\n\n📎 Media: ${mediaUrl}`;
+            
+            // Process and upload media
+            const ghlMediaUrl = await processWhatsAppMedia(
+              processedMediaUrl,
+              messageType,
+              contactId,
+              accessToken
+            );
+            
+            // Create attachment with GHL media URL
+            attachments = [{
+              type: messageType,
+              url: ghlMediaUrl,
+              name: getMediaMessageText(messageType)
+            }];
+            
+            console.log(`✅ Media processed and uploaded to GHL:`, attachments);
+            
+          } catch (error) {
+            console.error(`❌ Media processing failed:`, error.message);
+            
+            // Fallback: Send text notification
+            finalMessage = `📎 ${getMediaMessageText(messageType)}\n\n⚠️ Media could not be processed. Please check WhatsApp directly.`;
           }
         }
         
