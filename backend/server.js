@@ -6,7 +6,7 @@ const GHLClient = require('./lib/ghl');
 const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
-const { downloadMediaMessage } = require('baileys');
+const { downloadContentFromMessage, downloadMediaMessage } = require('baileys');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -859,17 +859,50 @@ app.post('/whatsapp/webhook', async (req, res) => {
               }
               
               // Decrypt the media using Baileys
-              mediaBuffer = await downloadMediaMessage(
-                mediaMessage,
-                'buffer',
-                {},
-                {
-                  logger: console,
-                  reuploadRequest: client.socket.updateMediaMessage
+              try {
+                // Try downloadContentFromMessage first (newer method)
+                console.log(`🔄 Trying downloadContentFromMessage...`);
+                const stream = await downloadContentFromMessage(mediaMessage, messageType);
+                const chunks = [];
+                for await (const chunk of stream) {
+                  chunks.push(chunk);
                 }
-              );
-              
-              console.log(`✅ Decrypted ${mediaBuffer.length} bytes`);
+                mediaBuffer = Buffer.concat(chunks);
+                console.log(`✅ Decrypted ${mediaBuffer.length} bytes using downloadContentFromMessage`);
+              } catch (downloadError) {
+                console.error(`❌ downloadContentFromMessage failed:`, downloadError.message);
+                
+                // Fallback to downloadMediaMessage
+                console.log(`🔄 Trying fallback method downloadMediaMessage...`);
+                try {
+                  mediaBuffer = await downloadMediaMessage(
+                    mediaMessage,
+                    'buffer',
+                    {},
+                    {
+                      logger: console,
+                      reuploadRequest: client.socket.updateMediaMessage
+                    }
+                  );
+                  console.log(`✅ Decrypted ${mediaBuffer.length} bytes using downloadMediaMessage fallback`);
+                } catch (decryptError) {
+                  console.error(`❌ Media decryption failed:`, decryptError.message);
+                  
+                  // Try alternative approach - use the URL directly
+                if (mediaMessage.message.audioMessage?.url) {
+                  console.log(`🔄 Trying direct URL download as fallback...`);
+                  const response = await fetch(mediaMessage.message.audioMessage.url);
+                  if (response.ok) {
+                    mediaBuffer = Buffer.from(await response.arrayBuffer());
+                    console.log(`✅ Downloaded ${mediaBuffer.length} bytes via direct URL`);
+                  } else {
+                    throw new Error('Direct URL download also failed');
+                  }
+                } else {
+                  throw decryptError;
+                }
+                }
+              }
               
             } else if (mediaUrl && mediaUrl.includes('.enc')) {
               console.log(`🔓 Detected encrypted URL, trying direct download...`);
