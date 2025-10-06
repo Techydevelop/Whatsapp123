@@ -17,6 +17,11 @@ class BaileysWhatsAppManager {
     return this.clients;
   }
 
+  // Get client by session ID (for media decryption)
+  getClient(sessionId) {
+    return this.clients.get(sessionId);
+  }
+
   // Clear session data to force fresh connection
   clearSessionData(sessionId) {
     try {

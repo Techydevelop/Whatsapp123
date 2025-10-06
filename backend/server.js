@@ -6,7 +6,7 @@ const GHLClient = require('./lib/ghl');
 const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
-const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { downloadMediaMessage } = require('baileys');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -852,13 +852,22 @@ app.post('/whatsapp/webhook', async (req, res) => {
             if (mediaUrl === 'ENCRYPTED_MEDIA' && mediaMessage) {
               console.log(`🔓 Decrypting encrypted media with Baileys...`);
               
-              // Use downloadContentFromMessage directly (Sonnet's solution)
-              const stream = await downloadContentFromMessage(mediaMessage, messageType);
-              const chunks = [];
-              for await (const chunk of stream) {
-                chunks.push(chunk);
+              // Get the WhatsApp client for this session
+              const client = waManager.getClient(sessionId);
+              if (!client || !client.socket) {
+                throw new Error('WhatsApp client not available for decryption');
               }
-              mediaBuffer = Buffer.concat(chunks);
+              
+              // Decrypt the media using Baileys
+              mediaBuffer = await downloadMediaMessage(
+                mediaMessage,
+                'buffer',
+                {},
+                {
+                  logger: console,
+                  reuploadRequest: client.socket.updateMediaMessage
+                }
+              );
               
               console.log(`✅ Decrypted ${mediaBuffer.length} bytes`);
               
