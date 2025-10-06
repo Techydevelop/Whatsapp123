@@ -65,40 +65,39 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
     const fileInfo = fileMap[messageType] || { ext: 'bin', mime: 'application/octet-stream' };
     const filename = `whatsapp_${messageType}_${Date.now()}.${fileInfo.ext}`;
     
-    // Create form data for media upload
-    const formData = new FormData();
-    formData.append('file', mediaBuffer, {
+    // First upload media to GHL media library
+    const mediaFormData = new FormData();
+    mediaFormData.append('file', mediaBuffer, {
       filename: filename,
       contentType: fileInfo.mime
     });
     
-    // Upload to GHL media library first
+    console.log('📤 Uploading media to GHL media library...');
     const mediaResponse = await axios.post(
       'https://services.leadconnectorhq.com/medias',
-      formData,
+      mediaFormData,
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Version': '2021-07-28',
-          ...formData.getHeaders()
+          ...mediaFormData.getHeaders()
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity,
-        timeout: 60000 // 60 second timeout
+        timeout: 60000
       }
     );
     
-    console.log('📊 Media upload response:', mediaResponse.status, mediaResponse.data);
+    console.log('✅ Media uploaded to library:', mediaResponse.data);
     
-    console.log('✅ Media uploaded to GHL library:', mediaResponse.data);
-    
-    // Now create the conversation message with the uploaded media
-    const messageData = {
+    // Now create conversation message with media attachment
+    const messagePayload = {
       type: "WhatsApp",
       contactId: contactId,
       message: getMediaMessageText(messageType),
       direction: "inbound",
       status: "delivered",
+      altId: `wa_${Date.now()}`,
       attachments: [{
         type: messageType,
         url: mediaResponse.data.url || mediaResponse.data.mediaUrl,
@@ -106,9 +105,10 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
       }]
     };
     
+    console.log('📤 Creating conversation message with media...');
     const response = await axios.post(
-      'https://services.leadconnectorhq.com/conversations/messages/inbound',
-      messageData,
+      'https://services.leadconnectorhq.com/conversations/messages',
+      messagePayload,
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -117,6 +117,8 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
         }
       }
     );
+    
+    console.log('📊 Media upload response:', response.status, response.data);
     
     console.log('✅ Media uploaded to GHL:', response.data);
     return response.data;
