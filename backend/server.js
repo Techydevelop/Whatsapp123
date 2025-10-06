@@ -87,9 +87,22 @@ async function refreshGHLToken(ghlAccount) {
 // Check and refresh token if needed
 async function ensureValidToken(ghlAccount) {
   try {
+    // Check if token_expires_at is valid
+    if (!ghlAccount.token_expires_at) {
+      console.log(`⚠️ No expiration date for GHL account ${ghlAccount.id}, refreshing token...`);
+      return await refreshGHLToken(ghlAccount);
+    }
+
     // Check if token is expired or expires soon (within 4 hours for 24-hour tokens)
     const now = new Date();
     const expiresAt = new Date(ghlAccount.token_expires_at);
+    
+    // Check if the date is valid
+    if (isNaN(expiresAt.getTime())) {
+      console.log(`⚠️ Invalid expiration date for GHL account ${ghlAccount.id}, refreshing token...`);
+      return await refreshGHLToken(ghlAccount);
+    }
+    
     const fourHoursFromNow = new Date(now.getTime() + (4 * 60 * 60 * 1000));
     
     console.log(`🔍 Token check for GHL account ${ghlAccount.id}:`);
@@ -1052,7 +1065,7 @@ app.post('/ghl/provider/send', async (req, res) => {
     console.log(`🔍 Looking for WhatsApp client with key: ${clientKey}`);
     const clientStatus = waManager.getClientStatus(clientKey);
     
-    if (clientStatus && clientStatus.status === 'connected') {
+    if (clientStatus && (clientStatus.status === 'connected' || clientStatus.status === 'connecting')) {
       const messageText = text || message || 'Hello from GHL!';
       const msgType = messageType || 'text';
       const media = mediaUrl || null;
@@ -1064,9 +1077,13 @@ app.post('/ghl/provider/send', async (req, res) => {
       await waManager.sendMessage(clientKey, to, messageText, msgType, media);
       res.json({ status: 'success', messageId: Date.now().toString() });
     } else {
-      console.error(`❌ WhatsApp client not found or not connected for key: ${clientKey}, status: ${clientStatus?.status}`);
+      console.error(`❌ WhatsApp client not found or not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
       console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
-      res.status(500).json({ error: 'WhatsApp client not available' });
+      res.status(500).json({ 
+        error: 'WhatsApp client not available', 
+        status: clientStatus?.status || 'not found',
+        message: 'Please scan QR code or wait for connection'
+      });
     }
   } catch (error) {
     console.error('Send message error:', error);
@@ -2117,14 +2134,24 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
           const sessionName = `location_${ghlAccount.location_id}_${latestSession.id}`;
           
           try {
-            // Disconnect existing client
-            await waManager.disconnectClient(sessionName);
-            waManager.clearSessionData(sessionName);
+            // Check current client status
+            const clientStatus = waManager.getClientStatus(sessionName);
+            console.log(`🔍 Current client status for ${ghlAccount.location_id}: ${clientStatus?.status || 'not found'}`);
             
-            // Create new client
-            await waManager.createClient(sessionName);
-            sessionReconnected = true;
-            console.log(`✅ WhatsApp session reconnected for: ${ghlAccount.location_id}`);
+            // If client is not connected or in qr_ready state, reconnect
+            if (!clientStatus || (clientStatus.status !== 'connected' && clientStatus.status !== 'connecting')) {
+              // Disconnect existing client if any
+              await waManager.disconnectClient(sessionName);
+              waManager.clearSessionData(sessionName);
+              
+              // Create new client
+              await waManager.createClient(sessionName);
+              sessionReconnected = true;
+              console.log(`✅ WhatsApp session reconnected for: ${ghlAccount.location_id}`);
+            } else {
+              console.log(`✅ WhatsApp session already active for: ${ghlAccount.location_id}`);
+              sessionReconnected = true;
+            }
           } catch (sessionError) {
             console.error(`❌ Session reconnect failed for ${ghlAccount.location_id}:`, sessionError);
           }
