@@ -24,6 +24,17 @@ const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.w
 async function refreshGHLToken(ghlAccount) {
   try {
     console.log(`🔄 Refreshing token for GHL account: ${ghlAccount.id}`);
+    console.log(`🔑 Using refresh token: ${ghlAccount.refresh_token ? 'Present' : 'Missing'}`);
+    console.log(`🔑 Client ID: ${GHL_CLIENT_ID ? 'Present' : 'Missing'}`);
+    console.log(`🔑 Client Secret: ${GHL_CLIENT_SECRET ? 'Present' : 'Missing'}`);
+    
+    if (!ghlAccount.refresh_token) {
+      throw new Error('No refresh token available');
+    }
+    
+    if (!GHL_CLIENT_ID || !GHL_CLIENT_SECRET) {
+      throw new Error('GHL client credentials not configured');
+    }
     
     const response = await fetch('https://services.leadconnectorhq.com/oauth/token', {
       method: 'POST',
@@ -38,11 +49,16 @@ async function refreshGHLToken(ghlAccount) {
       })
     });
 
+    console.log(`📊 Token refresh response status: ${response.status}`);
+    
     if (!response.ok) {
-      throw new Error(`Token refresh failed: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`❌ Token refresh failed: ${response.status} - ${errorText}`);
+      throw new Error(`Token refresh failed: ${response.status} - ${errorText}`);
     }
 
     const tokenData = await response.json();
+    console.log(`✅ Token refresh successful, expires in: ${tokenData.expires_in} seconds`);
     
     // Update token in database
     const { error } = await supabaseAdmin
@@ -55,10 +71,11 @@ async function refreshGHLToken(ghlAccount) {
       .eq('id', ghlAccount.id);
 
     if (error) {
+      console.error(`❌ Database update failed:`, error);
       throw new Error(`Database update failed: ${error.message}`);
     }
 
-    console.log(`✅ Token refreshed successfully for GHL account: ${ghlAccount.id}`);
+    console.log(`✅ Token refreshed and saved successfully for GHL account: ${ghlAccount.id}`);
     return tokenData.access_token;
     
   } catch (error) {
@@ -70,27 +87,34 @@ async function refreshGHLToken(ghlAccount) {
 // Check and refresh token if needed
 async function ensureValidToken(ghlAccount) {
   try {
-    // Check if token is expired or expires soon (within 1 hour)
+    // Check if token is expired or expires soon (within 4 hours for 24-hour tokens)
     const now = new Date();
     const expiresAt = new Date(ghlAccount.token_expires_at);
-    const oneHourFromNow = new Date(now.getTime() + (60 * 60 * 1000));
+    const fourHoursFromNow = new Date(now.getTime() + (4 * 60 * 60 * 1000));
     
-    if (expiresAt <= oneHourFromNow) {
+    console.log(`🔍 Token check for GHL account ${ghlAccount.id}:`);
+    console.log(`   Current time: ${now.toISOString()}`);
+    console.log(`   Expires at: ${expiresAt.toISOString()}`);
+    console.log(`   Four hours from now: ${fourHoursFromNow.toISOString()}`);
+    
+    if (expiresAt <= fourHoursFromNow) {
       console.log(`⚠️ Token expires soon for GHL account ${ghlAccount.id}, refreshing...`);
       return await refreshGHLToken(ghlAccount);
     }
     
+    console.log(`✅ Token is still valid for GHL account ${ghlAccount.id}`);
     return ghlAccount.access_token;
   } catch (error) {
     console.error(`❌ Token validation failed for GHL account ${ghlAccount.id}:`, error);
-    throw error;
+    console.error(`❌ Falling back to stored token (may be expired)`);
+    return ghlAccount.access_token; // Return stored token even if expired, let GHL API handle the error
   }
 }
 
 // WhatsApp Manager (Baileys)
 const waManager = new BaileysWhatsAppManager();
 
-// Scheduled token refresh (every 12 hours)
+// Scheduled token refresh (every 6 hours - more frequent for 24-hour tokens)
 setInterval(async () => {
   try {
     console.log('🔄 Running scheduled token refresh...');
@@ -120,7 +144,41 @@ setInterval(async () => {
   } catch (error) {
     console.error('❌ Scheduled token refresh error:', error);
   }
-}, 12 * 60 * 60 * 1000); // Every 12 hours
+}, 6 * 60 * 60 * 1000); // Every 6 hours
+
+// Additional aggressive token refresh (every 2 hours for critical accounts)
+setInterval(async () => {
+  try {
+    console.log('🔄 Running aggressive token refresh...');
+    
+    const { data: ghlAccounts } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .not('refresh_token', 'is', null);
+
+    if (!ghlAccounts || ghlAccounts.length === 0) {
+      return;
+    }
+
+    for (const account of ghlAccounts) {
+      try {
+        // Check if token expires within 8 hours
+        const now = new Date();
+        const expiresAt = new Date(account.token_expires_at);
+        const eightHoursFromNow = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+        
+        if (expiresAt <= eightHoursFromNow) {
+          console.log(`🔄 Aggressive refresh for account ${account.id} (expires in ${Math.round((expiresAt - now) / (60 * 60 * 1000))} hours)`);
+          await refreshGHLToken(account);
+        }
+      } catch (error) {
+        console.error(`❌ Aggressive token refresh failed for GHL account ${account.id}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('❌ Aggressive token refresh error:', error);
+  }
+}, 2 * 60 * 60 * 1000); // Every 2 hours
 
 // Restore WhatsApp clients from database on startup
 async function restoreWhatsAppClients() {
@@ -2186,6 +2244,48 @@ app.post('/debug/refresh-token/:locationId', async (req, res) => {
   } catch (error) {
     console.error('Manual token refresh error:', error);
     res.status(500).json({ error: 'Failed to refresh token' });
+  }
+});
+
+// Test token endpoint
+app.get('/debug/test-token/:locationId', async (req, res) => {
+  try {
+    const { locationId } = req.params;
+    
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+
+    if (!ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    // Test current token
+    const testResponse = await fetch(`${BASE}/locations/${locationId}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${ghlAccount.access_token}`,
+        Version: "2021-07-28",
+        "Content-Type": "application/json"
+      }
+    });
+
+    res.json({
+      success: testResponse.ok,
+      status: testResponse.status,
+      message: testResponse.ok ? 'Token is valid' : 'Token is invalid',
+      locationId,
+      tokenExpires: ghlAccount.token_expires_at
+    });
+    
+  } catch (error) {
+    console.error('Token test error:', error);
+    res.status(500).json({ 
+      error: 'Failed to test token',
+      details: error.message 
+    });
   }
 });
 
