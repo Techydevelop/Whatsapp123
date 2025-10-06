@@ -1890,6 +1890,113 @@ app.get('/ghl/location/:locationId/session', async (req, res) => {
   }
 });
 
+// Logout session (disconnect WhatsApp)
+app.post('/ghl/location/:locationId/session/logout', async (req, res) => {
+  try {
+    const { locationId } = req.params;
+    
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+
+    if (!ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    const { data: session } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', ghlAccount.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Disconnect WhatsApp client
+    const sessionName = `location_${locationId}_${session.id}`;
+    await waManager.disconnectClient(sessionName);
+    
+    // Clear session data
+    waManager.clearSessionData(sessionName);
+    
+    // Update session status in database
+    await supabaseAdmin
+      .from('sessions')
+      .update({ 
+        status: 'disconnected',
+        phone_number: null,
+        qr: null
+      })
+      .eq('id', session.id);
+
+    console.log(`✅ Session logged out for location: ${locationId}`);
+    res.json({ status: 'success', message: 'Session logged out successfully' });
+  } catch (error) {
+    console.error('Logout session error:', error);
+    res.status(500).json({ error: 'Failed to logout session' });
+  }
+});
+
+// Delete subaccount
+app.delete('/admin/ghl/delete-subaccount', async (req, res) => {
+  try {
+    const { locationId } = req.body;
+    
+    if (!locationId) {
+      return res.status(400).json({ error: 'Location ID is required' });
+    }
+
+    // Get GHL account
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+
+    if (!ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    // Get all sessions for this subaccount
+    const { data: sessions } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', ghlAccount.id);
+
+    // Disconnect all WhatsApp clients
+    if (sessions) {
+      for (const session of sessions) {
+        const sessionName = `location_${locationId}_${session.id}`;
+        await waManager.disconnectClient(sessionName);
+        waManager.clearSessionData(sessionName);
+      }
+    }
+
+    // Delete all sessions
+    await supabaseAdmin
+      .from('sessions')
+      .delete()
+      .eq('subaccount_id', ghlAccount.id);
+
+    // Delete GHL account
+    await supabaseAdmin
+      .from('ghl_accounts')
+      .delete()
+      .eq('id', ghlAccount.id);
+
+    console.log(`✅ Subaccount deleted for location: ${locationId}`);
+    res.json({ status: 'success', message: 'Subaccount deleted successfully' });
+  } catch (error) {
+    console.error('Delete subaccount error:', error);
+    res.status(500).json({ error: 'Failed to delete subaccount' });
+  }
+});
+
 // GHL Conversations Provider endpoints
 app.post('/ghl/provider/messages', async (req, res) => {
   try {

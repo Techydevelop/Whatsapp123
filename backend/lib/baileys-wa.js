@@ -7,6 +7,9 @@ class BaileysWhatsAppManager {
     this.clients = new Map();
     this.dataDir = path.join(__dirname, '../data');
     this.ensureDataDir();
+    
+    // Start connection health monitor
+    this.startHealthMonitor();
   }
 
   // Make clients accessible for phone number retrieval
@@ -35,6 +38,39 @@ class BaileysWhatsAppManager {
     }
   }
 
+  // Connection health monitor
+  startHealthMonitor() {
+    setInterval(() => {
+      this.clients.forEach((client, sessionId) => {
+        if (client.status === 'connected') {
+          const timeSinceLastUpdate = Date.now() - client.lastUpdate;
+          
+          // If no update for more than 2 minutes, check connection
+          if (timeSinceLastUpdate > 120000) {
+            console.log(`🔍 Health check for ${sessionId}: Last update ${Math.round(timeSinceLastUpdate/1000)}s ago`);
+            
+            // Try to send a ping to check if connection is alive
+            try {
+              if (client.socket && client.socket.user) {
+                // Connection seems alive, update timestamp
+                client.lastUpdate = Date.now();
+                console.log(`✅ Connection healthy for ${sessionId}`);
+              } else {
+                console.log(`⚠️ Connection lost for ${sessionId}, marking as disconnected`);
+                client.status = 'disconnected';
+                client.lastUpdate = Date.now();
+              }
+            } catch (error) {
+              console.log(`❌ Health check failed for ${sessionId}:`, error.message);
+              client.status = 'disconnected';
+              client.lastUpdate = Date.now();
+            }
+          }
+        }
+      });
+    }, 30000); // Check every 30 seconds
+  }
+
   hasExistingCredentials(sessionId) {
     const authDir = path.join(this.dataDir, `baileys_${sessionId}`);
     const credsFile = path.join(authDir, 'creds.json');
@@ -45,10 +81,25 @@ class BaileysWhatsAppManager {
     try {
       console.log(`🚀 Creating Baileys client for session: ${sessionId}`);
       
-      // Check if client already exists
+      // Check if client already exists and is still valid
       if (this.clients.has(sessionId)) {
-        console.log(`⚠️ Client already exists for session: ${sessionId}`);
-        return this.clients.get(sessionId).socket;
+        const existingClient = this.clients.get(sessionId);
+        const timeSinceLastUpdate = Date.now() - existingClient.lastUpdate;
+        
+        // If client is connected and recently updated, return it
+        if (existingClient.status === 'connected' && timeSinceLastUpdate < 300000) { // 5 minutes
+          console.log(`✅ Using existing connected client for session: ${sessionId}`);
+          return existingClient.socket;
+        }
+        
+        // If client is disconnected for too long, remove it
+        if (existingClient.status === 'disconnected' && timeSinceLastUpdate > 60000) { // 1 minute
+          console.log(`🗑️ Removing stale disconnected client for session: ${sessionId}`);
+          this.clients.delete(sessionId);
+        } else if (existingClient.status === 'disconnected') {
+          console.log(`⚠️ Client exists but disconnected for session: ${sessionId}, recreating...`);
+          this.clients.delete(sessionId);
+        }
       }
       
       const authDir = path.join(this.dataDir, `baileys_${sessionId}`);
@@ -83,10 +134,11 @@ class BaileysWhatsAppManager {
         markOnlineOnConnect: true,
         syncFullHistory: false,
         defaultQueryTimeoutMs: 120000,
-        keepAliveIntervalMs: 30000,
+        keepAliveIntervalMs: 15000, // Reduced from 30s to 15s for better keep-alive
         connectTimeoutMs: 120000,
         retryRequestDelayMs: 1000,
-        maxMsgRetryCount: 3,
+        maxMsgRetryCount: 5, // Increased from 3 to 5
+        heartbeatIntervalMs: 10000, // Add heartbeat every 10 seconds
         msgRetryCounterCache: new Map(),
         getMessage: async (key) => {
           return {
@@ -126,17 +178,24 @@ class BaileysWhatsAppManager {
           console.log(`🔌 Connection closed for session: ${sessionId}, should reconnect: ${shouldReconnect}`);
           console.log(`🔌 Disconnect reason:`, lastDisconnect?.error?.message);
           
-          // Clear the client from memory
-          this.clients.delete(sessionId);
+          // Update status to disconnected but keep client for potential reconnection
+          if (this.clients.has(sessionId)) {
+            const client = this.clients.get(sessionId);
+            client.status = 'disconnected';
+            client.lastUpdate = Date.now();
+          }
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} in 15 seconds...`);
+            console.log(`🔄 Reconnecting session: ${sessionId} in 5 seconds...`);
             setTimeout(() => {
               console.log(`🔄 Attempting reconnection for: ${sessionId}`);
               this.createClient(sessionId).catch(err => {
                 console.error(`❌ Reconnection failed for ${sessionId}:`, err);
               });
-            }, 15000);
+            }, 5000); // Reduced from 15 to 5 seconds
+          } else {
+            // Only delete if logged out
+            this.clients.delete(sessionId);
           }
         } else if (connection === 'open') {
           console.log(`✅ WhatsApp connected for session: ${sessionId}`);
@@ -146,8 +205,19 @@ class BaileysWhatsAppManager {
             qr: null,
             status: 'connected',
             phoneNumber: socket.user?.id?.split(':')[0],
-            lastUpdate: Date.now()
+            lastUpdate: Date.now(),
+            connectedAt: Date.now()
           });
+          
+          // Update lastUpdate periodically to keep connection alive
+          setInterval(() => {
+            if (this.clients.has(sessionId)) {
+              const client = this.clients.get(sessionId);
+              if (client.status === 'connected') {
+                client.lastUpdate = Date.now();
+              }
+            }
+          }, 30000); // Update every 30 seconds
         } else if (connection === 'connecting') {
           console.log(`🔄 Connecting session: ${sessionId}`);
           this.clients.set(sessionId, {

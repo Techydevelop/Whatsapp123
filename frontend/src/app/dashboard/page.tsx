@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
-import { API_ENDPOINTS, apiCall } from '@/lib/config'
+import { API_ENDPOINTS, API_BASE_URL, apiCall } from '@/lib/config'
 
 type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
 
@@ -166,6 +166,61 @@ export default function Dashboard() {
     }
   }
 
+  const logoutSession = async (locationId: string) => {
+    if (!confirm('Are you sure you want to logout this WhatsApp session? This will disconnect WhatsApp from this location.')) {
+      return
+    }
+
+    try {
+      console.log(`Logging out session for locationId: ${locationId}`)
+      
+      const response = await apiCall(`${API_BASE_URL}/ghl/location/${locationId}/session/logout`, {
+        method: 'POST'
+      })
+
+      if (response.ok) {
+        console.log('Session logged out successfully')
+        alert('WhatsApp session logged out successfully!')
+        await fetchGHLLocations()
+      } else {
+        const errorData = await response.json()
+        console.error('Failed to logout session:', errorData)
+        alert(`Failed to logout session: ${errorData.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error logging out session:', error)
+      alert(`Error logging out session: ${error}`)
+    }
+  }
+
+  const deleteSubaccount = async (locationId: string) => {
+    if (!confirm('Are you sure you want to delete this subaccount? This will permanently remove the WhatsApp connection and all associated data.')) {
+      return
+    }
+
+    try {
+      console.log(`Deleting subaccount for locationId: ${locationId}`)
+      
+      const response = await apiCall(`${API_BASE_URL}/admin/ghl/delete-subaccount`, {
+        method: 'DELETE',
+        body: JSON.stringify({ locationId })
+      })
+
+      if (response.ok) {
+        console.log('Subaccount deleted successfully')
+        alert('Subaccount deleted successfully!')
+        await fetchGHLLocations()
+      } else {
+        const errorData = await response.json()
+        console.error('Failed to delete subaccount:', errorData)
+        alert(`Failed to delete subaccount: ${errorData.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error deleting subaccount:', error)
+      alert(`Error deleting subaccount: ${error}`)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -195,9 +250,15 @@ export default function Dashboard() {
         <h1 className="text-3xl font-bold text-gray-900 mb-2">
           WhatsApp GHL Integration
         </h1>
-        <p className="text-gray-600 max-w-2xl mx-auto">
+        <p className="text-gray-600 max-w-2xl mx-auto mb-4">
           Seamlessly connect WhatsApp with GoHighLevel for powerful business communication
         </p>
+        <button
+          onClick={fetchGHLLocations}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+        >
+          🔄 Refresh Status
+        </button>
       </div>
 
       {/* GHL Connection Status */}
@@ -262,26 +323,55 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-3">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      subaccount.status === 'ready' ? 'bg-green-100 text-green-800' :
-                      subaccount.status === 'qr' ? 'bg-yellow-100 text-yellow-800' :
-                      subaccount.status === 'initializing' ? 'bg-blue-100 text-blue-800' :
-                      subaccount.status === 'disconnected' ? 'bg-red-100 text-red-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {subaccount.status === 'ready' ? `Connected ${subaccount.phone_number ? `(${subaccount.phone_number})` : ''}` :
-                       subaccount.status === 'qr' ? 'Scan QR Code' :
-                       subaccount.status === 'initializing' ? 'Initializing...' :
-                       subaccount.status === 'disconnected' ? 'Disconnected' :
-                       'Not Connected'}
-                    </span>
-            <button
-                      data-location-id={subaccount.ghl_location_id}
-                      onClick={() => openQR(subaccount.ghl_location_id)}
-                      className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
-                    >
-                      Open QR
-            </button>
+                    <div className="flex items-center space-x-2">
+                      <div className={`w-2 h-2 rounded-full ${
+                        subaccount.status === 'ready' ? 'bg-green-500' :
+                        subaccount.status === 'qr' ? 'bg-yellow-500 animate-pulse' :
+                        subaccount.status === 'initializing' ? 'bg-blue-500 animate-pulse' :
+                        subaccount.status === 'disconnected' ? 'bg-red-500' :
+                        'bg-gray-400'
+                      }`}></div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                        subaccount.status === 'ready' ? 'bg-green-100 text-green-800' :
+                        subaccount.status === 'qr' ? 'bg-yellow-100 text-yellow-800' :
+                        subaccount.status === 'initializing' ? 'bg-blue-100 text-blue-800' :
+                        subaccount.status === 'disconnected' ? 'bg-red-100 text-red-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {subaccount.status === 'ready' ? `Connected ${subaccount.phone_number ? `(${subaccount.phone_number})` : ''}` :
+                         subaccount.status === 'qr' ? 'Scan QR Code' :
+                         subaccount.status === 'initializing' ? 'Initializing...' :
+                         subaccount.status === 'disconnected' ? 'Disconnected' :
+                         'Not Connected'}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        data-location-id={subaccount.ghl_location_id}
+                        onClick={() => openQR(subaccount.ghl_location_id)}
+                        className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
+                      >
+                        {subaccount.status === 'qr' ? 'Scan QR' : 'Open QR'}
+                      </button>
+                      
+                      {subaccount.status === 'ready' && (
+                        <button
+                          onClick={() => logoutSession(subaccount.ghl_location_id)}
+                          className="bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+                          title="Logout WhatsApp Session"
+                        >
+                          🚪 Logout
+                        </button>
+                      )}
+                      
+                      <button
+                        onClick={() => deleteSubaccount(subaccount.ghl_location_id)}
+                        className="bg-gray-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
+                        title="Delete Subaccount"
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
           </div>
                 </div>
               </div>
