@@ -1949,7 +1949,22 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     try {
       const client = await waManager.createClient(sessionName);
       console.log(`✅ Baileys client created for session: ${sessionName}`);
-        } catch (error) {
+      
+      // Wait a moment for QR to be generated
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Check if QR is already available
+      const qrCode = await waManager.getQRCode(sessionName);
+      if (qrCode) {
+        console.log(`📱 QR already available, updating database immediately...`);
+        const qrDataUrl = await qrcode.toDataURL(qrCode);
+        await supabaseAdmin
+          .from('sessions')
+          .update({ qr: qrDataUrl, status: 'qr' })
+          .eq('id', session.id);
+        console.log(`✅ QR updated in database immediately`);
+      }
+    } catch (error) {
       console.error(`❌ Failed to create Baileys client:`, error);
       return res.status(500).json({ error: 'Failed to create WhatsApp client' });
     }
