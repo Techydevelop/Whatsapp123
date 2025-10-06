@@ -5,6 +5,7 @@ const { createClient } = require('@supabase/supabase-js');
 const GHLClient = require('./lib/ghl');
 const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
+const FormData = require('form-data');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -83,6 +84,58 @@ async function refreshGHLToken(ghlAccount) {
   } catch (error) {
     console.error(`❌ Token refresh failed for GHL account ${ghlAccount.id}:`, error);
     throw error;
+  }
+}
+
+// Upload media to GHL media library
+async function uploadMediaToGHL(ghlAccount, mediaUrl, mediaType = 'audio') {
+  try {
+    console.log(`📤 Uploading media to GHL: ${mediaUrl}`);
+    
+    // First, download the media from WhatsApp
+    const mediaResponse = await fetch(mediaUrl);
+    if (!mediaResponse.ok) {
+      throw new Error(`Failed to download media: ${mediaResponse.status}`);
+    }
+    
+    const mediaBuffer = await mediaResponse.arrayBuffer();
+    const mediaBlob = new Blob([mediaBuffer]);
+    
+    // Get valid token
+    const accessToken = await ensureValidToken(ghlAccount);
+    
+    // Create form data for upload
+    const formData = new FormData();
+    formData.append('file', mediaBuffer, {
+      filename: `voice_note_${Date.now()}.ogg`,
+      contentType: mediaType === 'voice' ? 'audio/ogg' : 'application/octet-stream'
+    });
+    formData.append('type', mediaType);
+    
+    // Upload to GHL media library
+    const uploadResponse = await fetch(`https://services.leadconnectorhq.com/medias/upload-file`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Version': '2021-07-28',
+        ...formData.getHeaders()
+      },
+      body: formData
+    });
+    
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.error(`❌ Media upload failed: ${uploadResponse.status} - ${errorText}`);
+      throw new Error(`Media upload failed: ${uploadResponse.status}`);
+    }
+    
+    const uploadResult = await uploadResponse.json();
+    console.log(`✅ Media uploaded to GHL:`, uploadResult);
+    
+    return uploadResult;
+  } catch (error) {
+    console.error(`❌ Error uploading media to GHL:`, error);
+    return null;
   }
 }
 
@@ -825,6 +878,26 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     // Add INBOUND message (Custom provider)
     try {
+        let attachments = [];
+        
+        // If this is a media message, upload to GHL first
+        if (mediaUrl && messageType !== 'text') {
+          console.log(`📎 Processing media message: ${messageType}`);
+          const mediaUpload = await uploadMediaToGHL(ghlAccount, mediaUrl, messageType);
+          
+          if (mediaUpload && mediaUpload.mediaId) {
+            attachments = [{
+              type: messageType,
+              url: mediaUpload.url || mediaUpload.mediaId,
+              mediaId: mediaUpload.mediaId,
+              fileName: mediaUpload.fileName || `voice_note_${Date.now()}.ogg`
+            }];
+            console.log(`✅ Media attachment added:`, attachments);
+          } else {
+            console.log(`⚠️ Media upload failed, sending as text message`);
+          }
+        }
+        
         const payload = {
           type: "WhatsApp",
           contactId: contactId,
@@ -832,8 +905,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
           direction: "inbound",
           status: "delivered",
           altId: whatsappMsgId || `wa_${Date.now()}`, // idempotency
-          messageType: messageType,
-          mediaUrl: mediaUrl
+          attachments: attachments
         };
       
       console.log(`📤 Sending to GHL:`, JSON.stringify(payload, null, 2));
@@ -841,6 +913,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
       console.log(`👤 Using Contact ID:`, contactId);
       console.log(`💬 Message Content:`, `"${message}"`);
       console.log(`📏 Message Length:`, message.length);
+      console.log(`📎 Attachments Count:`, attachments.length);
       
       const inboundRes = await fetch(`${BASE}/conversations/messages/inbound`, {
         method: 'POST',
