@@ -106,7 +106,7 @@ async function uploadMediaToGHL(ghlAccount, mediaUrl, mediaType = 'audio') {
     
     // Create form data for upload
     const formData = new FormData();
-    formData.append('file', mediaBuffer, {
+    formData.append('file', Buffer.from(mediaBuffer), {
       filename: `voice_note_${Date.now()}.ogg`,
       contentType: mediaType === 'voice' ? 'audio/ogg' : 'application/octet-stream'
     });
@@ -139,39 +139,11 @@ async function uploadMediaToGHL(ghlAccount, mediaUrl, mediaType = 'audio') {
   }
 }
 
-// Check and refresh token if needed
+// Check and refresh token if needed (DISABLED - using sync button instead)
 async function ensureValidToken(ghlAccount) {
   try {
-    // Check if token_expires_at is valid
-    if (!ghlAccount.token_expires_at) {
-      console.log(`⚠️ No expiration date for GHL account ${ghlAccount.id}, refreshing token...`);
-      return await refreshGHLToken(ghlAccount);
-    }
-
-    // Check if token is expired or expires soon (within 4 hours for 24-hour tokens)
-    const now = new Date();
-    const expiresAt = new Date(ghlAccount.token_expires_at);
-    
-    // Check if the date is valid
-    if (isNaN(expiresAt.getTime())) {
-      console.log(`⚠️ Invalid expiration date for GHL account ${ghlAccount.id}, refreshing token...`);
-      return await refreshGHLToken(ghlAccount);
-    }
-    
-    const fourHoursFromNow = new Date(now.getTime() + (4 * 60 * 60 * 1000));
-    
-    console.log(`🔍 Token check for GHL account ${ghlAccount.id}:`);
-    console.log(`   Current time: ${now.toISOString()}`);
-    console.log(`   Expires at: ${expiresAt.toISOString()}`);
-    console.log(`   Four hours from now: ${fourHoursFromNow.toISOString()}`);
-    
-    if (expiresAt <= fourHoursFromNow) {
-      console.log(`⚠️ Token expires soon for GHL account ${ghlAccount.id}, refreshing...`);
-      return await refreshGHLToken(ghlAccount);
-    }
-    
-    console.log(`✅ Token is still valid for GHL account ${ghlAccount.id}`);
-    return ghlAccount.access_token;
+    console.log(`🔍 Using stored token for GHL account ${ghlAccount.id} (auto-refresh disabled)`);
+    return ghlAccount.access_token; // Just return stored token, no auto-refresh
   } catch (error) {
     console.error(`❌ Token validation failed for GHL account ${ghlAccount.id}:`, error);
     console.error(`❌ Falling back to stored token (may be expired)`);
@@ -880,33 +852,48 @@ app.post('/whatsapp/webhook', async (req, res) => {
     try {
         let attachments = [];
         
-        // If this is a media message, upload to GHL first
+        let finalMessage = message || "—";
+        
+        // If this is a media message, try to upload to GHL first
         if (mediaUrl && messageType !== 'text') {
           console.log(`📎 Processing media message: ${messageType}`);
-          const mediaUpload = await uploadMediaToGHL(ghlAccount, mediaUrl, messageType);
           
-          if (mediaUpload && mediaUpload.mediaId) {
-            attachments = [{
-              type: messageType,
-              url: mediaUpload.url || mediaUpload.mediaId,
-              mediaId: mediaUpload.mediaId,
-              fileName: mediaUpload.fileName || `voice_note_${Date.now()}.ogg`
-            }];
-            console.log(`✅ Media attachment added:`, attachments);
-          } else {
-            console.log(`⚠️ Media upload failed, sending as text message`);
+          try {
+            const mediaUpload = await uploadMediaToGHL(ghlAccount, mediaUrl, messageType);
+            
+            if (mediaUpload && mediaUpload.mediaId) {
+              attachments = [{
+                type: messageType,
+                url: mediaUpload.url || mediaUpload.mediaId,
+                mediaId: mediaUpload.mediaId,
+                fileName: mediaUpload.fileName || `voice_note_${Date.now()}.ogg`
+              }];
+              console.log(`✅ Media attachment added:`, attachments);
+            } else {
+              console.log(`⚠️ Media upload failed, sending as text message with media URL`);
+              // Fallback: include media URL in message
+              finalMessage = `${message}\n\n📎 Media: ${mediaUrl}`;
+            }
+          } catch (uploadError) {
+            console.log(`⚠️ Media upload error, sending as text message with media URL:`, uploadError.message);
+            // Fallback: include media URL in message
+            finalMessage = `${message}\n\n📎 Media: ${mediaUrl}`;
           }
         }
         
         const payload = {
           type: "WhatsApp",
           contactId: contactId,
-          message: message || "—",
+          message: finalMessage,
           direction: "inbound",
           status: "delivered",
-          altId: whatsappMsgId || `wa_${Date.now()}`, // idempotency
-          attachments: attachments
+          altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
         };
+        
+        // Only add attachments if we have them
+        if (attachments.length > 0) {
+          payload.attachments = attachments;
+        }
       
       console.log(`📤 Sending to GHL:`, JSON.stringify(payload, null, 2));
       console.log(`🔑 Using Provider ID:`, providerId);
