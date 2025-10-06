@@ -700,7 +700,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
   try {
     console.log('📨 Received WhatsApp message:', req.body);
     
-    const { from, message, messageType = 'text', mediaUrl, timestamp: messageTimestamp, sessionId, whatsappMsgId } = req.body;
+    const { from, message, messageType = 'text', mediaUrl, mediaMessage, timestamp: messageTimestamp, sessionId, whatsappMsgId } = req.body;
     
     if (!from || !message) {
       console.log('Missing required fields in WhatsApp webhook');
@@ -823,31 +823,70 @@ app.post('/whatsapp/webhook', async (req, res) => {
             // Get GHL access token
             const accessToken = await ensureValidToken(ghlAccount);
             
-            // Check if this is a Baileys encrypted URL
-            let processedMediaUrl = mediaUrl;
+            let mediaBuffer;
             
-            if (mediaUrl && mediaUrl.includes('.enc')) {
-              console.log(`🔓 Detected encrypted media, using direct URL approach`);
-              // For now, use the direct URL - GHL should handle it
-              processedMediaUrl = mediaUrl;
+            // Check if this is encrypted media that needs decryption
+            if (mediaUrl === 'ENCRYPTED_MEDIA' && mediaMessage) {
+              console.log(`🔓 Decrypting encrypted media with Baileys...`);
+              
+              // Get the WhatsApp client for this session
+              const client = waManager.getClient(sessionId);
+              if (!client || !client.socket) {
+                throw new Error('WhatsApp client not available for decryption');
+              }
+              
+              // Decrypt the media using Baileys
+              mediaBuffer = await downloadMediaMessage(
+                mediaMessage,
+                'buffer',
+                {},
+                {
+                  logger: console,
+                  reuploadRequest: client.socket.updateMediaMessage
+                }
+              );
+              
+              console.log(`✅ Decrypted ${mediaBuffer.length} bytes`);
+              
+            } else if (mediaUrl && mediaUrl.includes('.enc')) {
+              console.log(`🔓 Detected encrypted URL, trying direct download...`);
+              // Try direct download first
+              const response = await fetch(mediaUrl);
+              if (response.ok) {
+                mediaBuffer = Buffer.from(await response.arrayBuffer());
+                console.log(`✅ Downloaded ${mediaBuffer.length} bytes`);
+              } else {
+                throw new Error('Failed to download encrypted media');
+              }
+            } else {
+              // Regular URL download
+              const response = await fetch(mediaUrl);
+              if (response.ok) {
+                mediaBuffer = Buffer.from(await response.arrayBuffer());
+                console.log(`✅ Downloaded ${mediaBuffer.length} bytes`);
+              } else {
+                throw new Error('Failed to download media');
+              }
             }
             
-            // Process and upload media
-            const ghlMediaUrl = await processWhatsAppMedia(
-              processedMediaUrl,
+            // Upload decrypted/downloaded media to GHL
+            const { uploadMediaToGHL } = require('./mediaHandler');
+            const ghlResponse = await uploadMediaToGHL(
+              mediaBuffer,
               messageType,
               contactId,
               accessToken
             );
             
-            // Create attachment with GHL media URL
-            attachments = [{
-              type: messageType,
-              url: ghlMediaUrl,
-              name: getMediaMessageText(messageType)
-            }];
+            console.log(`✅ Media uploaded to GHL successfully:`, ghlResponse);
             
-            console.log(`✅ Media processed and uploaded to GHL:`, attachments);
+            // For successful upload, we don't need to send another message
+            // The media is already in GHL conversation
+            return res.json({ 
+              status: 'success', 
+              message: 'Media uploaded successfully',
+              ghlResponse: ghlResponse
+            });
             
           } catch (error) {
             console.error(`❌ Media processing failed:`, error.message);

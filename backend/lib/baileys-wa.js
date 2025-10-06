@@ -253,6 +253,7 @@ class BaileysWhatsAppManager {
             let messageText = '';
             let messageType = 'text';
             let mediaUrl = null;
+            let mediaMessage = null;
             
             if (msg.message?.conversation) {
               messageText = msg.message.conversation;
@@ -271,8 +272,9 @@ class BaileysWhatsAppManager {
             } else if (msg.message?.audioMessage) {
               messageText = '🎵 Voice Note';
               messageType = 'voice';
-              // For encrypted media, we'll handle it in the webhook
-              mediaUrl = msg.message.audioMessage.url || msg.message.audioMessage.directPath;
+              // Store the message object for decryption in webhook
+              mediaUrl = 'ENCRYPTED_MEDIA'; // Flag for encrypted media
+              mediaMessage = msg; // Store full message for decryption
             } else if (msg.message?.documentMessage) {
               messageText = msg.message.documentMessage.fileName || '📄 Document';
               messageType = 'document';
@@ -309,6 +311,7 @@ class BaileysWhatsAppManager {
                   message: messageText,
                   messageType,
                   mediaUrl,
+                  mediaMessage: mediaMessage, // Include full message for decryption
                   timestamp: msg.messageTimestamp,
                   sessionId,
                   whatsappMsgId: msg.key.id // For idempotency

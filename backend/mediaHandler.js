@@ -61,9 +61,9 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
     });
     formData.append('contactId', contactId);
     
-    // Upload to GHL
+    // Upload to GHL conversations endpoint
     const response = await axios.post(
-      'https://services.leadconnectorhq.com/medias/upload-file',
+      'https://services.leadconnectorhq.com/conversations/messages',
       formData,
       {
         headers: {
@@ -77,8 +77,8 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
       }
     );
     
-    console.log('✅ Media uploaded to GHL:', response.data.fileUrl);
-    return response.data.fileUrl;
+    console.log('✅ Media uploaded to GHL:', response.data);
+    return response.data;
     
   } catch (error) {
     console.error('❌ GHL media upload failed:', error.response?.data || error.message);
