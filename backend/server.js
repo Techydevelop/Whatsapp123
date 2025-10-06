@@ -1982,7 +1982,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       } catch (e) {
         console.error('❌ QR polling error:', e);
       }
-    }, 2000); // Check every 2 seconds (faster)
+    }, 1000); // Check every 1 second (fastest)
 
     // Set up connection status polling
     const statusPolling = setInterval(async () => {

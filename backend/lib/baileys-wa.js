@@ -349,7 +349,7 @@ class BaileysWhatsAppManager {
         console.log(`🔄 No client found for ${sessionId}, creating new one...`);
         await this.createClient(sessionId);
         // Wait a bit for client to initialize
-        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait longer
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Quick wait
         client = this.clients.get(sessionId);
       }
 
