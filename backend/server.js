@@ -36,17 +36,19 @@ async function refreshGHLToken(ghlAccount) {
       throw new Error('GHL client credentials not configured');
     }
     
+    // GHL OAuth requires form-urlencoded format
+    const formData = new URLSearchParams();
+    formData.append('grant_type', 'refresh_token');
+    formData.append('refresh_token', ghlAccount.refresh_token);
+    formData.append('client_id', GHL_CLIENT_ID);
+    formData.append('client_secret', GHL_CLIENT_SECRET);
+
     const response = await fetch('https://services.leadconnectorhq.com/oauth/token', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify({
-        grant_type: 'refresh_token',
-        refresh_token: ghlAccount.refresh_token,
-        client_id: GHL_CLIENT_ID,
-        client_secret: GHL_CLIENT_SECRET
-      })
+      body: formData.toString()
     });
 
     console.log(`📊 Token refresh response status: ${response.status}`);
