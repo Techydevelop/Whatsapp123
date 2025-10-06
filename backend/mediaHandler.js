@@ -65,56 +65,32 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
     const fileInfo = fileMap[messageType] || { ext: 'bin', mime: 'application/octet-stream' };
     const filename = `whatsapp_${messageType}_${Date.now()}.${fileInfo.ext}`;
     
-    // First upload media to GHL media library
-    const mediaFormData = new FormData();
-    mediaFormData.append('file', mediaBuffer, {
+    // Try direct multipart upload to conversations endpoint
+    const formData = new FormData();
+    formData.append('file', mediaBuffer, {
       filename: filename,
       contentType: fileInfo.mime
     });
+    formData.append('type', 'WhatsApp');
+    formData.append('contactId', contactId);
+    formData.append('message', getMediaMessageText(messageType));
+    formData.append('direction', 'inbound');
+    formData.append('status', 'delivered');
+    formData.append('altId', `wa_${Date.now()}`);
     
-    console.log('📤 Uploading media to GHL media library...');
-    const mediaResponse = await axios.post(
-      'https://services.leadconnectorhq.com/medias',
-      mediaFormData,
+    console.log('📤 Uploading media directly to conversations endpoint...');
+    const response = await axios.post(
+      'https://services.leadconnectorhq.com/conversations/messages',
+      formData,
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Version': '2021-07-28',
-          ...mediaFormData.getHeaders()
+          ...formData.getHeaders()
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity,
         timeout: 60000
-      }
-    );
-    
-    console.log('✅ Media uploaded to library:', mediaResponse.data);
-    
-    // Now create conversation message with media attachment
-    const messagePayload = {
-      type: "WhatsApp",
-      contactId: contactId,
-      message: getMediaMessageText(messageType),
-      direction: "inbound",
-      status: "delivered",
-      altId: `wa_${Date.now()}`,
-      attachments: [{
-        type: messageType,
-        url: mediaResponse.data.url || mediaResponse.data.mediaUrl,
-        name: filename
-      }]
-    };
-    
-    console.log('📤 Creating conversation message with media...');
-    const response = await axios.post(
-      'https://services.leadconnectorhq.com/conversations/messages',
-      messagePayload,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Version': '2021-07-28',
-          'Content-Type': 'application/json'
-        }
       }
     );
     
