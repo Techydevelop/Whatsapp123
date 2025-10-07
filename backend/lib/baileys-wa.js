@@ -7,6 +7,8 @@ class BaileysWhatsAppManager {
     this.clients = new Map();
     this.dataDir = path.join(__dirname, '../data');
     this.ensureDataDir();
+    this.qrQueue = []; // Queue for sequential QR generation
+    this.isGeneratingQR = false;
     
     // Start connection health monitor
     this.startHealthMonitor();
@@ -107,6 +109,40 @@ class BaileysWhatsAppManager {
         }
       }
       
+      // Add to QR queue to prevent conflicts
+      return new Promise((resolve, reject) => {
+        this.qrQueue.push({ sessionId, resolve, reject });
+        this.processQRQueue();
+      });
+    } catch (error) {
+      console.error(`❌ Error creating client for session ${sessionId}:`, error);
+      throw error;
+    }
+  }
+  
+  async processQRQueue() {
+    if (this.isGeneratingQR || this.qrQueue.length === 0) {
+      return;
+    }
+    
+    this.isGeneratingQR = true;
+    const { sessionId, resolve, reject } = this.qrQueue.shift();
+    
+    try {
+      console.log(`🔄 Processing QR queue for session: ${sessionId}`);
+      const socket = await this.createClientInternal(sessionId);
+      resolve(socket);
+    } catch (error) {
+      reject(error);
+    } finally {
+      this.isGeneratingQR = false;
+      // Process next in queue after a delay
+      setTimeout(() => this.processQRQueue(), 3000); // 3 second delay between QR generations
+    }
+  }
+  
+  async createClientInternal(sessionId) {
+    try {
       const authDir = path.join(this.dataDir, `baileys_${sessionId}`);
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
       
@@ -468,6 +504,12 @@ class BaileysWhatsAppManager {
     } catch (error) {
       console.error(`❌ Error disconnecting client for session ${sessionId}:`, error);
     }
+  }
+  
+  clearQRQueue() {
+    console.log(`🗑️ Clearing QR queue (${this.qrQueue.length} items)`);
+    this.qrQueue = [];
+    this.isGeneratingQR = false;
   }
 }
 
