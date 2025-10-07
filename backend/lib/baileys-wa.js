@@ -109,6 +109,18 @@ class BaileysWhatsAppManager {
         }
       }
       
+      // Check if there's already a connected client for this subaccount
+      const sessionIdParts = sessionId.split('_');
+      const subaccountId = sessionIdParts[1]; // location_subaccountId_sessionId
+      
+      for (const [clientKey, client] of this.clients.entries()) {
+        if (clientKey.includes(subaccountId) && client.status === 'connected') {
+          console.log(`⚠️ Subaccount ${subaccountId} already has connected client: ${clientKey}`);
+          console.log(`🚫 Skipping creation of duplicate client: ${sessionId}`);
+          return null; // Don't create duplicate client
+        }
+      }
+      
       // Add to QR queue to prevent conflicts
       return new Promise((resolve, reject) => {
         this.qrQueue.push({ sessionId, resolve, reject });
@@ -559,9 +571,56 @@ class BaileysWhatsAppManager {
         console.error('❌ Database update error:', error);
       } else {
         console.log(`✅ Database status updated to: ${status}`);
+        
+        // If this session is now connected, mark other sessions for same subaccount as disconnected
+        if (status === 'connected') {
+          await this.cleanupOldSessions(actualSessionId, sessionIdParts);
+        }
       }
     } catch (error) {
       console.error('❌ Error updating database status:', error);
+    }
+  }
+  
+  // Cleanup old sessions for same subaccount
+  async cleanupOldSessions(currentSessionId, sessionIdParts) {
+    try {
+      const { createClient } = require('@supabase/supabase-js');
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
+      
+      // Extract subaccount ID from sessionIdParts
+      const subaccountId = sessionIdParts[1]; // location_subaccountId_sessionId
+      
+      console.log(`🧹 Cleaning up old sessions for subaccount: ${subaccountId}`);
+      
+      // Mark other sessions for same subaccount as disconnected
+      const { error } = await supabaseAdmin
+        .from('sessions')
+        .update({ status: 'disconnected' })
+        .eq('subaccount_id', subaccountId)
+        .neq('id', currentSessionId)
+        .neq('status', 'disconnected');
+      
+      if (error) {
+        console.error('❌ Cleanup error:', error);
+      } else {
+        console.log(`✅ Old sessions marked as disconnected for subaccount: ${subaccountId}`);
+      }
+      
+      // Also cleanup disconnected clients from memory
+      this.clients.forEach((client, sessionKey) => {
+        if (sessionKey.includes(subaccountId) && sessionKey !== `location_${subaccountId}_${currentSessionId}`) {
+          if (client.status === 'disconnected' || client.status === 'qr_ready') {
+            console.log(`🗑️ Removing old client from memory: ${sessionKey}`);
+            this.clients.delete(sessionKey);
+          }
+        }
+      });
+      
+    } catch (error) {
+      console.error('❌ Error cleaning up old sessions:', error);
     }
   }
 }
