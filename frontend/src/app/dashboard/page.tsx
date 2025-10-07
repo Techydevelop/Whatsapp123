@@ -332,7 +332,6 @@ export default function Dashboard() {
             </div>
         </div>
         
-        {/* Connected Accounts List */}
         <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm mt-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Connected GHL Accounts</h3>
           <div className="space-y-3">
