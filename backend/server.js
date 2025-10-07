@@ -607,9 +607,19 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     console.log(`🔍 Looking for client with key: ${clientKey}`);
     const clientStatus = waManager.getClientStatus(clientKey);
     
-    if (!clientStatus || (clientStatus.status !== 'connected' && clientStatus.status !== 'qr_ready')) {
+    if (!clientStatus || clientStatus.status !== 'connected') {
       console.log(`❌ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
       console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
+      
+      // If client is in qr_ready status, provide helpful message
+      if (clientStatus && clientStatus.status === 'qr_ready') {
+        return res.json({ 
+          status: 'error', 
+          message: 'WhatsApp client QR code ready - please scan to connect',
+          clientStatus: clientStatus.status,
+          suggestion: 'Please scan the QR code in the dashboard to connect WhatsApp'
+        });
+      }
       
       return res.json({ 
         status: 'error', 
@@ -617,11 +627,6 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         clientStatus: clientStatus?.status || 'not found',
         suggestion: 'Please reconnect WhatsApp'
       });
-    }
-    
-    // If client is in qr_ready status, try to send message anyway
-    if (clientStatus && clientStatus.status === 'qr_ready') {
-      console.log(`⚠️ Client in qr_ready status, attempting to send message anyway...`);
     }
     
     // Get phone number from webhook data

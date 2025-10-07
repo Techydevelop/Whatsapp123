@@ -437,18 +437,13 @@ class BaileysWhatsAppManager {
     try {
       const client = this.clients.get(sessionId);
       
-      if (!client || (client.status !== 'connected' && client.status !== 'qr_ready')) {
-        throw new Error(`Client not ready for session: ${sessionId}, status: ${client.status}`);
+      if (!client || client.status !== 'connected') {
+        throw new Error(`Client not connected for session: ${sessionId}, status: ${client.status}`);
       }
       
-      // Check if socket is properly initialized (only for connected status)
-      if (client.status === 'connected' && (!client.socket || !client.socket.user)) {
+      // Check if socket is properly initialized
+      if (!client.socket || !client.socket.user) {
         throw new Error(`Socket not properly initialized for session: ${sessionId}`);
-      }
-      
-      // For qr_ready status, socket might not be fully initialized yet
-      if (client.status === 'qr_ready' && !client.socket) {
-        throw new Error(`Socket not available for session: ${sessionId}`);
       }
 
       // Format phone number
