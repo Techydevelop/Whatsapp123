@@ -318,21 +318,22 @@ export default function Dashboard() {
 
       {/* GHL Connection Status */}
       {ghlAccounts.length > 0 ? (
-        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-          <div className="flex items-center">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-4">
-              <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">GHL Accounts Connected</h3>
-              <p className="text-gray-600">{ghlAccounts.length} GoHighLevel account(s) successfully connected</p>
+        <>
+          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+            <div className="flex items-center">
+              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-4">
+                <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
               </div>
-            </div>
-        </div>
-        
-        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm mt-6">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">GHL Accounts Connected</h3>
+                <p className="text-gray-600">{ghlAccounts.length} GoHighLevel account(s) successfully connected</p>
+                </div>
+              </div>
+          </div>
+          
+          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm mt-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Connected GHL Accounts</h3>
           <div className="space-y-3">
             {ghlAccounts.map((account, index) => (
@@ -355,6 +356,7 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+        </>
       ) : (
         <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
           <div className="flex items-center justify-between">
