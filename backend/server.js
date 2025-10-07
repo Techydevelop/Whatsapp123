@@ -593,9 +593,9 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client using Baileys - use locationId from GHL webhook
-    const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const clientKey = `location_${cleanLocationId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    // Get WhatsApp client using Baileys - use subaccount_id from session
+    const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
     console.log(`🔍 Looking for client with key: ${clientKey}`);
     const clientStatus = waManager.getClientStatus(clientKey);
@@ -1154,9 +1154,9 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
         return res.sendStatus(200);
       }
 
-      // Use consistent client key format - use locationId from GHL webhook
-      const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const clientKey = `location_${cleanLocationId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      // Use consistent client key format - use subaccount_id from session
+      const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       
       console.log(`🔍 Looking for client with key: ${clientKey}`);
       const clientStatus = waManager.getClientStatus(clientKey);
@@ -2311,7 +2311,7 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
         let sessionReconnected = false;
         if (sessions && sessions.length > 0) {
           const latestSession = sessions[0];
-          const sessionName = `location_${ghlAccount.location_id}_${latestSession.id}`;
+          const sessionName = `location_${ghlAccount.id}_${latestSession.id}`;
           
           try {
             // Check current client status
@@ -2328,7 +2328,7 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
               await waManager.createClient(sessionName);
               sessionReconnected = true;
               console.log(`✅ WhatsApp session reconnected for: ${ghlAccount.location_id}`);
-    } else {
+            } else {
               console.log(`✅ WhatsApp session already active for: ${ghlAccount.location_id}`);
               sessionReconnected = true;
             }
