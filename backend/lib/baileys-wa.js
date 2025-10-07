@@ -175,11 +175,12 @@ class BaileysWhatsAppManager {
         markOnlineOnConnect: true,
         syncFullHistory: false,
         defaultQueryTimeoutMs: 120000,
-        keepAliveIntervalMs: 15000, // Reduced from 30s to 15s for better keep-alive
+        keepAliveIntervalMs: 10000, // More frequent keep-alive
         connectTimeoutMs: 120000,
-        retryRequestDelayMs: 1000,
-        maxMsgRetryCount: 5, // Increased from 3 to 5
-        heartbeatIntervalMs: 10000, // Add heartbeat every 10 seconds
+        retryRequestDelayMs: 2000, // Longer delay between retries
+        maxMsgRetryCount: 3,
+        heartbeatIntervalMs: 5000, // More frequent heartbeat
+        defaultQueryTimeoutMs: 60000, // Shorter query timeout
         msgRetryCounterCache: new Map(),
         getMessage: async (key) => {
           return {
@@ -227,13 +228,13 @@ class BaileysWhatsAppManager {
           }
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} in 5 seconds...`);
+            console.log(`🔄 Reconnecting session: ${sessionId} in 10 seconds...`);
             setTimeout(() => {
               console.log(`🔄 Attempting reconnection for: ${sessionId}`);
               this.createClient(sessionId).catch(err => {
                 console.error(`❌ Reconnection failed for ${sessionId}:`, err);
               });
-            }, 5000); // Reduced from 15 to 5 seconds
+            }, 10000); // Increased to 10 seconds for better stability
           } else {
             // Only delete if logged out
             this.clients.delete(sessionId);
@@ -411,8 +412,13 @@ class BaileysWhatsAppManager {
     try {
       const client = this.clients.get(sessionId);
       
-      if (!client || (client.status !== 'connected' && client.status !== 'qr_ready')) {
-        throw new Error(`Client not ready for session: ${sessionId}, status: ${client.status}`);
+      if (!client || client.status !== 'connected') {
+        throw new Error(`Client not connected for session: ${sessionId}, status: ${client.status}`);
+      }
+      
+      // Check if socket is properly initialized
+      if (!client.socket || !client.socket.user) {
+        throw new Error(`Socket not properly initialized for session: ${sessionId}`);
       }
 
       // Format phone number
