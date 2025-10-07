@@ -251,6 +251,9 @@ class BaileysWhatsAppManager {
             connectedAt: Date.now()
           });
           
+          // Update database status to 'connected'
+          this.updateDatabaseStatus(sessionId, 'connected', socket.user?.id?.split(':')[0]);
+          
           // Update lastUpdate periodically to keep connection alive
           setInterval(() => {
             if (this.clients.has(sessionId)) {
@@ -526,6 +529,40 @@ class BaileysWhatsAppManager {
     console.log(`🗑️ Clearing QR queue (${this.qrQueue.length} items)`);
     this.qrQueue = [];
     this.isGeneratingQR = false;
+  }
+  
+  // Update database status
+  async updateDatabaseStatus(sessionId, status, phoneNumber = null) {
+    try {
+      const { createClient } = require('@supabase/supabase-js');
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
+      
+      // Extract session ID from sessionId (format: location_subaccountId_sessionId)
+      const sessionIdParts = sessionId.split('_');
+      const actualSessionId = sessionIdParts.slice(2).join('_'); // Get everything after location_subaccountId_
+      
+      console.log(`📊 Updating database status for session ${actualSessionId}: ${status}`);
+      
+      const updateData = { status };
+      if (phoneNumber) {
+        updateData.phone_number = phoneNumber;
+      }
+      
+      const { error } = await supabaseAdmin
+        .from('sessions')
+        .update(updateData)
+        .eq('id', actualSessionId);
+      
+      if (error) {
+        console.error('❌ Database update error:', error);
+      } else {
+        console.log(`✅ Database status updated to: ${status}`);
+      }
+    } catch (error) {
+      console.error('❌ Error updating database status:', error);
+    }
   }
 }
 
