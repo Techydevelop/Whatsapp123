@@ -263,8 +263,8 @@ class BaileysWhatsAppManager {
             connectedAt: Date.now()
           });
           
-          // Update database status to 'connected'
-          this.updateDatabaseStatus(sessionId, 'connected', socket.user?.id?.split(':')[0]);
+          // Update database status to 'ready' (connected state)
+          this.updateDatabaseStatus(sessionId, 'ready', socket.user?.id?.split(':')[0]);
           
           // Update lastUpdate periodically to keep connection alive
           setInterval(() => {
@@ -572,8 +572,8 @@ class BaileysWhatsAppManager {
       } else {
         console.log(`✅ Database status updated to: ${status}`);
         
-        // If this session is now connected, mark other sessions for same subaccount as disconnected
-        if (status === 'connected') {
+        // If this session is now ready (connected), mark other sessions for same subaccount as disconnected
+        if (status === 'ready') {
           await this.cleanupOldSessions(actualSessionId, sessionIdParts);
         }
       }
