@@ -7,6 +7,9 @@ const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
 const { downloadContentFromMessage, downloadMediaMessage } = require('baileys');
+const multer = require('multer');
+const FormData = require('form-data');
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -734,6 +737,8 @@ function getProviderId() {
 app.post('/whatsapp/webhook', async (req, res) => {
   try {
     console.log('📨 Received WhatsApp message:', req.body);
+    console.log('📨 Webhook headers:', req.headers);
+    console.log('📨 Webhook timestamp:', new Date().toISOString());
     
     const { from, message, messageType = 'text', mediaUrl, mediaMessage, timestamp: messageTimestamp, sessionId, whatsappMsgId } = req.body;
     
@@ -2456,6 +2461,183 @@ app.post('/ghl/provider/messages', async (req, res) => {
   } catch (error) {
     console.error('Send message error:', error);
     res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// Configure multer for voice messages
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
+
+// Voice message handler
+app.post('/api/send-voice-message', upload.single('audio'), async (req, res) => {
+  try {
+    console.log('🎤 Received voice message request');
+    
+    const { contactId, locationId } = req.body;
+    const audioFile = req.file;
+    
+    console.log('📊 Voice message data:', {
+      contactId,
+      locationId,
+      fileSize: audioFile ? audioFile.size : 0,
+      mimeType: audioFile ? audioFile.mimetype : 'none'
+    });
+    
+    if (!audioFile) {
+      return res.status(400).json({ error: 'No audio file provided' });
+    }
+    
+    if (!contactId || !locationId) {
+      return res.status(400).json({ error: 'Missing contactId or locationId' });
+    }
+    
+    // Get GHL account
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+    
+    if (!ghlAccount) {
+      console.log(`❌ GHL account not found for location: ${locationId}`);
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+    
+    console.log(`✅ Found GHL account: ${ghlAccount.id}`);
+    
+    // Get valid token
+    const accessToken = await ensureValidToken(ghlAccount);
+    console.log('✅ Got valid access token');
+    
+    // Upload audio to GHL media library
+    const formData = new FormData();
+    formData.append('file', audioFile.buffer, {
+      filename: 'voice-message.webm',
+      contentType: 'audio/webm'
+    });
+    
+    console.log('📤 Uploading audio to GHL media library...');
+    const mediaResponse = await axios.post(
+      'https://services.leadconnectorhq.com/medias',
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Version': '2021-07-28',
+          ...formData.getHeaders()
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+        timeout: 60000
+      }
+    );
+    
+    console.log('✅ Audio uploaded to GHL:', mediaResponse.data);
+    
+    // Get WhatsApp session for this location
+    const { data: session } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', ghlAccount.id)
+      .eq('status', 'ready')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (!session) {
+      console.log(`❌ No active WhatsApp session found for location: ${locationId}`);
+      return res.status(404).json({ error: 'No active WhatsApp session found' });
+    }
+    
+    console.log(`✅ Found WhatsApp session: ${session.id}`);
+    
+    // Get contact phone number
+    const contactResponse = await axios.get(
+      `https://services.leadconnectorhq.com/contacts/${contactId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Version': '2021-07-28'
+        }
+      }
+    );
+    
+    const contact = contactResponse.data.contact;
+    const phoneNumber = contact.phone;
+    
+    if (!phoneNumber) {
+      console.log(`❌ No phone number found for contact: ${contactId}`);
+      return res.status(400).json({ error: 'Contact has no phone number' });
+    }
+    
+    console.log(`📱 Sending voice message to: ${phoneNumber}`);
+    
+    // Send voice message via WhatsApp
+    const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    
+    const clientStatus = waManager.getClientStatus(clientKey);
+    if (!clientStatus || clientStatus.status !== 'connected') {
+      console.log(`❌ WhatsApp client not connected for key: ${clientKey}, status: ${clientStatus?.status}`);
+      return res.status(400).json({ error: 'WhatsApp client not connected' });
+    }
+    
+    // Send voice message using Baileys
+    const result = await waManager.sendMessage(
+      clientKey, 
+      phoneNumber, 
+      '🎤 Voice Message', 
+      'audio', 
+      mediaResponse.data.url || mediaResponse.data.mediaUrl
+    );
+    
+    console.log('✅ Voice message sent via WhatsApp:', result);
+    
+    // Also create conversation message in GHL
+    const messagePayload = {
+      type: "WhatsApp",
+      contactId: contactId,
+      message: "🎤 Voice Message",
+      direction: "outbound",
+      status: "sent",
+      altId: `voice_${Date.now()}`,
+      attachments: [{
+        type: "audio",
+        url: mediaResponse.data.url || mediaResponse.data.mediaUrl,
+        name: "voice-message.webm"
+      }]
+    };
+    
+    console.log('📤 Creating conversation message in GHL...');
+    const conversationResponse = await axios.post(
+      'https://services.leadconnectorhq.com/conversations/messages',
+      messagePayload,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Version': '2021-07-28',
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    console.log('✅ Conversation message created:', conversationResponse.data);
+    
+    res.json({ 
+      success: true, 
+      messageId: conversationResponse.data.messageId,
+      whatsappResult: result,
+      mediaUrl: mediaResponse.data.url || mediaResponse.data.mediaUrl
+    });
+    
+  } catch (error) {
+    console.error('❌ Voice message error:', error);
+    res.status(500).json({ 
+      error: 'Failed to send voice message',
+      details: error.message 
+    });
   }
 });
 

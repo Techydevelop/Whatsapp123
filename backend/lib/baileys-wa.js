@@ -337,6 +337,14 @@ class BaileysWhatsAppManager {
             }
             
             console.log(`📨 Received message from ${from}: ${messageText}`);
+            console.log(`📨 Message details:`, {
+              from,
+              messageText,
+              messageType,
+              mediaUrl,
+              sessionId,
+              timestamp: msg.messageTimestamp
+            });
             
             // Forward to GHL webhook
             try {
@@ -361,7 +369,9 @@ class BaileysWhatsAppManager {
               });
               
               if (webhookResponse.ok) {
+                const responseText = await webhookResponse.text();
                 console.log(`✅ Message forwarded to GHL webhook for session: ${sessionId}`);
+                console.log(`📊 Webhook response:`, responseText);
               } else {
                 const errorText = await webhookResponse.text();
                 console.error(`❌ Failed to forward message to GHL webhook (${webhookResponse.status}):`, errorText);
