@@ -437,8 +437,8 @@ class BaileysWhatsAppManager {
     try {
       const client = this.clients.get(sessionId);
       
-      if (!client || client.status !== 'connected') {
-        throw new Error(`Client not connected for session: ${sessionId}, status: ${client.status}`);
+      if (!client || (client.status !== 'connected' && client.status !== 'ready')) {
+        throw new Error(`Client not ready for session: ${sessionId}, status: ${client.status}`);
       }
       
       // Check if socket is properly initialized
