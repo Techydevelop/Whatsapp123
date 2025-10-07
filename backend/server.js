@@ -552,8 +552,14 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       global.messageCache.delete(messageKey);
     }, 5 * 60 * 1000);
     
-    if (!locationId || !message) {
-      console.log('Missing required fields in webhook');
+    if (!locationId) {
+      console.log('Missing required field "locationId" in webhook');
+      return res.json({ status: 'success' });
+    }
+    
+    // Allow empty message for attachment-only messages
+    if (!message && (!attachments || attachments.length === 0)) {
+      console.log('Missing message content in webhook');
       return res.json({ status: 'success' });
     }
     
@@ -667,14 +673,23 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       if (attachments && attachments.length > 0) {
         // Handle media message
         const attachment = attachments[0]; // Take first attachment
-        const mediaType = attachment.type || 'image';
-        const mediaUrl = attachment.url;
+        const mediaUrl = attachment;
+        
+        // Detect media type from URL
+        let mediaType = 'image'; // default
+        if (mediaUrl.includes('.mp4') || mediaUrl.includes('.mov') || mediaUrl.includes('.avi')) {
+          mediaType = 'video';
+        } else if (mediaUrl.includes('.mp3') || mediaUrl.includes('.wav') || mediaUrl.includes('.ogg')) {
+          mediaType = 'audio';
+        } else if (mediaUrl.includes('.pdf') || mediaUrl.includes('.doc')) {
+          mediaType = 'document';
+        }
         
         console.log(`📎 Sending ${mediaType} with URL: ${mediaUrl}`);
-        await waManager.sendMessage(clientKey, phoneNumber, message, mediaType, mediaUrl);
+        await waManager.sendMessage(clientKey, phoneNumber, message || '', mediaType, mediaUrl);
       } else {
         // Send text message
-        await waManager.sendMessage(clientKey, phoneNumber, message);
+        await waManager.sendMessage(clientKey, phoneNumber, message || '');
       }
       console.log('Message sent successfully via Baileys');
     } catch (sendError) {
@@ -722,8 +737,14 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     const { from, message, messageType = 'text', mediaUrl, mediaMessage, timestamp: messageTimestamp, sessionId, whatsappMsgId } = req.body;
     
-    if (!from || !message) {
-      console.log('Missing required fields in WhatsApp webhook');
+    if (!from) {
+      console.log('Missing required field "from" in WhatsApp webhook');
+      return res.json({ status: 'success' });
+    }
+    
+    // Allow empty message for media messages
+    if (!message && !mediaUrl && !mediaMessage) {
+      console.log('Missing message content in WhatsApp webhook');
       return res.json({ status: 'success' });
     }
     
@@ -1997,13 +2018,13 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       if (qrCode) {
         console.log(`📱 QR already available, updating database immediately...`);
         const qrDataUrl = await qrcode.toDataURL(qrCode);
-        await supabaseAdmin
-          .from('sessions')
+          await supabaseAdmin
+            .from('sessions')
           .update({ qr: qrDataUrl, status: 'qr' })
-          .eq('id', session.id);
+            .eq('id', session.id);
         console.log(`✅ QR updated in database immediately`);
       }
-    } catch (error) {
+        } catch (error) {
       console.error(`❌ Failed to create Baileys client:`, error);
       return res.status(500).json({ error: 'Failed to create WhatsApp client' });
     }
@@ -2325,7 +2346,7 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
               await waManager.createClient(sessionName);
               sessionReconnected = true;
               console.log(`✅ WhatsApp session reconnected for: ${ghlAccount.location_id}`);
-            } else {
+    } else {
               console.log(`✅ WhatsApp session already active for: ${ghlAccount.location_id}`);
               sessionReconnected = true;
             }
