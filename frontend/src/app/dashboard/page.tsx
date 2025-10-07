@@ -18,7 +18,7 @@ interface SubaccountStatus {
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true)
-  const [ghlAccount, setGhlAccount] = useState<GhlAccount | null>(null)
+  const [ghlAccounts, setGhlAccounts] = useState<GhlAccount[]>([])
   const [subaccountStatuses, setSubaccountStatuses] = useState<SubaccountStatus[]>([])
 
   const fetchGHLLocations = useCallback(async () => {
@@ -26,60 +26,65 @@ export default function Dashboard() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Check if we have a GHL account connected
-      const { data: ghlAccount, error: ghlError } = await supabase
+      // Get ALL GHL accounts for this user
+      const { data: ghlAccounts, error: ghlError } = await supabase
         .from('ghl_accounts')
         .select('*')
         .eq('user_id', user.id)
-        .maybeSingle()
+        .order('created_at', { ascending: false })
 
-      console.log('GHL account query result:', { ghlAccount, ghlError, userId: user.id })
-      console.log('GHL account details:', ghlAccount)
+      console.log('GHL accounts query result:', { ghlAccounts, ghlError, userId: user.id })
+      console.log('GHL accounts details:', ghlAccounts)
       console.log('GHL error details:', ghlError)
       if (ghlError) {
         console.error('Database error:', ghlError.message, ghlError.code)
       }
-      setGhlAccount(ghlAccount)
+      setGhlAccounts(ghlAccounts || [])
 
-      if (ghlAccount) {
-        // Use location from stored GHL account
-        console.log('GHL account found, using stored location...', ghlAccount)
+      if (ghlAccounts && ghlAccounts.length > 0) {
+        // Process all GHL accounts
+        console.log('GHL accounts found, processing sessions...', ghlAccounts)
         
-        if (ghlAccount.location_id) {
-          try {
-            const sessionResponse = await apiCall(API_ENDPOINTS.getSession(ghlAccount.location_id))
-            let sessionData = { status: 'none', phone_number: null, qr: null }
-            
-            if (sessionResponse.ok) {
-              sessionData = await sessionResponse.json()
+        const statuses: SubaccountStatus[] = []
+        
+        for (const ghlAccount of ghlAccounts) {
+          if (ghlAccount.location_id) {
+            try {
+              const sessionResponse = await apiCall(API_ENDPOINTS.getSession(ghlAccount.location_id))
+              let sessionData = { status: 'none', phone_number: null, qr: null }
+              
+              if (sessionResponse.ok) {
+                sessionData = await sessionResponse.json()
+              }
+              
+              const locationStatus: SubaccountStatus = {
+                id: ghlAccount.id,
+                name: `Location ${ghlAccount.location_id}`,
+                ghl_location_id: ghlAccount.location_id,
+                status: (sessionData.status as 'initializing' | 'qr' | 'ready' | 'disconnected' | 'none') || 'none',
+                phone_number: sessionData.phone_number || undefined,
+                qr: sessionData.qr || undefined
+              }
+              
+              statuses.push(locationStatus)
+              console.log('Location status added:', locationStatus)
+            } catch (error) {
+              console.error('Error fetching session status:', error)
+              const fallbackStatus: SubaccountStatus = {
+                id: ghlAccount.id,
+                name: `Location ${ghlAccount.location_id}`,
+                ghl_location_id: ghlAccount.location_id,
+                status: 'none' as const
+              }
+              statuses.push(fallbackStatus)
             }
-            
-            const locationStatus: SubaccountStatus = {
-              id: ghlAccount.location_id,
-              name: `Location ${ghlAccount.location_id}`,
-              ghl_location_id: ghlAccount.location_id,
-              status: (sessionData.status as 'initializing' | 'qr' | 'ready' | 'disconnected' | 'none') || 'none',
-              phone_number: sessionData.phone_number || undefined,
-              qr: sessionData.qr || undefined
-            }
-            
-            setSubaccountStatuses([locationStatus])
-            console.log('Location status set:', locationStatus)
-    } catch (error) {
-            console.error('Error fetching session status:', error)
-            const fallbackStatus: SubaccountStatus = {
-              id: ghlAccount.location_id,
-              name: `Location ${ghlAccount.location_id}`,
-              ghl_location_id: ghlAccount.location_id,
-              status: 'none' as const
-            }
-            setSubaccountStatuses([fallbackStatus])
           }
-            } else {
-          console.log('No location_id in GHL account')
-          setSubaccountStatuses([])
-            }
-          } else {
+        }
+        
+        setSubaccountStatuses(statuses)
+        console.log('All subaccount statuses set:', statuses)
+      } else {
+        console.log('No GHL accounts found')
         setSubaccountStatuses([])
       }
     } catch (error) {
@@ -312,7 +317,7 @@ export default function Dashboard() {
       </div>
 
       {/* GHL Connection Status */}
-      {ghlAccount ? (
+      {ghlAccounts.length > 0 ? (
         <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
           <div className="flex items-center">
             <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-4">
@@ -321,10 +326,35 @@ export default function Dashboard() {
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">GHL Account Connected</h3>
-              <p className="text-gray-600">Your GoHighLevel account is successfully linked</p>
+              <h3 className="text-lg font-semibold text-gray-900">GHL Accounts Connected</h3>
+              <p className="text-gray-600">{ghlAccounts.length} GoHighLevel account(s) successfully connected</p>
               </div>
             </div>
+        </div>
+        
+        {/* Connected Accounts List */}
+        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm mt-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Connected GHL Accounts</h3>
+          <div className="space-y-3">
+            {ghlAccounts.map((account, index) => (
+              <div key={account.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
+                    <span className="text-green-600 font-semibold text-sm">{index + 1}</span>
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">Location: {account.location_id}</p>
+                    <p className="text-sm text-gray-500">Connected: {new Date(account.created_at).toLocaleDateString()}</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    Connected
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
         <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">

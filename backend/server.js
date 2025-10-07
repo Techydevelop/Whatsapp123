@@ -593,9 +593,9 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client using Baileys - use the same key format as session creation
-    const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    // Get WhatsApp client using Baileys - use locationId from GHL webhook
+    const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const clientKey = `location_${cleanLocationId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
     console.log(`🔍 Looking for client with key: ${clientKey}`);
     const clientStatus = waManager.getClientStatus(clientKey);
@@ -1154,9 +1154,9 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
         return res.sendStatus(200);
       }
 
-      // Use consistent client key format
-      const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      // Use consistent client key format - use locationId from GHL webhook
+      const cleanLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const clientKey = `location_${cleanLocationId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       
       console.log(`🔍 Looking for client with key: ${clientKey}`);
       const clientStatus = waManager.getClientStatus(clientKey);
