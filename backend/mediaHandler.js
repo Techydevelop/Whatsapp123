@@ -47,16 +47,17 @@ async function downloadWhatsAppMedia(mediaUrl) {
  * @param {string} messageType - Type: 'image', 'voice', 'video', 'document'
  * @param {string} contactId - GHL contact ID
  * @param {string} accessToken - GHL access token
+ * @param {string} locationId - GHL location ID
  * @returns {Promise<string>} - GHL media URL
  */
-async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken) {
+async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken, locationId) {
   try {
-    console.log(`📤 Uploading ${messageType} to GHL...`);
+    console.log(`📤 Uploading ${messageType} to GHL for location: ${locationId}...`);
     
     // Determine file extension and content type
     const fileMap = {
       'image': { ext: 'jpg', mime: 'image/jpeg' },
-      'voice': { ext: 'ogg', mime: 'audio/ogg' },
+      'voice': { ext: 'ogg', mime: 'audio/ogg; codecs=opus' },
       'audio': { ext: 'mp3', mime: 'audio/mpeg' },
       'video': { ext: 'mp4', mime: 'video/mp4' },
       'document': { ext: 'pdf', mime: 'application/pdf' }
@@ -65,21 +66,25 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
     const fileInfo = fileMap[messageType] || { ext: 'bin', mime: 'application/octet-stream' };
     const filename = `whatsapp_${messageType}_${Date.now()}.${fileInfo.ext}`;
     
-    // First upload media to GHL media library
+    // Upload media to GHL media library with correct endpoint
     const mediaFormData = new FormData();
     mediaFormData.append('file', mediaBuffer, {
       filename: filename,
       contentType: fileInfo.mime
     });
+    mediaFormData.append('fileType', messageType);
     
     console.log('📤 Uploading media to GHL media library...');
+    
+    // Correct GHL media upload endpoint
     const mediaResponse = await axios.post(
-      'https://services.leadconnectorhq.com/medias',
+      `https://services.leadconnectorhq.com/medias/upload-file`,
       mediaFormData,
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Version': '2021-07-28',
+          'locationId': locationId,
           ...mediaFormData.getHeaders()
         },
         maxContentLength: Infinity,
@@ -90,6 +95,13 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
     
     console.log('✅ Media uploaded to library:', mediaResponse.data);
     
+    // Get the uploaded file URL
+    const uploadedFileUrl = mediaResponse.data?.fileUrl || mediaResponse.data?.url;
+    
+    if (!uploadedFileUrl) {
+      throw new Error('No file URL returned from GHL media upload');
+    }
+    
     // Now create conversation message with media attachment
     const messagePayload = {
       type: "WhatsApp",
@@ -98,11 +110,7 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
       direction: "inbound",
       status: "delivered",
       altId: `wa_${Date.now()}`,
-      attachments: [{
-        type: messageType,
-        url: mediaResponse.data.url || mediaResponse.data.mediaUrl,
-        name: filename
-      }]
+      attachments: [uploadedFileUrl] // GHL expects array of URLs
     };
     
     console.log('📤 Creating conversation message with media...');
@@ -139,9 +147,10 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
  * @param {string} messageType - Message type
  * @param {string} contactId - GHL contact ID
  * @param {string} accessToken - GHL access token
+ * @param {string} locationId - GHL location ID
  * @returns {Promise<string>} - GHL media URL
  */
-async function processWhatsAppMedia(mediaUrl, messageType, contactId, accessToken) {
+async function processWhatsAppMedia(mediaUrl, messageType, contactId, accessToken, locationId) {
   try {
     // Step 1: Download from WhatsApp
     const mediaBuffer = await downloadWhatsAppMedia(mediaUrl);
@@ -151,7 +160,8 @@ async function processWhatsAppMedia(mediaUrl, messageType, contactId, accessToke
       mediaBuffer, 
       messageType, 
       contactId, 
-      accessToken
+      accessToken,
+      locationId
     );
     
     return ghlMediaUrl;

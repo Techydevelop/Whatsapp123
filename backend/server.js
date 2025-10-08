@@ -1050,7 +1050,8 @@ app.post('/whatsapp/webhook', async (req, res) => {
               mediaBuffer,
               messageType,
               contactId,
-              accessToken
+              validToken,
+              locationId
             );
             
             console.log(`✅ Media uploaded to GHL successfully:`, ghlResponse);
