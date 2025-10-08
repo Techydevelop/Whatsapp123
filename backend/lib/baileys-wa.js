@@ -90,9 +90,9 @@ class BaileysWhatsAppManager {
       
       // Extract subaccount ID from sessionId to prevent multiple connections
       const sessionIdParts = sessionId.split('_');
-      if (sessionIdParts.length >= 2) {
-        const subaccountId = sessionIdParts[1];
-        
+      const subaccountId = sessionIdParts.length >= 2 ? sessionIdParts[1] : null;
+      
+      if (subaccountId) {
         // Check if there's already a connected client for this subaccount
         for (const [key, client] of this.clients) {
           if (key.includes(subaccountId) && (client.status === 'connected' || client.status === 'ready')) {
@@ -124,15 +124,14 @@ class BaileysWhatsAppManager {
         }
       }
       
-      // Check if there's already a connected client for this subaccount
-      const sessionIdParts = sessionId.split('_');
-      const subaccountId = sessionIdParts[1]; // location_subaccountId_sessionId
-      
-      for (const [clientKey, client] of this.clients.entries()) {
-        if (clientKey.includes(subaccountId) && client.status === 'connected') {
-          console.log(`⚠️ Subaccount ${subaccountId} already has connected client: ${clientKey}`);
-          console.log(`🚫 Skipping creation of duplicate client: ${sessionId}`);
-          return null; // Don't create duplicate client
+      // Check again if there's already a connected client for this subaccount
+      if (subaccountId) {
+        for (const [clientKey, client] of this.clients.entries()) {
+          if (clientKey.includes(subaccountId) && client.status === 'connected') {
+            console.log(`⚠️ Subaccount ${subaccountId} already has connected client: ${clientKey}`);
+            console.log(`🚫 Skipping creation of duplicate client: ${sessionId}`);
+            return null; // Don't create duplicate client
+          }
         }
       }
       
