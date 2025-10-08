@@ -101,15 +101,71 @@ function getMediaMessageText(messageType) {
   return messages[messageType] || '📎 Media received';
 }
 
-// Check and refresh token if needed (DISABLED - using sync button instead)
-async function ensureValidToken(ghlAccount) {
+// Check and refresh token if needed
+async function ensureValidToken(ghlAccount, forceRefresh = false) {
   try {
-    console.log(`🔍 Using stored token for GHL account ${ghlAccount.id} (auto-refresh disabled)`);
-    return ghlAccount.access_token; // Just return stored token, no auto-refresh
+    if (forceRefresh) {
+      console.log(`🔄 Force refreshing token for GHL account ${ghlAccount.id}`);
+      return await refreshGHLToken(ghlAccount);
+    }
+    
+    // Check if token is expired or about to expire (within 1 hour)
+    if (ghlAccount.token_expires_at) {
+      const now = new Date();
+      const expiresAt = new Date(ghlAccount.token_expires_at);
+      const oneHourFromNow = new Date(now.getTime() + (60 * 60 * 1000));
+      
+      if (expiresAt <= oneHourFromNow) {
+        console.log(`🔄 Token expired or expiring soon for GHL account ${ghlAccount.id} (expires at: ${expiresAt.toISOString()})`);
+        return await refreshGHLToken(ghlAccount);
+      }
+    }
+    
+    console.log(`✅ Using valid token for GHL account ${ghlAccount.id} (expires: ${ghlAccount.token_expires_at})`);
+    return ghlAccount.access_token;
   } catch (error) {
     console.error(`❌ Token validation failed for GHL account ${ghlAccount.id}:`, error);
     console.error(`❌ Falling back to stored token (may be expired)`);
     return ghlAccount.access_token; // Return stored token even if expired, let GHL API handle the error
+  }
+}
+
+// Helper function to make GHL API calls with automatic token refresh on 401
+async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
+  const MAX_RETRIES = 1;
+  
+  try {
+    const response = await fetch(url, options);
+    
+    // If 401 and we haven't retried yet, refresh token and retry
+    if (response.status === 401 && retryCount < MAX_RETRIES) {
+      console.log(`🔄 Got 401 error, refreshing token and retrying... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+      
+      // Refresh token
+      const newToken = await refreshGHLToken(ghlAccount);
+      
+      // Update authorization header with new token
+      options.headers.Authorization = `Bearer ${newToken}`;
+      
+      // Fetch updated ghl account data from database to ensure consistency
+      const { data: updatedAccount } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('*')
+        .eq('id', ghlAccount.id)
+        .single();
+      
+      if (updatedAccount) {
+        console.log(`✅ Using refreshed token from database (expires: ${updatedAccount.token_expires_at})`);
+      }
+      
+      // Retry the request
+      return await makeGHLRequest(url, options, updatedAccount || ghlAccount, retryCount + 1);
+    }
+    
+    return response;
+  } catch (error) {
+    console.error(`❌ Request failed:`, error);
+    throw error;
   }
 }
 
@@ -763,19 +819,51 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // Get GHL account from session or use first available
     let ghlAccount = null;
     if (sessionId) {
+      console.log(`🔍 Looking for session: ${sessionId}`);
+      
       const { data: session } = await supabaseAdmin
             .from('sessions')
         .select('*, ghl_accounts(*)')
         .eq('id', sessionId)
         .maybeSingle();
       
+      console.log(`📋 Session found:`, session ? 'Yes' : 'No');
+      
       if (session && session.ghl_accounts) {
         ghlAccount = session.ghl_accounts;
+        console.log(`✅ Using GHL account from session: ${ghlAccount.id}`);
+      } else {
+        console.log(`⚠️ Session found but no GHL account linked`);
       }
     }
     
-    // Fallback to any GHL account if session not found
+    // Fallback: Try to find GHL account by session ID pattern
+    if (!ghlAccount && sessionId) {
+      console.log(`🔄 Trying to find GHL account by session ID pattern`);
+      
+      // Extract subaccount ID from session ID (location_xxx_yyy format)
+      const sessionParts = sessionId.split('_');
+      if (sessionParts.length >= 2) {
+        const subaccountId = sessionParts[1]; // location_XXX_yyy -> XXX
+        console.log(`🔍 Extracted subaccount ID: ${subaccountId}`);
+        
+        const { data: accountBySubaccount } = await supabaseAdmin
+          .from('ghl_accounts')
+          .select('*')
+          .eq('id', subaccountId)
+          .maybeSingle();
+        
+        if (accountBySubaccount) {
+          ghlAccount = accountBySubaccount;
+          console.log(`✅ Found GHL account by subaccount ID: ${ghlAccount.id}`);
+        }
+      }
+    }
+    
+    // Final fallback to any GHL account if still not found
     if (!ghlAccount) {
+      console.log(`🔄 Final fallback to any available GHL account`);
+      
       const { data: anyAccount } = await supabaseAdmin
       .from('ghl_accounts')
       .select('*')
@@ -784,6 +872,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
       
       if (anyAccount) {
         ghlAccount = anyAccount;
+        console.log(`✅ Using final fallback GHL account: ${ghlAccount.id}`);
       }
     }
     
@@ -794,16 +883,20 @@ app.post('/whatsapp/webhook', async (req, res) => {
     
     const locationId = ghlAccount.location_id;
     
-    // Get provider ID from environment or fallback
-    let providerId = getProviderId();
+    // Use account's conversation provider ID (more reliable)
+    let providerId = ghlAccount.conversation_provider_id;
     if (!providerId) {
-      // Fallback to account's conversation provider ID
-      providerId = ghlAccount.conversation_provider_id;
+      // Fallback to environment provider ID
+      providerId = getProviderId();
       if (!providerId) {
         console.error('❌ No conversation provider ID found');
         return res.json({ status: 'error', message: 'Provider ID not available' });
       }
     }
+    
+    console.log(`🔑 Provider ID being used: ${providerId}`);
+    console.log(`🔑 Account conversation provider ID: ${ghlAccount.conversation_provider_id}`);
+    console.log(`🔑 Environment provider ID: ${getProviderId()}`);
     
     console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
     console.log(`📨 Raw message from WhatsApp:`, JSON.stringify(req.body, null, 2));
@@ -816,7 +909,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // Upsert contact (same location)
     let contactId = null;
     try {
-      const contactRes = await fetch(`${BASE}/contacts/`, {
+      const contactRes = await makeGHLRequest(`${BASE}/contacts/`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${validToken}`,
@@ -828,7 +921,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
           name: phone,
           locationId: locationId
         })
-      });
+      }, ghlAccount);
       
       if (contactRes.ok) {
         const contactData = await contactRes.json();
@@ -999,7 +1092,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
       console.log(`📏 Message Length:`, message.length);
       console.log(`📎 Attachments Count:`, attachments.length);
       
-      const inboundRes = await fetch(`${BASE}/conversations/messages/inbound`, {
+      const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${validToken}`,
@@ -1007,7 +1100,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
           "Content-Type": "application/json"
         },
         body: JSON.stringify(payload)
-      });
+      }, ghlAccount);
       
       if (inboundRes.ok) {
         const responseData = await inboundRes.json();
@@ -1023,14 +1116,14 @@ app.post('/whatsapp/webhook', async (req, res) => {
           
           // Try to fetch the message back to verify it was created
           try {
-            const verifyRes = await fetch(`${BASE}/conversations/${responseData.conversationId}/messages/${responseData.messageId}`, {
+            const verifyRes = await makeGHLRequest(`${BASE}/conversations/${responseData.conversationId}/messages/${responseData.messageId}`, {
               method: 'GET',
               headers: {
                 Authorization: `Bearer ${validToken}`,
                 Version: "2021-07-28",
                 "Content-Type": "application/json"
               }
-            });
+            }, ghlAccount);
             
             if (verifyRes.ok) {
               const verifyData = await verifyRes.json();
@@ -1137,14 +1230,14 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
     // Lookup phone by contact
     let phone = null;
     try {
-      const contactRes = await fetch(`${BASE}/contacts/${contactId}`, {
+      const contactRes = await makeGHLRequest(`${BASE}/contacts/${contactId}`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${validToken}`,
           Version: "2021-07-28",
           "Content-Type": "application/json"
         }
-      });
+      }, ghlAccount);
       
       if (contactRes.ok) {
         const contactData = await contactRes.json();
@@ -2319,7 +2412,7 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
         // 1. Refresh token
         let tokenRefreshed = false;
         try {
-          await ensureValidToken(ghlAccount);
+          await ensureValidToken(ghlAccount, true); // Force refresh
           tokenRefreshed = true;
           console.log(`✅ Token refreshed for: ${ghlAccount.location_id}`);
         } catch (tokenError) {
@@ -2818,6 +2911,115 @@ app.post('/debug/test-outbound', async (req, res) => {
     });
   } catch (error) {
     console.error('Test outbound error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Team notification webhook endpoint for GHL workflow
+app.post('/api/team-notification', async (req, res) => {
+  try {
+    console.log('🔔 Team notification webhook received:', req.body);
+    
+    const { message, user } = req.body;
+    
+    // Validate required fields
+    if (!message) {
+      console.log('❌ Missing required field: message');
+      return res.status(400).json({ 
+        status: 'error', 
+        message: 'Missing required field: message' 
+      });
+    }
+    
+    if (!user) {
+      console.log('❌ Missing required field: user (phone number)');
+      return res.status(400).json({ 
+        status: 'error', 
+        message: 'Missing required field: user (phone number)' 
+      });
+    }
+    
+    console.log(`📱 Sending notification to team member: ${user}`);
+    console.log(`💬 Message content: ${message}`);
+    
+    // Find an available WhatsApp client for sending notifications
+    const availableClients = waManager.getAllClients().filter(client => 
+      client.status === 'connected' || client.status === 'ready'
+    );
+    
+    if (availableClients.length === 0) {
+      console.log('❌ No available WhatsApp clients for team notifications');
+      return res.status(503).json({ 
+        status: 'error', 
+        message: 'No WhatsApp clients available for notifications' 
+      });
+    }
+    
+    // Use the first available client for notifications
+    const notificationClient = availableClients[0];
+    const clientKey = notificationClient.sessionId;
+    
+    console.log(`📱 Using client: ${clientKey} for team notification`);
+    
+    // Format notification message
+    const notificationMessage = `🔔 Customer replied: ${message}`;
+    
+    // Send notification to team member
+    await waManager.sendMessage(
+      clientKey,
+      user,
+      notificationMessage,
+      'text'
+    );
+    
+    console.log(`✅ Team notification sent successfully to: ${user}`);
+    
+    res.json({
+      status: 'success',
+      message: 'Team notification sent successfully',
+      recipient: user,
+      clientUsed: clientKey
+    });
+    
+  } catch (error) {
+    console.error('❌ Team notification error:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: error.message 
+    });
+  }
+});
+
+// Test team notification webhook endpoint
+app.post('/api/test-team-notification', async (req, res) => {
+  try {
+    console.log('🧪 Testing team notification webhook');
+    
+    const testData = {
+      message: 'This is a test message from customer',
+      user: '+923001234567' // Replace with actual team member number
+    };
+    
+    // Call the team notification endpoint internally
+    const notificationResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/api/team-notification`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(testData)
+    });
+    
+    const result = await notificationResponse.json();
+    
+    res.json({
+      status: 'success',
+      message: 'Team notification test completed',
+      testData,
+      notificationResult: result
+    });
+    
+  } catch (error) {
+    console.error('Test team notification error:', error);
     res.status(500).json({ error: error.message });
   }
 });

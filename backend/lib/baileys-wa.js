@@ -88,6 +88,21 @@ class BaileysWhatsAppManager {
     try {
       console.log(`🚀 Creating Baileys client for session: ${sessionId}`);
       
+      // Extract subaccount ID from sessionId to prevent multiple connections
+      const sessionIdParts = sessionId.split('_');
+      if (sessionIdParts.length >= 2) {
+        const subaccountId = sessionIdParts[1];
+        
+        // Check if there's already a connected client for this subaccount
+        for (const [key, client] of this.clients) {
+          if (key.includes(subaccountId) && (client.status === 'connected' || client.status === 'ready')) {
+            console.log(`⚠️ Subaccount ${subaccountId} already has a connected client: ${key}`);
+            console.log(`🔄 Reusing existing connected client instead of creating new one`);
+            return client.socket;
+          }
+        }
+      }
+      
       // Check if client already exists and is still valid
       if (this.clients.has(sessionId)) {
         const existingClient = this.clients.get(sessionId);

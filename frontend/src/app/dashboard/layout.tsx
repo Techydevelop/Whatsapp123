@@ -74,7 +74,7 @@ export default function DashboardLayout({
                 </div>
                 <h1 className="text-xl font-bold text-white">
                   WhatsApp GHL Dashboard
-                </h1>
+              </h1>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -82,7 +82,7 @@ export default function DashboardLayout({
                 <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
                   <span className="text-sm font-medium text-gray-700">
                     {user.email?.charAt(0).toUpperCase()}
-                  </span>
+              </span>
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-medium text-white">{user.email}</p>
@@ -125,7 +125,7 @@ export default function DashboardLayout({
 
           {/* Main Content */}
           <div className="flex-1">
-            {children}
+        {children}
           </div>
         </div>
       </div>
