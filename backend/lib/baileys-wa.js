@@ -175,6 +175,11 @@ class BaileysWhatsAppManager {
       // Check if we have existing credentials
       const hasCredentials = this.hasExistingCredentials(sessionId);
       console.log(`📋 Session ${sessionId} has existing credentials: ${hasCredentials}`);
+      
+      // If this is a fresh session (no credentials), skip restoration
+      if (!hasCredentials) {
+        console.log(`🆕 Fresh session detected, skipping restoration checks`);
+      }
 
       const socket = makeWASocket({
         auth: state,
@@ -267,8 +272,8 @@ class BaileysWhatsAppManager {
           }
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} in 15 seconds...`);
-            // Longer delay to prevent false reconnections
+            console.log(`🔄 Reconnecting session: ${sessionId} in 30 seconds...`);
+            // Longer delay to prevent false reconnections and reduce server load
             setTimeout(() => {
               // Check if client is still disconnected before reconnecting
               const currentClient = this.clients.get(sessionId);
@@ -280,7 +285,7 @@ class BaileysWhatsAppManager {
               } else {
                 console.log(`✅ Client ${sessionId} already reconnected, skipping reconnection`);
               }
-            }, 15000); // Increased to 15 seconds to prevent false reconnections
+            }, 30000); // Increased to 30 seconds to reduce unnecessary checks
           } else {
             // Only delete if logged out
             this.clients.delete(sessionId);
@@ -350,6 +355,8 @@ class BaileysWhatsAppManager {
           lastUpdate: Date.now()
         });
         console.log(`🔄 Restoring existing session: ${sessionId}`);
+      } else {
+        console.log(`🆕 Fresh session - no restoration needed: ${sessionId}`);
       }
 
       // Handle credentials update
