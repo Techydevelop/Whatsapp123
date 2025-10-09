@@ -76,7 +76,8 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
     
     console.log('📤 Uploading media to GHL media library...');
     
-    // Correct GHL media upload endpoint
+    // Try media upload endpoint (requires medias.write scope)
+    // If fails, will use direct URL method as fallback
     const mediaResponse = await axios.post(
       `https://services.leadconnectorhq.com/medias/upload-file`,
       mediaFormData,
@@ -91,7 +92,10 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
         maxBodyLength: Infinity,
         timeout: 60000
       }
-    );
+    ).catch(err => {
+      console.warn('⚠️ Media upload endpoint failed, using conversations API fallback');
+      throw err; // Will trigger fallback in server.js
+    });
     
     console.log('✅ Media uploaded to library:', mediaResponse.data);
     
