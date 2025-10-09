@@ -462,8 +462,8 @@ app.get('/oauth/callback', async (req, res) => {
         company_id: tokenData.companyId,
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token,
-        location_id: finalLocationId,
-        token_expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString() // Fixed field name!
+        location_id: finalLocationId
+        // Note: token_expires_at will be added after running migration SQL
       });
 
     if (ghlError) {
