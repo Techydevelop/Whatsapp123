@@ -65,13 +65,16 @@ async function refreshGHLToken(ghlAccount) {
     const tokenData = await response.json();
     console.log(`✅ Token refresh successful, expires in: ${tokenData.expires_in} seconds`);
     
+    const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
+    
     // Update token in database
     const { error } = await supabaseAdmin
       .from('ghl_accounts')
       .update({
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token,
-        token_expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString()
+        expires_at: expiryTimestamp,  // Old column
+        token_expires_at: expiryTimestamp  // New column
       })
       .eq('id', ghlAccount.id);
 
@@ -455,6 +458,8 @@ app.get('/oauth/callback', async (req, res) => {
     const finalLocationId = tokenData.locationId || locationId;
     console.log('Using location ID:', finalLocationId);
     
+    const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
+    
     const { error: ghlError } = await supabaseAdmin
       .from('ghl_accounts')
       .upsert({
@@ -463,7 +468,8 @@ app.get('/oauth/callback', async (req, res) => {
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token,
         location_id: finalLocationId,
-        token_expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString()
+        expires_at: expiryTimestamp,  // Old column (required)
+        token_expires_at: expiryTimestamp  // New column (for auto-refresh)
       });
 
     if (ghlError) {
