@@ -2919,28 +2919,36 @@ app.post('/debug/test-outbound', async (req, res) => {
 // Team notification webhook endpoint for GHL workflow
 app.post('/api/team-notification', async (req, res) => {
   try {
-    console.log('🔔 Team notification webhook received:', req.body);
+    console.log('🔔 Team notification webhook received:', JSON.stringify(req.body, null, 2));
     
-    const { message, user } = req.body;
+    // Support both old format (message, user) and new format (last_message, assigned_user, contact_phone, contact_name)
+    const message = req.body.message || req.body.last_message;
+    const user = req.body.user || req.body.assigned_user;
+    const contactName = req.body.contact_name;
+    const contactPhone = req.body.contact_phone;
     
     // Validate required fields
     if (!message) {
-      console.log('❌ Missing required field: message');
+      console.log('❌ Missing required field: message or last_message');
       return res.status(400).json({ 
         status: 'error', 
-        message: 'Missing required field: message' 
+        message: 'Missing required field: message or last_message',
+        receivedFields: Object.keys(req.body)
       });
     }
     
     if (!user) {
-      console.log('❌ Missing required field: user (phone number)');
+      console.log('❌ Missing required field: user or assigned_user');
       return res.status(400).json({ 
         status: 'error', 
-        message: 'Missing required field: user (phone number)' 
+        message: 'Missing required field: user (phone number) or assigned_user',
+        receivedFields: Object.keys(req.body)
       });
     }
     
     console.log(`📱 Sending notification to team member: ${user}`);
+    console.log(`👤 Contact name: ${contactName || 'N/A'}`);
+    console.log(`📞 Contact phone: ${contactPhone || 'N/A'}`);
     console.log(`💬 Message content: ${message}`);
     
     // Find an available WhatsApp client for sending notifications
@@ -2962,8 +2970,17 @@ app.post('/api/team-notification', async (req, res) => {
     
     console.log(`📱 Using client: ${clientKey} for team notification`);
     
-    // Format notification message
-    const notificationMessage = `🔔 Customer replied: ${message}`;
+    // Format notification message with contact details
+    let notificationMessage = `🔔 *Customer Replied*\n\n`;
+    
+    if (contactName) {
+      notificationMessage += `👤 Customer: ${contactName}\n`;
+    }
+    if (contactPhone) {
+      notificationMessage += `📞 Phone: ${contactPhone}\n`;
+    }
+    
+    notificationMessage += `💬 Message: ${message}`;
     
     // Send notification to team member
     await waManager.sendMessage(
