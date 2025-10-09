@@ -759,21 +759,82 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       // Check if message was skipped (no WhatsApp)
       if (sendResult && sendResult.status === 'skipped') {
         console.warn(`⚠️ Message skipped: ${sendResult.reason} for ${phoneNumber}`);
+        
+        // Send notification message back to GHL conversation
+        try {
+          const notificationPayload = {
+            type: "WhatsApp",
+            contactId: contactId,
+            message: `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`,
+            direction: "inbound",
+            status: "delivered",
+            altId: `failed_${Date.now()}`
+          };
+          
+          const validToken = await ensureValidToken(ghlAccount);
+          const notificationRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${validToken}`,
+              Version: "2021-07-28",
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(notificationPayload)
+          }, ghlAccount);
+          
+          if (notificationRes.ok) {
+            console.log(`✅ Failure notification sent to GHL conversation`);
+          }
+        } catch (notifError) {
+          console.error(`❌ Failed to send notification to GHL:`, notifError.message);
+        }
+        
         return res.json({ 
           status: 'warning', 
           reason: sendResult.reason,
           phoneNumber: phoneNumber,
-          message: 'Number does not have WhatsApp - message not sent'
+          message: 'Number does not have WhatsApp - notification sent to conversation'
         });
       }
       
       console.log('✅ Message sent successfully via Baileys');
     } catch (sendError) {
       console.error('❌ Error sending message via Baileys:', sendError.message);
+      
+      // Send error notification to GHL conversation
+      try {
+        const errorPayload = {
+          type: "WhatsApp",
+          contactId: contactId,
+          message: `⚠️ Message delivery failed\n\n❌ Error: ${sendError.message}\n\n💡 Please check the phone number and try again.`,
+          direction: "inbound",
+          status: "delivered",
+          altId: `error_${Date.now()}`
+        };
+        
+        const validToken = await ensureValidToken(ghlAccount);
+        const errorRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${validToken}`,
+            Version: "2021-07-28",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(errorPayload)
+        }, ghlAccount);
+        
+        if (errorRes.ok) {
+          console.log(`✅ Error notification sent to GHL conversation`);
+        }
+      } catch (notifError) {
+        console.error(`❌ Failed to send error notification to GHL:`, notifError.message);
+      }
+      
       return res.json({ 
         status: 'error', 
         error: sendError.message,
-        phoneNumber: phoneNumber
+        phoneNumber: phoneNumber,
+        message: 'Error notification sent to conversation'
       });
     }
     
