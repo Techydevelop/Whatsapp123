@@ -1044,25 +1044,65 @@ app.post('/whatsapp/webhook', async (req, res) => {
               }
             }
             
-            // Upload decrypted/downloaded media to GHL
-            const { uploadMediaToGHL } = require('./mediaHandler');
-            const ghlResponse = await uploadMediaToGHL(
-              mediaBuffer,
-              messageType,
-              contactId,
-              validToken,
-              locationId
-            );
-            
-            console.log(`✅ Media uploaded to GHL successfully:`, ghlResponse);
-            
-            // For successful upload, we don't need to send another message
-            // The media is already in GHL conversation
-            return res.json({ 
-              status: 'success', 
-              message: 'Media uploaded successfully',
-              ghlResponse: ghlResponse
-            });
+            // Try to upload to GHL media library
+            try {
+              const { uploadMediaToGHL } = require('./mediaHandler');
+              const ghlResponse = await uploadMediaToGHL(
+                mediaBuffer,
+                messageType,
+                contactId,
+                validToken,
+                locationId
+              );
+              
+              console.log(`✅ Media uploaded to GHL successfully:`, ghlResponse);
+              
+              // For successful upload, we don't need to send another message
+              return res.json({ 
+                status: 'success', 
+                message: 'Media uploaded successfully',
+                ghlResponse: ghlResponse
+              });
+              
+            } catch (uploadError) {
+              console.error(`❌ GHL media upload failed (trying direct URL method):`, uploadError.message);
+              
+              // Fallback: Send message with media URL as attachment
+              if (mediaUrl && !mediaUrl.includes('ENCRYPTED')) {
+                console.log(`🔄 Sending media URL as attachment instead...`);
+                
+                const payload = {
+                  type: "WhatsApp",
+                  contactId: contactId,
+                  message: `${getMediaMessageText(messageType)}\n\nMedia URL: ${mediaUrl}`,
+                  direction: "inbound",
+                  status: "delivered",
+                  altId: whatsappMsgId,
+                  attachments: [mediaUrl]  // Send URL directly as attachment
+                };
+                
+                const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${validToken}`,
+                    Version: "2021-07-28",
+                    "Content-Type": "application/json"
+                  },
+                  body: JSON.stringify(payload)
+                }, ghlAccount);
+                
+                if (inboundRes.ok) {
+                  console.log(`✅ Media URL sent as attachment to GHL`);
+                  return res.json({ 
+                    status: 'success', 
+                    message: 'Media sent as URL attachment' 
+                  });
+                }
+              }
+              
+              // If all fails, fall through to text notification
+              throw uploadError;
+            }
             
           } catch (error) {
             console.error(`❌ Media processing failed:`, error.message);
@@ -3016,6 +3056,35 @@ app.post('/api/team-notification', async (req, res) => {
       status: 'error', 
       message: error.message 
     });
+  }
+});
+
+// Force token refresh with new scopes
+app.post('/admin/force-reauthorize/:accountId', async (req, res) => {
+  try {
+    const { accountId } = req.params;
+    
+    console.log(`🔄 Force re-authorization for account: ${accountId}`);
+    
+    // Delete the account tokens to force re-auth
+    const { error } = await supabaseAdmin
+      .from('ghl_accounts')
+      .delete()
+      .eq('id', accountId);
+    
+    if (error) {
+      throw error;
+    }
+    
+    res.json({
+      status: 'success',
+      message: 'Account deleted. Please re-authorize with new scopes.',
+      authUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard`
+    });
+    
+  } catch (error) {
+    console.error('Force reauth error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
