@@ -732,6 +732,8 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     // Send message using Baileys
     try {
+      let sendResult;
+      
       if (attachments && attachments.length > 0) {
         // Handle media message
         const attachment = attachments[0]; // Take first attachment
@@ -748,14 +750,31 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         }
         
         console.log(`📎 Sending ${mediaType} with URL: ${mediaUrl}`);
-        await waManager.sendMessage(clientKey, phoneNumber, message || '', mediaType, mediaUrl);
+        sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '', mediaType, mediaUrl);
       } else {
         // Send text message
-        await waManager.sendMessage(clientKey, phoneNumber, message || '');
+        sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '');
       }
-      console.log('Message sent successfully via Baileys');
+      
+      // Check if message was skipped (no WhatsApp)
+      if (sendResult && sendResult.status === 'skipped') {
+        console.warn(`⚠️ Message skipped: ${sendResult.reason} for ${phoneNumber}`);
+        return res.json({ 
+          status: 'warning', 
+          reason: sendResult.reason,
+          phoneNumber: phoneNumber,
+          message: 'Number does not have WhatsApp - message not sent'
+        });
+      }
+      
+      console.log('✅ Message sent successfully via Baileys');
     } catch (sendError) {
-      console.error('Error sending message via Baileys:', sendError);
+      console.error('❌ Error sending message via Baileys:', sendError.message);
+      return res.json({ 
+        status: 'error', 
+        error: sendError.message,
+        phoneNumber: phoneNumber
+      });
     }
     
     res.json({ status: 'success' });

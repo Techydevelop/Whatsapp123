@@ -447,12 +447,40 @@ class BaileysWhatsAppManager {
     }
   }
 
+  async checkWhatsAppNumber(sessionId, phoneNumber) {
+    try {
+      const client = this.clients.get(sessionId);
+      
+      if (!client || !client.socket) {
+        return { exists: false, error: 'Client not available' };
+      }
+
+      const formattedNumber = phoneNumber.replace(/\D/g, '');
+      const jid = `${formattedNumber}@s.whatsapp.net`;
+
+      // Check if number has WhatsApp
+      const [result] = await client.socket.onWhatsApp(jid);
+      
+      if (result && result.exists) {
+        console.log(`✅ WhatsApp exists for: ${phoneNumber}`);
+        return { exists: true, jid: result.jid };
+      } else {
+        console.log(`❌ WhatsApp NOT found for: ${phoneNumber}`);
+        return { exists: false, error: 'Number does not have WhatsApp' };
+      }
+      
+    } catch (error) {
+      console.error(`❌ Error checking WhatsApp for ${phoneNumber}:`, error.message);
+      return { exists: false, error: error.message };
+    }
+  }
+
   async sendMessage(sessionId, phoneNumber, message, messageType = 'text', mediaUrl = null) {
     try {
       const client = this.clients.get(sessionId);
       
       if (!client || (client.status !== 'connected' && client.status !== 'ready')) {
-        throw new Error(`Client not ready for session: ${sessionId}, status: ${client.status}`);
+        throw new Error(`Client not ready for session: ${sessionId}, status: ${client?.status || 'not found'}`);
       }
       
       // Check if socket is properly initialized
@@ -463,6 +491,17 @@ class BaileysWhatsAppManager {
       // Format phone number
       const formattedNumber = phoneNumber.replace(/\D/g, '');
       const jid = `${formattedNumber}@s.whatsapp.net`;
+
+      // Check if number has WhatsApp
+      const checkResult = await this.checkWhatsAppNumber(sessionId, phoneNumber);
+      if (!checkResult.exists) {
+        console.warn(`⚠️ Skipping message to ${phoneNumber}: ${checkResult.error}`);
+        return {
+          status: 'skipped',
+          reason: 'Number does not have WhatsApp',
+          phoneNumber: phoneNumber
+        };
+      }
 
       console.log(`📤 Sending ${messageType} to ${jid}: ${message}`);
 
