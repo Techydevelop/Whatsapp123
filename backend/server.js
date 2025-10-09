@@ -462,13 +462,23 @@ app.get('/oauth/callback', async (req, res) => {
         company_id: tokenData.companyId,
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token,
-        location_id: finalLocationId
-        // Note: token_expires_at will be added after running migration SQL
+        location_id: finalLocationId,
+        token_expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString()
       });
 
     if (ghlError) {
-      console.error('Error storing GHL account:', ghlError);
-      return res.status(500).json({ error: 'Failed to store account information' });
+      console.error('❌ Error storing GHL account:', ghlError);
+      console.error('❌ Error details:', {
+        message: ghlError.message,
+        code: ghlError.code,
+        details: ghlError.details,
+        hint: ghlError.hint
+      });
+      return res.status(500).json({ 
+        error: 'Failed to store account information',
+        details: ghlError.message,
+        hint: ghlError.hint
+      });
     }
 
     console.log('GHL account stored successfully');
