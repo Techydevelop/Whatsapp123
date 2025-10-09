@@ -2923,9 +2923,12 @@ app.post('/api/team-notification', async (req, res) => {
     
     // Support both old format (message, user) and new format (last_message, assigned_user, contact_phone, contact_name)
     const message = req.body.message || req.body.last_message;
-    const user = req.body.user || req.body.assigned_user;
+    let user = req.body.user || req.body.assigned_user;
     const contactName = req.body.contact_name;
     const contactPhone = req.body.contact_phone;
+    
+    // Support multiple users (comma-separated)
+    const users = user ? user.split(',').map(u => u.trim()).filter(u => u) : [];
     
     // Validate required fields
     if (!message) {
@@ -2937,7 +2940,7 @@ app.post('/api/team-notification', async (req, res) => {
       });
     }
     
-    if (!user) {
+    if (users.length === 0) {
       console.log('❌ Missing required field: user or assigned_user');
       return res.status(400).json({ 
         status: 'error', 
@@ -2946,7 +2949,7 @@ app.post('/api/team-notification', async (req, res) => {
       });
     }
     
-    console.log(`📱 Sending notification to team member: ${user}`);
+    console.log(`📱 Sending notification to ${users.length} team member(s): ${users.join(', ')}`);
     console.log(`👤 Contact name: ${contactName || 'N/A'}`);
     console.log(`📞 Contact phone: ${contactPhone || 'N/A'}`);
     console.log(`💬 Message content: ${message}`);
@@ -2968,7 +2971,7 @@ app.post('/api/team-notification', async (req, res) => {
     const notificationClient = availableClients[0];
     const clientKey = notificationClient.sessionId;
     
-    console.log(`📱 Using client: ${clientKey} for team notification`);
+    console.log(`📱 Using client: ${clientKey} for team notifications`);
     
     // Format notification message with contact details
     let notificationMessage = `🔔 *Customer Replied*\n\n`;
@@ -2982,20 +2985,28 @@ app.post('/api/team-notification', async (req, res) => {
     
     notificationMessage += `💬 Message: ${message}`;
     
-    // Send notification to team member
-    await waManager.sendMessage(
-      clientKey,
-      user,
-      notificationMessage,
-      'text'
-    );
-    
-    console.log(`✅ Team notification sent successfully to: ${user}`);
+    // Send notification to all team members
+    const results = [];
+    for (const userPhone of users) {
+      try {
+        await waManager.sendMessage(
+          clientKey,
+          userPhone,
+          notificationMessage,
+          'text'
+        );
+        console.log(`✅ Team notification sent successfully to: ${userPhone}`);
+        results.push({ phone: userPhone, status: 'success' });
+      } catch (error) {
+        console.error(`❌ Failed to send notification to ${userPhone}:`, error.message);
+        results.push({ phone: userPhone, status: 'failed', error: error.message });
+      }
+    }
     
     res.json({
       status: 'success',
-      message: 'Team notification sent successfully',
-      recipient: user,
+      message: `Team notifications sent to ${results.filter(r => r.status === 'success').length}/${users.length} recipients`,
+      recipients: results,
       clientUsed: clientKey
     });
     
