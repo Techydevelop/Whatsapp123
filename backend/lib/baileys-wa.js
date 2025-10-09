@@ -254,13 +254,14 @@ class BaileysWhatsAppManager {
           }
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} in 10 seconds...`);
+            console.log(`🔄 Reconnecting session: ${sessionId} immediately...`);
+            // Immediate reconnection for better UX
             setTimeout(() => {
               console.log(`🔄 Attempting reconnection for: ${sessionId}`);
               this.createClient(sessionId).catch(err => {
                 console.error(`❌ Reconnection failed for ${sessionId}:`, err);
               });
-            }, 10000); // Increased to 10 seconds for better stability
+            }, 1000); // Reduced to 1 second for faster reconnection
           } else {
             // Only delete if logged out
             this.clients.delete(sessionId);
