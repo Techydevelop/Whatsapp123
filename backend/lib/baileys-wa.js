@@ -254,14 +254,20 @@ class BaileysWhatsAppManager {
           }
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} immediately...`);
-            // Immediate reconnection for better UX
+            console.log(`🔄 Reconnecting session: ${sessionId} in 10 seconds...`);
+            // Longer delay to prevent false reconnections
             setTimeout(() => {
-              console.log(`🔄 Attempting reconnection for: ${sessionId}`);
-              this.createClient(sessionId).catch(err => {
-                console.error(`❌ Reconnection failed for ${sessionId}:`, err);
-              });
-            }, 1000); // Reduced to 1 second for faster reconnection
+              // Check if client is still disconnected before reconnecting
+              const currentClient = this.clients.get(sessionId);
+              if (currentClient && currentClient.status === 'disconnected') {
+                console.log(`🔄 Attempting reconnection for: ${sessionId}`);
+                this.createClient(sessionId).catch(err => {
+                  console.error(`❌ Reconnection failed for ${sessionId}:`, err);
+                });
+              } else {
+                console.log(`✅ Client ${sessionId} already reconnected, skipping reconnection`);
+              }
+            }, 10000); // Increased to 10 seconds to prevent false reconnections
           } else {
             // Only delete if logged out
             this.clients.delete(sessionId);
