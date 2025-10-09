@@ -219,7 +219,11 @@ class BaileysWhatsAppManager {
         emitOwnEvents: false
       });
 
-      // Handle connection updates
+      // Handle connection updates with stability check
+      let connectionStable = false;
+      let stabilityTimer = null;
+      let connectionOpenTime = null;
+      
       socket.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr, isNewLogin, isOnline } = update;
         
@@ -228,7 +232,8 @@ class BaileysWhatsAppManager {
           hasQR: !!qr, 
           isNewLogin, 
           isOnline,
-          lastDisconnect: lastDisconnect?.error?.message 
+          lastDisconnect: lastDisconnect?.error?.message,
+          stable: connectionStable
         });
         
         if (qr) {
@@ -242,6 +247,14 @@ class BaileysWhatsAppManager {
         }
 
         if (connection === 'close') {
+          // Clear stability timer if connection closes
+          if (stabilityTimer) {
+            clearTimeout(stabilityTimer);
+            stabilityTimer = null;
+          }
+          connectionStable = false;
+          connectionOpenTime = null;
+          
           const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
           console.log(`🔌 Connection closed for session: ${sessionId}, should reconnect: ${shouldReconnect}`);
           console.log(`🔌 Disconnect reason:`, lastDisconnect?.error?.message);
@@ -254,7 +267,7 @@ class BaileysWhatsAppManager {
           }
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} in 10 seconds...`);
+            console.log(`🔄 Reconnecting session: ${sessionId} in 15 seconds...`);
             // Longer delay to prevent false reconnections
             setTimeout(() => {
               // Check if client is still disconnected before reconnecting
@@ -267,35 +280,56 @@ class BaileysWhatsAppManager {
               } else {
                 console.log(`✅ Client ${sessionId} already reconnected, skipping reconnection`);
               }
-            }, 10000); // Increased to 10 seconds to prevent false reconnections
+            }, 15000); // Increased to 15 seconds to prevent false reconnections
           } else {
             // Only delete if logged out
             this.clients.delete(sessionId);
           }
         } else if (connection === 'open') {
+          connectionOpenTime = Date.now();
           console.log(`✅ WhatsApp connected for session: ${sessionId}`);
           console.log(`📱 Phone number: ${socket.user?.id?.split(':')[0] || 'Unknown'}`);
+          
+          // Set temporary status as 'connecting' until stable
           this.clients.set(sessionId, {
             socket,
             qr: null,
-            status: 'connected',
+            status: 'connecting',
             phoneNumber: socket.user?.id?.split(':')[0],
             lastUpdate: Date.now(),
             connectedAt: Date.now()
           });
           
-          // Update database status to 'ready' (connected state)
-          this.updateDatabaseStatus(sessionId, 'ready', socket.user?.id?.split(':')[0]);
+          // Start stability timer - wait 5 seconds before marking as stable
+          if (stabilityTimer) {
+            clearTimeout(stabilityTimer);
+          }
           
-          // Update lastUpdate periodically to keep connection alive
-          setInterval(() => {
+          stabilityTimer = setTimeout(() => {
             if (this.clients.has(sessionId)) {
               const client = this.clients.get(sessionId);
-              if (client.status === 'connected') {
+              if (client && client.status === 'connecting') {
+                connectionStable = true;
+                client.status = 'connected';
                 client.lastUpdate = Date.now();
+                
+                console.log(`🎯 Connection stable for session: ${sessionId} (${Date.now() - connectionOpenTime}ms)`);
+                
+                // Update database status to 'ready' only after stability confirmed
+                this.updateDatabaseStatus(sessionId, 'ready', socket.user?.id?.split(':')[0]);
+                
+                // Update lastUpdate periodically to keep connection alive
+                setInterval(() => {
+                  if (this.clients.has(sessionId)) {
+                    const client = this.clients.get(sessionId);
+                    if (client.status === 'connected') {
+                      client.lastUpdate = Date.now();
+                    }
+                  }
+                }, 30000); // Update every 30 seconds
               }
             }
-          }, 30000); // Update every 30 seconds
+          }, 5000); // 5 second stability check
         } else if (connection === 'connecting') {
           console.log(`🔄 Connecting session: ${sessionId}`);
           this.clients.set(sessionId, {
