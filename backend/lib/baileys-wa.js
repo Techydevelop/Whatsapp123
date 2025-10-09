@@ -241,8 +241,10 @@ class BaileysWhatsAppManager {
           stable: connectionStable
         });
         
-        if (qr) {
-          console.log(`📱 QR Code generated for session: ${sessionId}`);
+      if (qr) {
+        console.log(`📱 QR Code generated for session: ${sessionId}`);
+        // Only set qr_ready if not already connected
+        if (!this.clients.has(sessionId) || this.clients.get(sessionId).status !== 'connected') {
           this.clients.set(sessionId, {
             socket,
             qr,
@@ -250,6 +252,7 @@ class BaileysWhatsAppManager {
             lastUpdate: Date.now()
           });
         }
+      }
 
         if (connection === 'close') {
           // Clear stability timer if connection closes
