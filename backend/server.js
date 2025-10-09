@@ -463,7 +463,7 @@ app.get('/oauth/callback', async (req, res) => {
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token,
         location_id: finalLocationId,
-        expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString()
+        token_expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString() // Fixed field name!
       });
 
     if (ghlError) {
