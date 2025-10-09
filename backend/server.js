@@ -2438,20 +2438,17 @@ app.post('/ghl/location/:locationId/session/logout', async (req, res) => {
     }
 
     // Disconnect WhatsApp client
-    const sessionName = `location_${locationId}_${session.id}`;
+    const cleanSubaccountId = ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sessionName = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     await waManager.disconnectClient(sessionName);
     
-    // Clear session data
+    // Clear session data (removes auth files)
     waManager.clearSessionData(sessionName);
     
-    // Update session status in database
+    // Delete session from database completely
     await supabaseAdmin
       .from('sessions')
-      .update({ 
-        status: 'disconnected',
-        phone_number: null,
-        qr: null
-      })
+      .delete()
       .eq('id', session.id);
 
     console.log(`✅ Session logged out for location: ${locationId}`);

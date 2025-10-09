@@ -706,8 +706,8 @@ class BaileysWhatsAppManager {
       // Also cleanup disconnected clients from memory
       this.clients.forEach((client, sessionKey) => {
         if (sessionKey.includes(subaccountId) && sessionKey !== `location_${subaccountId}_${currentSessionId}`) {
-          if (client.status === 'disconnected' || client.status === 'qr_ready') {
-            console.log(`🗑️ Removing old client from memory: ${sessionKey}`);
+          if (client.status === 'disconnected' || client.status === 'qr_ready' || client.status === 'connecting') {
+            console.log(`🗑️ Removing old client from memory: ${sessionKey} (status: ${client.status})`);
             this.clients.delete(sessionKey);
           }
         }
