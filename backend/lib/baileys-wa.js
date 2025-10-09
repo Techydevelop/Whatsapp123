@@ -243,14 +243,19 @@ class BaileysWhatsAppManager {
         
       if (qr) {
         console.log(`📱 QR Code generated for session: ${sessionId}`);
-        // Only set qr_ready if not already connected
-        if (!this.clients.has(sessionId) || this.clients.get(sessionId).status !== 'connected') {
+        // Only set qr_ready if not already connected AND connection is not stable
+        if (!connectionStable && (!this.clients.has(sessionId) || this.clients.get(sessionId).status !== 'connected')) {
           this.clients.set(sessionId, {
             socket,
             qr,
             status: 'qr_ready',
             lastUpdate: Date.now()
           });
+          console.log(`📱 Status set to 'qr_ready' for session: ${sessionId}`);
+        } else if (connectionStable) {
+          console.log(`🚫 Ignoring QR generation - connection is stable for session: ${sessionId}`);
+        } else {
+          console.log(`🚫 Ignoring QR generation - client already connected for session: ${sessionId}`);
         }
       }
 
@@ -308,36 +313,32 @@ class BaileysWhatsAppManager {
             connectedAt: Date.now()
           });
           
-          // Start stability timer - wait 5 seconds before marking as stable
-          if (stabilityTimer) {
-            clearTimeout(stabilityTimer);
-          }
+          // Immediate connection - no stability delay
+          connectionStable = true;
+          this.clients.set(sessionId, {
+            socket,
+            qr: null,
+            status: 'connected',
+            phoneNumber: socket.user?.id?.split(':')[0],
+            lastUpdate: Date.now(),
+            connectedAt: Date.now()
+          });
           
-          stabilityTimer = setTimeout(() => {
+          console.log(`✅ WhatsApp immediately connected for session: ${sessionId}`);
+          console.log(`🔒 Status set to 'connected' for session: ${sessionId}`);
+          
+          // Update database status immediately
+          this.updateDatabaseStatus(sessionId, 'ready', socket.user?.id?.split(':')[0]);
+          
+          // Update lastUpdate periodically to keep connection alive
+          setInterval(() => {
             if (this.clients.has(sessionId)) {
               const client = this.clients.get(sessionId);
-              if (client && client.status === 'connecting') {
-                connectionStable = true;
-                client.status = 'connected';
+              if (client.status === 'connected') {
                 client.lastUpdate = Date.now();
-                
-                console.log(`🎯 Connection stable for session: ${sessionId} (${Date.now() - connectionOpenTime}ms)`);
-                
-                // Update database status to 'ready' only after stability confirmed
-                this.updateDatabaseStatus(sessionId, 'ready', socket.user?.id?.split(':')[0]);
-                
-                // Update lastUpdate periodically to keep connection alive
-                setInterval(() => {
-                  if (this.clients.has(sessionId)) {
-                    const client = this.clients.get(sessionId);
-                    if (client.status === 'connected') {
-                      client.lastUpdate = Date.now();
-                    }
-                  }
-                }, 30000); // Update every 30 seconds
               }
             }
-          }, 5000); // 5 second stability check
+          }, 30000); // Update every 30 seconds
         } else if (connection === 'connecting') {
           console.log(`🔄 Connecting session: ${sessionId}`);
           this.clients.set(sessionId, {
