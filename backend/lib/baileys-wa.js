@@ -371,6 +371,12 @@ class BaileysWhatsAppManager {
         try {
           const msg = m.messages[0];
           if (!msg.key.fromMe && m.type === 'notify') {
+            // Only process messages received after connection is established
+            const connectionTime = this.clients.get(sessionId)?.connectedAt;
+            if (connectionTime && msg.messageTimestamp < connectionTime) {
+              console.log(`🚫 Ignoring old message received before connection: ${msg.messageTimestamp} < ${connectionTime}`);
+              return;
+            }
             const from = msg.key.remoteJid;
             // Detect message type and content
             let messageText = '';
