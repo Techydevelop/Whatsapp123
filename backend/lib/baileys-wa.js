@@ -395,14 +395,10 @@ class BaileysWhatsAppManager {
               messageText = '📎 Media/Other';
             }
             
-            // Send to GHL as outbound message
-            await this.sendOutboundToGHL({
-              sessionId: sessionId,
-              to: msg.key.remoteJid,
-              message: messageText,
-              messageId: msg.key.id,
-              timestamp: msg.messageTimestamp
-            });
+            // Log mobile reply but don't send to GHL to avoid confusion
+            console.log('📱 Mobile reply detected and logged - not sending to GHL to avoid display issues');
+            console.log(`📱 Message: "${messageText}" from ${msg.key.remoteJid}`);
+            console.log('💡 GHL will show this as "Replied from another device" which is correct behavior');
             
             return; // Don't process as inbound
           }
@@ -781,10 +777,12 @@ class BaileysWhatsAppManager {
         body: JSON.stringify({
           type: "WhatsApp",
           contactId: contactId,
-          message: `[Mobile Reply] ${messageData.message}`,
+          message: messageData.message,
           direction: "outbound",
           status: "delivered",
-          altId: `wa_outbound_${messageData.messageId}`
+          altId: `wa_outbound_${messageData.messageId}`,
+          source: "whatsapp_web",
+          platform: "mobile"
         })
       });
       
