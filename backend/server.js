@@ -765,7 +765,45 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '', mediaType, mediaUrl);
       } else {
         // Send text message
-        sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '');
+        try {
+          sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '');
+        } catch (error) {
+          console.error(`❌ Error sending message via Baileys: ${error.message}`);
+          
+          // Check if it's a QR ready error
+          if (error.message.includes('QR ready status')) {
+            console.log(`📱 Client needs QR scan for session: ${clientKey}`);
+            
+            // Send notification to GHL about QR scan needed
+            try {
+              const notificationPayload = {
+                type: "WhatsApp",
+                contactId: contactId,
+                message: "⚠️ WhatsApp connection needs QR scan. Please check dashboard and scan QR code.",
+                direction: "outbound",
+                status: "sent"
+              };
+              
+              const notificationResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${ghlAccount.access_token}`,
+                  'Version': '2021-07-28',
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(notificationPayload)
+              });
+              
+              if (notificationResponse.ok) {
+                console.log('✅ QR scan notification sent to GHL conversation');
+              }
+            } catch (notifError) {
+              console.error('❌ Failed to send QR scan notification:', notifError);
+            }
+          }
+          
+          throw error; // Re-throw the error
+        }
       }
       
       // Check if message was skipped (no WhatsApp)

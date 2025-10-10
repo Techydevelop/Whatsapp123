@@ -602,9 +602,14 @@ class BaileysWhatsAppManager {
         throw new Error(`Client not ready for session: ${sessionId}, status: ${client?.status || 'not found'}`);
       }
       
-      // Check if socket is properly initialized
-      if (!client.socket || !client.socket.user) {
+      // Check if socket is properly initialized (only for connected/ready status)
+      if ((client.status === 'connected' || client.status === 'ready') && (!client.socket || !client.socket.user)) {
         throw new Error(`Socket not properly initialized for session: ${sessionId}`);
+      }
+      
+      // For qr_ready status, don't send messages
+      if (client.status === 'qr_ready') {
+        throw new Error(`Client is in QR ready status - please scan QR code first for session: ${sessionId}`);
       }
 
       // Format phone number
