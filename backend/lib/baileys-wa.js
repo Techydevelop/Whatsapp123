@@ -785,11 +785,8 @@ class BaileysWhatsAppManager {
           direction: "outbound",
           status: "delivered",
           altId: `wa_outbound_${messageData.messageId}`,
-          metadata: {
-            source: "mobile_whatsapp",
-            device: "another_device",
-            timestamp: messageData.timestamp
-          }
+          source: "mobile_whatsapp",
+          device: "another_device"
         })
       });
       
