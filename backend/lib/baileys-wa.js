@@ -781,12 +781,10 @@ class BaileysWhatsAppManager {
         body: JSON.stringify({
           type: "WhatsApp",
           contactId: contactId,
-          message: messageData.message,
+          message: `[Mobile Reply] ${messageData.message}`,
           direction: "outbound",
           status: "delivered",
-          altId: `wa_outbound_${messageData.messageId}`,
-          source: "mobile_whatsapp",
-          device: "another_device"
+          altId: `wa_outbound_${messageData.messageId}`
         })
       });
       
