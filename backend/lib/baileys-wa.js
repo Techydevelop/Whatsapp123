@@ -376,6 +376,8 @@ class BaileysWhatsAppManager {
             const client = this.clients.get(sessionId);
             const connectionTime = client?.connectedAt;
             
+            const from = msg.key.remoteJid;
+            
             console.log(`🔍 Message timestamp check for ${from}:`);
             console.log(`   Message timestamp: ${msg.messageTimestamp} (${new Date(msg.messageTimestamp * 1000).toLocaleString()})`);
             console.log(`   Client found: ${!!client}`);
@@ -400,7 +402,6 @@ class BaileysWhatsAppManager {
               console.log(`⚠️ No connection time set - this might be an old message!`);
               console.log(`⚠️ Processing anyway but this could create duplicate contacts!`);
             }
-            const from = msg.key.remoteJid;
             // Detect message type and content
             let messageText = '';
             let messageType = 'text';
