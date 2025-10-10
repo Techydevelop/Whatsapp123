@@ -672,8 +672,8 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       console.log(`💡 Please scan QR code first for this location to establish WhatsApp connection`);
       return res.json({ 
         status: 'error', 
-        message: `No active WhatsApp session found for this location. Please scan QR code first to establish WhatsApp connection. Location ID: ${locationId}`,
-        suggestion: 'Please check dashboard and scan QR code for this location'
+        message: `Connection has lost due to inactivity. Please logout and reconnect.`,
+        suggestion: 'Please check dashboard and logout then reconnect'
       });
     }
     
@@ -776,19 +776,15 @@ app.post('/ghl/provider/webhook', async (req, res) => {
           console.error(`❌ Error sending message via Baileys: ${error.message}`);
           
           // Check if it's a QR ready error
-          if (error.message.includes('WhatsApp connection is not active')) {
+          if (error.message.includes('Connection has lost due to inactivity')) {
             console.log(`📱 Client needs QR scan for session: ${clientKey}`);
-            
-            // Extract subaccount ID for better notification
-            const sessionParts = clientKey.split('_');
-            const subaccountId = sessionParts.length >= 2 ? sessionParts[1] : 'Unknown';
             
             // Send notification to GHL about QR scan needed
             try {
               const notificationPayload = {
                 type: "WhatsApp",
                 contactId: contactId,
-                message: `⚠️ WhatsApp connection is not active for this subaccount. Please reconnect your WhatsApp by scanning the QR code in the dashboard. Subaccount ID: ${subaccountId}`,
+                message: `⚠️ Connection has lost due to inactivity. Please logout and reconnect.`,
                 direction: "outbound",
                 status: "sent"
               };
@@ -1453,8 +1449,8 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
         console.log(`💡 Please scan QR code first for this location to establish WhatsApp connection`);
         return res.json({ 
           status: 'error', 
-          message: `No active WhatsApp session found for this location. Please scan QR code first to establish WhatsApp connection. Location ID: ${ghlAccount.location_id}`,
-          suggestion: 'Please check dashboard and scan QR code for this location'
+          message: `Connection has lost due to inactivity. Please logout and reconnect.`,
+          suggestion: 'Please check dashboard and logout then reconnect'
         });
       }
 

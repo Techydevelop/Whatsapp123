@@ -613,7 +613,7 @@ class BaileysWhatsAppManager {
         const sessionParts = sessionId.split('_');
         const subaccountId = sessionParts.length >= 2 ? sessionParts[1] : 'Unknown';
         
-        throw new Error(`WhatsApp connection is not active for this subaccount. Please reconnect your WhatsApp by scanning the QR code in the dashboard. Subaccount ID: ${subaccountId}`);
+        throw new Error(`Connection has lost due to inactivity. Please logout and reconnect.`);
       }
 
       // Format phone number
@@ -784,7 +784,12 @@ class BaileysWhatsAppManager {
           message: messageData.message,
           direction: "outbound",
           status: "delivered",
-          altId: `wa_outbound_${messageData.messageId}`
+          altId: `wa_outbound_${messageData.messageId}`,
+          metadata: {
+            source: "mobile_whatsapp",
+            device: "another_device",
+            timestamp: messageData.timestamp
+          }
         })
       });
       
@@ -794,6 +799,7 @@ class BaileysWhatsAppManager {
         console.log('📊 GHL Response:', messageData);
         console.log('🎯 This prevents "Replied from another device" issue!');
         console.log('📱 Customer will NOT receive duplicate message');
+        console.log('✅ Message will show with green tick and "Sent from another device" indicator');
       } else {
         console.log('❌ Failed to send outbound message to GHL:', messageResponse.status);
         const errorText = await messageResponse.text();
