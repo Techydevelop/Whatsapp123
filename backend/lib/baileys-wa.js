@@ -373,17 +373,32 @@ class BaileysWhatsAppManager {
           const msg = m.messages[0];
           if (!msg.key.fromMe && m.type === 'notify') {
             // Only process messages received after connection is established
-            const connectionTime = this.clients.get(sessionId)?.connectedAt;
+            const client = this.clients.get(sessionId);
+            const connectionTime = client?.connectedAt;
+            
+            console.log(`🔍 Message timestamp check for ${from}:`);
+            console.log(`   Message timestamp: ${msg.messageTimestamp} (${new Date(msg.messageTimestamp * 1000).toLocaleString()})`);
+            console.log(`   Client found: ${!!client}`);
+            console.log(`   Connection time: ${connectionTime} (${connectionTime ? new Date(connectionTime).toLocaleString() : 'Not set'})`);
+            console.log(`   Client status: ${client?.status || 'unknown'}`);
+            
             if (connectionTime) {
               // Convert connection time to seconds for comparison (WhatsApp timestamps are in seconds)
               const connectionTimeSeconds = Math.floor(connectionTime / 1000);
+              console.log(`   Connection time (seconds): ${connectionTimeSeconds}`);
+              console.log(`   Comparison: ${msg.messageTimestamp} < ${connectionTimeSeconds} = ${msg.messageTimestamp < connectionTimeSeconds}`);
+              
               if (msg.messageTimestamp < connectionTimeSeconds) {
                 console.log(`🚫 Ignoring old message received before connection:`);
-                console.log(`   Message timestamp: ${msg.messageTimestamp} (${new Date(msg.messageTimestamp * 1000).toLocaleString()})`);
-                console.log(`   Connection time: ${connectionTimeSeconds} (${new Date(connectionTime).toLocaleString()})`);
                 console.log(`   Difference: ${connectionTimeSeconds - msg.messageTimestamp} seconds`);
+                console.log(`   This prevents duplicate contacts in GHL!`);
                 return;
+              } else {
+                console.log(`✅ Message is newer than connection, processing...`);
               }
+            } else {
+              console.log(`⚠️ No connection time set - this might be an old message!`);
+              console.log(`⚠️ Processing anyway but this could create duplicate contacts!`);
             }
             const from = msg.key.remoteJid;
             // Detect message type and content
