@@ -315,13 +315,14 @@ class BaileysWhatsAppManager {
           
           // Immediate connection - no stability delay
           connectionStable = true;
+          const currentTime = Date.now();
           this.clients.set(sessionId, {
             socket,
             qr: null,
             status: 'connected',
             phoneNumber: socket.user?.id?.split(':')[0],
-            lastUpdate: Date.now(),
-            connectedAt: Date.now()
+            lastUpdate: currentTime,
+            connectedAt: currentTime
           });
           
           console.log(`✅ WhatsApp immediately connected for session: ${sessionId}`);
@@ -373,9 +374,16 @@ class BaileysWhatsAppManager {
           if (!msg.key.fromMe && m.type === 'notify') {
             // Only process messages received after connection is established
             const connectionTime = this.clients.get(sessionId)?.connectedAt;
-            if (connectionTime && msg.messageTimestamp < connectionTime) {
-              console.log(`🚫 Ignoring old message received before connection: ${msg.messageTimestamp} < ${connectionTime}`);
-              return;
+            if (connectionTime) {
+              // Convert connection time to seconds for comparison (WhatsApp timestamps are in seconds)
+              const connectionTimeSeconds = Math.floor(connectionTime / 1000);
+              if (msg.messageTimestamp < connectionTimeSeconds) {
+                console.log(`🚫 Ignoring old message received before connection:`);
+                console.log(`   Message timestamp: ${msg.messageTimestamp} (${new Date(msg.messageTimestamp * 1000).toLocaleString()})`);
+                console.log(`   Connection time: ${connectionTimeSeconds} (${new Date(connectionTime).toLocaleString()})`);
+                console.log(`   Difference: ${connectionTimeSeconds - msg.messageTimestamp} seconds`);
+                return;
+              }
             }
             const from = msg.key.remoteJid;
             // Detect message type and content
