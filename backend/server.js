@@ -679,26 +679,22 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     console.log(`🔍 Looking for client with key: ${clientKey}`);
     const clientStatus = waManager.getClientStatus(clientKey);
     
-    if (!clientStatus || (clientStatus.status !== 'connected' && clientStatus.status !== 'ready')) {
+    // Allow messages if client is connected, ready, or qr_ready (in case of status sync issues)
+    if (!clientStatus || (clientStatus.status !== 'connected' && clientStatus.status !== 'ready' && clientStatus.status !== 'qr_ready')) {
       console.log(`❌ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
       console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
       
-      // If client is in qr_ready status, provide helpful message
-      if (clientStatus && clientStatus.status === 'qr_ready') {
-        return res.json({ 
-          status: 'error', 
-          message: 'WhatsApp client QR code ready - please scan to connect',
-          clientStatus: clientStatus.status,
-          suggestion: 'Please scan the QR code in the dashboard to connect WhatsApp'
-        });
-      }
-      
       return res.json({ 
         status: 'error', 
-        message: 'WhatsApp client not connected',
-        clientStatus: clientStatus?.status || 'not found',
-        suggestion: 'Please reconnect WhatsApp'
+        message: `WhatsApp client not ready - status: ${clientStatus?.status || 'not found'}`,
+        clientStatus: clientStatus?.status,
+        suggestion: 'Please check WhatsApp connection in dashboard'
       });
+    }
+    
+    // Log when client is ready for messages
+    if (clientStatus.status === 'ready') {
+      console.log(`✅ Client is ready for messages: ${clientKey}`);
     }
     
     // If client is in ready status, it's connected and can send messages

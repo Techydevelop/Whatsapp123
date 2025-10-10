@@ -545,7 +545,7 @@ class BaileysWhatsAppManager {
     try {
       const client = this.clients.get(sessionId);
       
-      if (!client || (client.status !== 'connected' && client.status !== 'ready')) {
+      if (!client || (client.status !== 'connected' && client.status !== 'ready' && client.status !== 'qr_ready')) {
         throw new Error(`Client not ready for session: ${sessionId}, status: ${client?.status || 'not found'}`);
       }
       
