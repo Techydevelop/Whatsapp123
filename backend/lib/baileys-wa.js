@@ -609,7 +609,11 @@ class BaileysWhatsAppManager {
       
       // For qr_ready status, don't send messages
       if (client.status === 'qr_ready') {
-        throw new Error(`Client is in QR ready status - please scan QR code first for session: ${sessionId}`);
+        // Extract subaccount ID from session ID for better error message
+        const sessionParts = sessionId.split('_');
+        const subaccountId = sessionParts.length >= 2 ? sessionParts[1] : 'Unknown';
+        
+        throw new Error(`WhatsApp connection is not active for this subaccount. Please reconnect your WhatsApp by scanning the QR code in the dashboard. Subaccount ID: ${subaccountId}`);
       }
 
       // Format phone number

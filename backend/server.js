@@ -771,15 +771,19 @@ app.post('/ghl/provider/webhook', async (req, res) => {
           console.error(`❌ Error sending message via Baileys: ${error.message}`);
           
           // Check if it's a QR ready error
-          if (error.message.includes('QR ready status')) {
+          if (error.message.includes('WhatsApp connection is not active')) {
             console.log(`📱 Client needs QR scan for session: ${clientKey}`);
+            
+            // Extract subaccount ID for better notification
+            const sessionParts = clientKey.split('_');
+            const subaccountId = sessionParts.length >= 2 ? sessionParts[1] : 'Unknown';
             
             // Send notification to GHL about QR scan needed
             try {
               const notificationPayload = {
                 type: "WhatsApp",
                 contactId: contactId,
-                message: "⚠️ WhatsApp connection needs QR scan. Please check dashboard and scan QR code.",
+                message: `⚠️ WhatsApp connection is not active for this subaccount. Please reconnect your WhatsApp by scanning the QR code in the dashboard. Subaccount ID: ${subaccountId}`,
                 direction: "outbound",
                 status: "sent"
               };
