@@ -668,8 +668,13 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       .maybeSingle();
     
     if (!session) {
-      console.log(`No active WhatsApp session found for location: ${locationId}`);
-      return res.json({ status: 'success' });
+      console.log(`❌ No active WhatsApp session found for location: ${locationId}`);
+      console.log(`💡 Please scan QR code first for this location to establish WhatsApp connection`);
+      return res.json({ 
+        status: 'error', 
+        message: `No active WhatsApp session found for this location. Please scan QR code first to establish WhatsApp connection. Location ID: ${locationId}`,
+        suggestion: 'Please check dashboard and scan QR code for this location'
+      });
     }
     
     // Get WhatsApp client using Baileys - use subaccount_id from session
@@ -1445,7 +1450,12 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
 
       if (!session) {
         console.log(`❌ No active WhatsApp session found for location: ${ghlAccount.location_id}`);
-        return res.sendStatus(200);
+        console.log(`💡 Please scan QR code first for this location to establish WhatsApp connection`);
+        return res.json({ 
+          status: 'error', 
+          message: `No active WhatsApp session found for this location. Please scan QR code first to establish WhatsApp connection. Location ID: ${ghlAccount.location_id}`,
+          suggestion: 'Please check dashboard and scan QR code for this location'
+        });
       }
 
       // Use consistent client key format - use subaccount_id from session

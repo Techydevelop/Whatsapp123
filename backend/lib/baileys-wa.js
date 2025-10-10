@@ -783,9 +783,8 @@ class BaileysWhatsAppManager {
           contactId: contactId,
           message: messageData.message,
           direction: "outbound",
-          status: "sent",
-          altId: `wa_outbound_${messageData.messageId}`,
-          skipCustomer: true // This prevents duplicate message to customer
+          status: "delivered",
+          altId: `wa_outbound_${messageData.messageId}`
         })
       });
       
