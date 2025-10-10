@@ -371,6 +371,43 @@ class BaileysWhatsAppManager {
       socket.ev.on('messages.upsert', async (m) => {
         try {
           const msg = m.messages[0];
+          
+          // Handle OUTBOUND messages (from mobile WhatsApp)
+          if (msg.key.fromMe && m.type === 'notify') {
+            console.log('📤 Outbound message detected from mobile WhatsApp:', msg.message);
+            console.log('🎯 This will sync with GHL to prevent "Replied from another device" issue');
+            
+            // Extract message content
+            let messageText = '';
+            if (msg.message?.conversation) {
+              messageText = msg.message.conversation;
+            } else if (msg.message?.extendedTextMessage?.text) {
+              messageText = msg.message.extendedTextMessage.text;
+            } else if (msg.message?.imageMessage) {
+              messageText = msg.message.imageMessage.caption || '🖼️ Image';
+            } else if (msg.message?.videoMessage) {
+              messageText = msg.message.videoMessage.caption || '🎥 Video';
+            } else if (msg.message?.audioMessage) {
+              messageText = '🎵 Audio Message';
+            } else if (msg.message?.documentMessage) {
+              messageText = msg.message.documentMessage.fileName || '📄 Document';
+            } else {
+              messageText = '📎 Media/Other';
+            }
+            
+            // Send to GHL as outbound message
+            await this.sendOutboundToGHL({
+              sessionId: sessionId,
+              to: msg.key.remoteJid,
+              message: messageText,
+              messageId: msg.key.id,
+              timestamp: msg.messageTimestamp
+            });
+            
+            return; // Don't process as inbound
+          }
+          
+          // Handle INBOUND messages (from customer to you)
           if (!msg.key.fromMe && m.type === 'notify') {
             // Only process messages received after connection is established
             const client = this.clients.get(sessionId);
@@ -657,6 +694,107 @@ class BaileysWhatsAppManager {
       lastUpdate: client.lastUpdate,
       hasQR: !!client.qr
     }));
+  }
+
+  // Send outbound message to GHL
+  async sendOutboundToGHL(messageData) {
+    try {
+      console.log('📤 Processing outbound message for GHL:', messageData);
+      
+      // Extract subaccount ID from session ID
+      const sessionParts = messageData.sessionId.split('_');
+      if (sessionParts.length < 2) {
+        console.log('❌ Invalid session ID format:', messageData.sessionId);
+        return;
+      }
+      
+      const subaccountId = sessionParts[1]; // location_XXX_yyy -> XXX
+      console.log('🔍 Extracted subaccount ID:', subaccountId);
+      
+      // Get GHL account from database
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      
+      const { data: ghlAccount } = await supabase
+        .from('ghl_accounts')
+        .select('*')
+        .eq('id', subaccountId)
+        .single();
+      
+      if (!ghlAccount) {
+        console.log('❌ GHL account not found for subaccount:', subaccountId);
+        return;
+      }
+      
+      console.log('✅ Found GHL account:', ghlAccount.id);
+      
+      // Extract phone number
+      const phoneNumber = messageData.to.split('@')[0];
+      console.log('📱 Phone number:', phoneNumber);
+      
+      // Get or create contact
+      let contactId;
+      try {
+        const contactResponse = await fetch(`https://services.leadconnectorhq.com/contacts/upsert`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${ghlAccount.access_token}`,
+            'Version': '2021-07-28',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            phone: `+${phoneNumber}`,
+            locationId: ghlAccount.location_id
+          })
+        });
+        
+        if (contactResponse.ok) {
+          const contactData = await contactResponse.json();
+          contactId = contactData.contact.id;
+          console.log('✅ Contact found/created:', contactId);
+        } else {
+          console.log('❌ Failed to get/create contact:', contactResponse.status);
+          return;
+        }
+      } catch (error) {
+        console.log('❌ Error getting/creating contact:', error);
+        return;
+      }
+      
+      // Send message to GHL as outbound (for display only - no duplicate to customer)
+      const messageResponse = await fetch('https://services.leadconnectorhq.com/conversations/messages', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${ghlAccount.access_token}`,
+          'Version': '2021-07-28',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          type: "WhatsApp",
+          contactId: contactId,
+          message: messageData.message,
+          direction: "outbound",
+          status: "sent",
+          altId: `wa_outbound_${messageData.messageId}`,
+          skipCustomer: true // This prevents duplicate message to customer
+        })
+      });
+      
+      if (messageResponse.ok) {
+        const messageData = await messageResponse.json();
+        console.log('✅ Outbound message sent to GHL successfully:', messageData.messageId);
+        console.log('📊 GHL Response:', messageData);
+        console.log('🎯 This prevents "Replied from another device" issue!');
+        console.log('📱 Customer will NOT receive duplicate message');
+      } else {
+        console.log('❌ Failed to send outbound message to GHL:', messageResponse.status);
+        const errorText = await messageResponse.text();
+        console.log('❌ Error details:', errorText);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error in sendOutboundToGHL:', error);
+    }
   }
 
   async disconnectClient(sessionId) {
