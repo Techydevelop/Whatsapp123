@@ -2,6 +2,7 @@ const { Pool } = require('pg');
 
 // PostgreSQL connection pool for customer database (same Supabase instance)
 console.log('🔍 DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+console.log('🔍 DATABASE_URL value:', process.env.DATABASE_URL);
 console.log('🔍 SUPABASE_DB_HOST:', process.env.SUPABASE_DB_HOST || 'NOT SET');
 console.log('🔍 SUPABASE_DB_PASSWORD:', process.env.SUPABASE_DB_PASSWORD ? 'SET' : 'NOT SET');
 
