@@ -15,12 +15,13 @@ async function getIPv4Address(hostname) {
     try {
         console.log(`🔍 Resolving ${hostname} to IPv4...`);
         // Use dns.lookup with family: 4 to force IPv4
-        const result = await dnsLookup(hostname, { family: 4 });
+        const result = await dnsLookup(hostname, { family: 4, all: false });
         console.log(`✅ Resolved ${hostname} to IPv4: ${result.address}`);
         return result.address;
     } catch (error) {
         console.error(`❌ Failed to resolve ${hostname} to IPv4:`, error.message);
-        // Return original hostname as fallback
+        console.log(`⚠️ Using hostname directly with IPv4-only setting: ${hostname}`);
+        // Return original hostname as fallback - Pool will handle it with family setting
         return hostname;
     }
 }
@@ -43,13 +44,13 @@ async function initializeDbPool() {
             // Resolve hostname to IPv4 address BEFORE creating pool
             const ipv4Address = await getIPv4Address(url.hostname);
             
-            // Use the resolved IPv4 address instead of hostname
+            // Build connection string with explicit SSL mode
+            // Note: We use connection string format to ensure proper SSL handling
+            const password = encodeURIComponent(decodeURIComponent(url.password));
+            const connectionString = `postgresql://${url.username}:${password}@${ipv4Address}:${url.port || 5432}/${url.pathname.slice(1)}?sslmode=require`;
+            
             poolConfig = {
-                user: url.username,
-                password: decodeURIComponent(url.password),
-                host: ipv4Address, // Use resolved IPv4 address
-                port: parseInt(url.port) || 5432,
-                database: url.pathname.slice(1),
+                connectionString: connectionString,
                 ssl: { rejectUnauthorized: false },
                 max: 20,
                 idleTimeoutMillis: 30000,
