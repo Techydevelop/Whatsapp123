@@ -1,50 +1,55 @@
 const { Pool } = require('pg');
+const { promisify } = require('util');
 const dns = require('dns');
 
-// Force IPv4 DNS resolution globally
-dns.setDefaultResultOrder('ipv4first');
+// Promisify dns.lookup for better control
+const dnsLookup = promisify(dns.lookup);
 
 // PostgreSQL connection pool for customer database (same Supabase instance)
 console.log('🔍 DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
 console.log('🔍 SUPABASE_DB_HOST:', process.env.SUPABASE_DB_HOST || 'NOT SET');
 console.log('🔍 SUPABASE_DB_PASSWORD:', process.env.SUPABASE_DB_PASSWORD ? 'SET' : 'NOT SET');
 
-// Synchronously resolve hostname to IPv4
-function resolveHostToIPv4Sync(hostname) {
-    return new Promise((resolve) => {
-        dns.resolve4(hostname, (err, addresses) => {
-            if (err || !addresses || addresses.length === 0) {
-                console.warn(`⚠️ Could not resolve ${hostname} to IPv4, using hostname:`, err?.message);
-                resolve(hostname);
-            } else {
-                const ipv4 = addresses[0];
-                console.log(`✅ Resolved ${hostname} to IPv4: ${ipv4}`);
-                resolve(ipv4);
-            }
-        });
-    });
+// Function to resolve hostname to IPv4 address
+async function getIPv4Address(hostname) {
+    try {
+        console.log(`🔍 Resolving ${hostname} to IPv4...`);
+        // Use dns.lookup with family: 4 to force IPv4
+        const result = await dnsLookup(hostname, { family: 4 });
+        console.log(`✅ Resolved ${hostname} to IPv4: ${result.address}`);
+        return result.address;
+    } catch (error) {
+        console.error(`❌ Failed to resolve ${hostname} to IPv4:`, error.message);
+        // Return original hostname as fallback
+        return hostname;
+    }
 }
 
-// Parse DATABASE_URL and create config forcing IPv4
-let customerDbPool;
+// Initialize database pool
+let customerDbPool = null;
+let poolInitialized = false;
 
 async function initializeDbPool() {
+    if (poolInitialized) {
+        return customerDbPool;
+    }
+
     let poolConfig;
 
     if (process.env.DATABASE_URL) {
         try {
             const url = new URL(process.env.DATABASE_URL);
             
-            // Resolve hostname to IPv4 address
-            const ipv4Host = await resolveHostToIPv4Sync(url.hostname);
+            // Resolve hostname to IPv4 address BEFORE creating pool
+            const ipv4Address = await getIPv4Address(url.hostname);
             
-            // Extract connection details and use IPv4 address
+            // Use the resolved IPv4 address instead of hostname
             poolConfig = {
                 user: url.username,
                 password: decodeURIComponent(url.password),
-                host: ipv4Host, // Use resolved IPv4 address instead of hostname
+                host: ipv4Address, // Use resolved IPv4 address
                 port: parseInt(url.port) || 5432,
-                database: url.pathname.slice(1), // Remove leading '/'
+                database: url.pathname.slice(1),
                 ssl: { rejectUnauthorized: false },
                 max: 20,
                 idleTimeoutMillis: 30000,
@@ -53,20 +58,13 @@ async function initializeDbPool() {
                 keepAliveInitialDelayMillis: 10000,
             };
             
-            console.log(`📊 Database config: ${url.username}@${ipv4Host}:${url.port}/${url.pathname.slice(1)}`);
+            console.log(`📊 Database config: ${url.username}@${ipv4Address}:${url.port}/${url.pathname.slice(1)}`);
         } catch (error) {
             console.error('❌ Error parsing DATABASE_URL:', error);
-            // Fallback to connection string
-            poolConfig = {
-                connectionString: process.env.DATABASE_URL,
-                ssl: { rejectUnauthorized: false },
-                max: 20,
-                idleTimeoutMillis: 30000,
-                connectionTimeoutMillis: 10000,
-            };
+            throw error;
         }
     } else {
-        console.warn('⚠️ DATABASE_URL not set, using default configuration');
+        console.warn('⚠️ DATABASE_URL not set');
         poolConfig = {
             host: process.env.SUPABASE_DB_HOST || 'localhost',
             port: 5432,
@@ -80,58 +78,61 @@ async function initializeDbPool() {
         };
     }
 
-    // Create the pool with resolved IPv4 address
-    const pool = new Pool(poolConfig);
+    // Create the pool
+    customerDbPool = new Pool(poolConfig);
 
-    // Test database connection
-    pool.on('connect', (client) => {
+    // Test connection
+    customerDbPool.on('connect', () => {
         console.log('✅ Customer database connected successfully');
     });
 
-    pool.on('error', (err) => {
-        console.error('❌ Customer database connection error:', err);
+    customerDbPool.on('error', (err) => {
+        console.error('❌ Customer database connection error:', err.message);
     });
 
-    return pool;
+    // Test initial connection
+    try {
+        const client = await customerDbPool.connect();
+        console.log('✅ Database pool initialized and tested successfully');
+        client.release();
+    } catch (error) {
+        console.error('❌ Failed to test database connection:', error.message);
+    }
+
+    poolInitialized = true;
+    return customerDbPool;
 }
 
-// Initialize pool synchronously at module load
-(async () => {
-    try {
-        customerDbPool = await initializeDbPool();
-        console.log('✅ Database pool initialized with IPv4');
-    } catch (error) {
-        console.error('❌ Failed to initialize database pool:', error);
-        // Create a basic pool as fallback
-        customerDbPool = new Pool({
-            connectionString: process.env.DATABASE_URL,
-            ssl: { rejectUnauthorized: false },
-        });
-    }
-})();
+// Initialize pool immediately and wait for it
+const poolPromise = initializeDbPool();
 
-// Helper function to execute queries with retry logic
+// Helper function to ensure pool is ready
+async function ensurePoolReady() {
+    if (!poolInitialized || !customerDbPool) {
+        console.log('⏳ Waiting for database pool initialization...');
+        await poolPromise;
+    }
+    return customerDbPool;
+}
+
+// Helper function to execute queries
 const query = async (text, params) => {
-    // Wait for pool to be initialized if not ready yet
-    let retries = 0;
-    while (!customerDbPool && retries < 10) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        retries++;
-    }
+    // Ensure pool is ready
+    await ensurePoolReady();
     
-    if (!customerDbPool) {
-        throw new Error('Database pool not initialized');
-    }
-
     const start = Date.now();
-    const maxRetries = 3;
+    const maxRetries = 2; // Reduced retries since connection should work
     let lastError;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             const res = await customerDbPool.query(text, params);
             const duration = Date.now() - start;
-            console.log('📊 Customer DB Query executed:', { text: text.substring(0, 100), duration, rows: res.rowCount });
+            console.log('📊 Customer DB Query executed:', { 
+                text: text.substring(0, 80) + '...', 
+                duration, 
+                rows: res.rowCount 
+            });
             return res;
         } catch (error) {
             lastError = error;
@@ -139,13 +140,12 @@ const query = async (text, params) => {
             
             // If it's a network error, wait and retry
             if (attempt < maxRetries && (error.code === 'ENETUNREACH' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT')) {
-                const waitTime = attempt * 1000; // Exponential backoff
+                const waitTime = 1000;
                 console.log(`⏳ Retrying in ${waitTime}ms...`);
                 await new Promise(resolve => setTimeout(resolve, waitTime));
                 continue;
             }
             
-            // For other errors or last attempt, throw immediately
             throw error;
         }
     }
@@ -155,9 +155,7 @@ const query = async (text, params) => {
 
 // Helper function to get a client from the pool
 const getClient = async () => {
-    if (!customerDbPool) {
-        throw new Error('Database pool not initialized');
-    }
+    await ensurePoolReady();
     return await customerDbPool.connect();
 };
 
