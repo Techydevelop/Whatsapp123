@@ -2,6 +2,15 @@ const { makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMess
 const fs = require('fs');
 const path = require('path');
 
+// Import connection monitoring for SaaS notifications
+let notifyCustomerConnectionLost = null;
+try {
+  const connectionMonitor = require('../jobs/connectionMonitor');
+  notifyCustomerConnectionLost = connectionMonitor.notifyCustomerConnectionLost;
+} catch (error) {
+  console.log('⚠️ Connection monitoring not available (SaaS features disabled)');
+}
+
 class BaileysWhatsAppManager {
   constructor() {
     this.clients = new Map();
@@ -278,6 +287,19 @@ class BaileysWhatsAppManager {
             client.status = 'disconnected';
             client.lastUpdate = Date.now();
           }
+
+          // Notify customer about connection loss (SaaS feature)
+          if (notifyCustomerConnectionLost) {
+            try {
+              await notifyCustomerConnectionLost(sessionId, {
+                reason: lastDisconnect?.error?.message || 'Connection lost',
+                timestamp: new Date().toISOString(),
+                shouldReconnect: shouldReconnect
+              });
+            } catch (notificationError) {
+              console.error('❌ Error sending connection lost notification:', notificationError);
+            }
+          }
           
           if (shouldReconnect) {
             console.log(`🔄 Reconnecting session: ${sessionId} in 30 seconds...`);
@@ -395,10 +417,14 @@ class BaileysWhatsAppManager {
               messageText = '📎 Media/Other';
             }
             
-            // Log mobile reply but don't send to GHL to avoid confusion
-            console.log('📱 Mobile reply detected and logged - not sending to GHL to avoid display issues');
-            console.log(`📱 Message: "${messageText}" from ${msg.key.remoteJid}`);
-            console.log('💡 GHL will show this as "Replied from another device" which is correct behavior');
+            // Send to GHL as outbound message
+            await this.sendOutboundToGHL({
+              sessionId: sessionId,
+              to: msg.key.remoteJid,
+              message: messageText,
+              messageId: msg.key.id,
+              timestamp: msg.messageTimestamp
+            });
             
             return; // Don't process as inbound
           }
@@ -775,14 +801,14 @@ class BaileysWhatsAppManager {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          type: "WhatsApp",
+          type: "SMS",
           contactId: contactId,
           message: messageData.message,
-          direction: "outbound",
           status: "delivered",
           altId: `wa_outbound_${messageData.messageId}`,
-          source: "whatsapp_web",
-          platform: "mobile"
+          from: "whatsapp_web",
+          to: messageData.to,
+          timestamp: messageData.timestamp
         })
       });
       

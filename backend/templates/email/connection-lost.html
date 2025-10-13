@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Connection Lost</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            border-bottom: 3px solid #ff6b6b;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ff6b6b;
+            margin-bottom: 10px;
+        }
+        .alert-box {
+            background-color: #fff5f5;
+            border: 2px solid #ff6b6b;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .alert-icon {
+            font-size: 48px;
+            color: #ff6b6b;
+            margin-bottom: 15px;
+        }
+        .alert-title {
+            font-size: 24px;
+            color: #ff6b6b;
+            font-weight: bold;
+            margin: 0 0 10px 0;
+        }
+        .connection-details {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .detail-item {
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        .detail-label {
+            font-weight: bold;
+            color: #333;
+        }
+        .detail-value {
+            color: #666;
+            margin-left: 10px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #25D366;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+        .button:hover {
+            background-color: #1ea952;
+        }
+        .steps {
+            background-color: #e3f2fd;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .steps h3 {
+            color: #1976d2;
+            margin-top: 0;
+        }
+        .step-item {
+            margin: 15px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        .step-item::before {
+            content: counter(step-counter);
+            counter-increment: step-counter;
+            background-color: #25D366;
+            color: white;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+        .steps ol {
+            counter-reset: step-counter;
+            padding-left: 0;
+        }
+        .support-info {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .support-info h3 {
+            color: #856404;
+            margin-top: 0;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">WhatsApp-GHL Platform</div>
+            <h1 style="color: #333; font-size: 28px; margin: 0;">Connection Alert</h1>
+        </div>
+
+        <div class="alert-box">
+            <div class="alert-icon">⚠️</div>
+            <h2 class="alert-title">WhatsApp Connection Lost</h2>
+            <p style="margin: 0; font-size: 18px;">Your WhatsApp connection has been disconnected and requires immediate attention.</p>
+        </div>
+
+        <p>Hello {{business_name}},</p>
+        <p>We've detected that your WhatsApp connection has been lost. This means your automated messages and integrations are currently not working.</p>
+
+        <div class="connection-details">
+            <h3 style="margin-top: 0; color: #333;">Connection Details:</h3>
+            <div class="detail-item">
+                <span class="detail-label">Phone Number:</span>
+                <span class="detail-value">{{phone_number}}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">Disconnection Reason:</span>
+                <span class="detail-value">{{reason}}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">Time:</span>
+                <span class="detail-value">{{timestamp}}</span>
+            </div>
+        </div>
+
+        <div style="text-align: center;">
+            <a href="{{reconnect_url}}" class="button">Reconnect WhatsApp Now</a>
+        </div>
+
+        <div class="steps">
+            <h3>How to Reconnect:</h3>
+            <ol>
+                <li class="step-item">Click the "Reconnect WhatsApp Now" button above</li>
+                <li class="step-item">Log in to your dashboard</li>
+                <li class="step-item">Go to the WhatsApp section</li>
+                <li class="step-item">Scan the QR code with your WhatsApp Business app</li>
+                <li class="step-item">Wait for the connection to be established</li>
+            </ol>
+        </div>
+
+        <div class="support-info">
+            <h3>Need Help?</h3>
+            <p>If you're having trouble reconnecting or if this keeps happening, our support team is here to help:</p>
+            <ul>
+                <li><strong>Email:</strong> support@yourdomain.com</li>
+                <li><strong>WhatsApp:</strong> +1234567890</li>
+                <li><strong>Response Time:</strong> Usually within 2 hours</li>
+            </ul>
+        </div>
+
+        <p><strong>Why did this happen?</strong></p>
+        <p>WhatsApp connections can be lost due to various reasons:</p>
+        <ul>
+            <li>Network connectivity issues</li>
+            <li>WhatsApp app updates</li>
+            <li>Phone restart or app restart</li>
+            <li>Long periods of inactivity</li>
+            <li>Security-related disconnections</li>
+        </ul>
+
+        <p>Don't worry - this is normal and easily fixable by reconnecting your WhatsApp account.</p>
+
+        <div class="footer">
+            <p>This alert was sent to {{email}} because your WhatsApp connection was lost.</p>
+            <p>&copy; 2024 WhatsApp-GHL Platform. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -3259,6 +3259,35 @@ app.post('/api/test-team-notification', async (req, res) => {
   }
 });
 
+// Import new SaaS routes
+const authRoutes = require('./routes/auth');
+const adminAuthRoutes = require('./routes/admin-auth');
+const customerRoutes = require('./routes/customer');
+const adminRoutes = require('./routes/admin');
+
+// Import background job scheduler
+const { startScheduler } = require('./jobs/scheduler');
+
+// Register new SaaS routes
+app.use('/api/auth', authRoutes);
+app.use('/api/admin/auth', adminAuthRoutes);
+app.use('/api/customer', customerRoutes);
+app.use('/api/admin', adminRoutes);
+
+// Health check endpoint for new SaaS system
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    services: {
+      whatsapp: 'active',
+      ghl: 'active',
+      database: 'active',
+      saas: 'active'
+    }
+  });
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
@@ -3266,4 +3295,12 @@ app.listen(PORT, () => {
   
   // Validate environment variables (non-blocking)
   validateEnvironment();
+  
+  // Start background job scheduler
+  try {
+    startScheduler();
+    console.log('✅ Background jobs initialized successfully');
+  } catch (error) {
+    console.error('❌ Failed to start background jobs:', error);
+  }
 });
