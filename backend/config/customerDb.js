@@ -1,17 +1,16 @@
 const { Pool } = require('pg');
 
 // PostgreSQL connection pool for customer database (same Supabase instance)
+console.log('🔍 DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+console.log('🔍 SUPABASE_DB_HOST:', process.env.SUPABASE_DB_HOST || 'NOT SET');
+console.log('🔍 SUPABASE_DB_PASSWORD:', process.env.SUPABASE_DB_PASSWORD ? 'SET' : 'NOT SET');
+
 const customerDbPool = new Pool({
-    host: process.env.SUPABASE_DB_HOST || process.env.CUSTOMER_DB_HOST || 'localhost',
-    port: process.env.SUPABASE_DB_PORT || process.env.CUSTOMER_DB_PORT || 5432,
-    database: process.env.SUPABASE_DB_NAME || process.env.CUSTOMER_DB_NAME || 'postgres',
-    user: process.env.SUPABASE_DB_USER || process.env.CUSTOMER_DB_USER || 'postgres',
-    password: process.env.SUPABASE_DB_PASSWORD || process.env.CUSTOMER_DB_PASSWORD || '',
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }, // Supabase requires SSL
     max: 20, // Maximum number of clients in the pool
     idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
     connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
-    family: 4, // Force IPv4 connection
 });
 
 // Test database connection

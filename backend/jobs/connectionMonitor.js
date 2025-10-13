@@ -11,6 +11,12 @@ const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
     try {
         console.log(`🔍 Checking connection loss for session: ${sessionId}`);
 
+        // Skip database operations if DATABASE_URL is not set
+        if (!process.env.DATABASE_URL) {
+            console.log('⚠️ Skipping database operations - DATABASE_URL not configured');
+            return;
+        }
+
         // Get session details
         const sessionResult = await query(
             'SELECT id, phone, customer_id FROM sessions WHERE id = $1',
