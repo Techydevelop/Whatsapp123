@@ -1,4 +1,8 @@
 const { Pool } = require('pg');
+const dns = require('dns');
+
+// Force IPv4 DNS resolution
+dns.setDefaultResultOrder('ipv4first');
 
 // PostgreSQL connection pool for customer database (same Supabase instance)
 console.log('🔍 DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
@@ -6,14 +10,36 @@ console.log('🔍 DATABASE_URL value:', process.env.DATABASE_URL);
 console.log('🔍 SUPABASE_DB_HOST:', process.env.SUPABASE_DB_HOST || 'NOT SET');
 console.log('🔍 SUPABASE_DB_PASSWORD:', process.env.SUPABASE_DB_PASSWORD ? 'SET' : 'NOT SET');
 
-const customerDbPool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }, // Supabase requires SSL
-    max: 20, // Maximum number of clients in the pool
-    idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-    connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
-    family: 4, // Force IPv4 connection
-});
+// Parse DATABASE_URL and replace hostname with IPv4-only connection
+let connectionConfig;
+if (process.env.DATABASE_URL) {
+    const url = new URL(process.env.DATABASE_URL);
+    connectionConfig = {
+        user: url.username,
+        password: decodeURIComponent(url.password),
+        host: url.hostname,
+        port: url.port || 5432,
+        database: url.pathname.slice(1),
+        ssl: { rejectUnauthorized: false },
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000, // Increased timeout
+        family: 4, // Force IPv4
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
+    };
+} else {
+    connectionConfig = {
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false },
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+        family: 4,
+    };
+}
+
+const customerDbPool = new Pool(connectionConfig);
 
 // Test database connection
 customerDbPool.on('connect', () => {
