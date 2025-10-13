@@ -291,10 +291,12 @@ class BaileysWhatsAppManager {
           // Notify customer about connection loss (SaaS feature)
           if (notifyCustomerConnectionLost) {
             try {
-              await notifyCustomerConnectionLost(sessionId, {
+              notifyCustomerConnectionLost(sessionId, {
                 reason: lastDisconnect?.error?.message || 'Connection lost',
                 timestamp: new Date().toISOString(),
                 shouldReconnect: shouldReconnect
+              }).catch(notificationError => {
+                console.error('❌ Error sending connection lost notification:', notificationError);
               });
             } catch (notificationError) {
               console.error('❌ Error sending connection lost notification:', notificationError);
