@@ -1,151 +1,149 @@
 const { Pool } = require('pg');
-const { promisify } = require('util');
-const dns = require('dns');
-
-// Promisify dns.lookup for better control
-const dnsLookup = promisify(dns.lookup);
 
 // PostgreSQL connection pool for customer database (same Supabase instance)
 console.log('🔍 DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
-console.log('🔍 SUPABASE_DB_HOST:', process.env.SUPABASE_DB_HOST || 'NOT SET');
-console.log('🔍 SUPABASE_DB_PASSWORD:', process.env.SUPABASE_DB_PASSWORD ? 'SET' : 'NOT SET');
 
-// Function to resolve hostname to IPv4 address
-async function getIPv4Address(hostname) {
+// Simple and direct approach - let pg library handle everything
+let poolConfig;
+
+if (process.env.DATABASE_URL) {
     try {
-        console.log(`🔍 Resolving ${hostname} to IPv4...`);
-        // Use dns.lookup with family: 4 to force IPv4
-        const result = await dnsLookup(hostname, { family: 4, all: false });
-        console.log(`✅ Resolved ${hostname} to IPv4: ${result.address}`);
-        return result.address;
-    } catch (error) {
-        console.error(`❌ Failed to resolve ${hostname} to IPv4:`, error.message);
-        console.log(`⚠️ Using hostname directly with IPv4-only setting: ${hostname}`);
-        // Return original hostname as fallback - Pool will handle it with family setting
-        return hostname;
-    }
-}
-
-// Initialize database pool
-let customerDbPool = null;
-let poolInitialized = false;
-
-async function initializeDbPool() {
-    if (poolInitialized) {
-        return customerDbPool;
-    }
-
-    let poolConfig;
-
-    if (process.env.DATABASE_URL) {
-        try {
-            const url = new URL(process.env.DATABASE_URL);
-            
-            // Resolve hostname to IPv4 address BEFORE creating pool
-            const ipv4Address = await getIPv4Address(url.hostname);
-            
-            // Build connection string with explicit SSL mode
-            // Note: We use connection string format to ensure proper SSL handling
-            const password = encodeURIComponent(decodeURIComponent(url.password));
-            const connectionString = `postgresql://${url.username}:${password}@${ipv4Address}:${url.port || 5432}/${url.pathname.slice(1)}?sslmode=require`;
-            
-            poolConfig = {
-                connectionString: connectionString,
-                ssl: { rejectUnauthorized: false },
-                max: 20,
-                idleTimeoutMillis: 30000,
-                connectionTimeoutMillis: 10000,
-                keepAlive: true,
-                keepAliveInitialDelayMillis: 10000,
-            };
-            
-            console.log(`📊 Database config: ${url.username}@${ipv4Address}:${url.port}/${url.pathname.slice(1)}`);
-        } catch (error) {
-            console.error('❌ Error parsing DATABASE_URL:', error);
-            throw error;
-        }
-    } else {
-        console.warn('⚠️ DATABASE_URL not set');
+        const url = new URL(process.env.DATABASE_URL);
+        
+        // Force port 6543 for Supabase pooler (better IPv4 support)
+        // This helps with Render's IPv6 compatibility issues
+        const port = 6543; // Always use pooler port for Supabase
+        
+        console.log(`📊 Database connection: ${url.hostname}:${port} (Using Supabase Pooler)`);
+        
+        // Use individual config parameters instead of connection string
+        // This gives pg library more control over connection
         poolConfig = {
-            host: process.env.SUPABASE_DB_HOST || 'localhost',
-            port: 5432,
-            database: 'postgres',
-            user: 'postgres',
-            password: process.env.SUPABASE_DB_PASSWORD || '',
+            user: url.username,
+            password: decodeURIComponent(url.password),
+            host: url.hostname,
+            port: port,
+            database: url.pathname.slice(1),
+            ssl: { rejectUnauthorized: false },
+            
+            // Connection pool settings
+            max: 20,
+            min: 2,
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 15000,
+            
+            // Keep alive settings
+            keepAlive: true,
+            keepAliveInitialDelayMillis: 10000,
+            
+            // Statement timeout (30 seconds)
+            statement_timeout: 30000,
+            
+            // Query timeout (30 seconds)
+            query_timeout: 30000,
+        };
+        
+    } catch (error) {
+        console.error('❌ Error parsing DATABASE_URL:', error);
+        // Fallback to connection string
+        poolConfig = {
+            connectionString: process.env.DATABASE_URL,
             ssl: { rejectUnauthorized: false },
             max: 20,
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 10000,
+            connectionTimeoutMillis: 15000,
         };
     }
-
-    // Create the pool
-    customerDbPool = new Pool(poolConfig);
-
-    // Test connection
-    customerDbPool.on('connect', () => {
-        console.log('✅ Customer database connected successfully');
-    });
-
-    customerDbPool.on('error', (err) => {
-        console.error('❌ Customer database connection error:', err.message);
-    });
-
-    // Test initial connection
-    try {
-        const client = await customerDbPool.connect();
-        console.log('✅ Database pool initialized and tested successfully');
-        client.release();
-    } catch (error) {
-        console.error('❌ Failed to test database connection:', error.message);
-    }
-
-    poolInitialized = true;
-    return customerDbPool;
+} else {
+    console.warn('⚠️ DATABASE_URL not set');
+    poolConfig = {
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false },
+        max: 20,
+    };
 }
 
-// Initialize pool immediately and wait for it
-const poolPromise = initializeDbPool();
+// Create the pool
+const customerDbPool = new Pool(poolConfig);
 
-// Helper function to ensure pool is ready
-async function ensurePoolReady() {
-    if (!poolInitialized || !customerDbPool) {
-        console.log('⏳ Waiting for database pool initialization...');
-        await poolPromise;
-    }
-    return customerDbPool;
-}
+// Connection event handlers
+customerDbPool.on('connect', () => {
+    console.log('✅ Customer database connected successfully');
+});
 
-// Helper function to execute queries
-const query = async (text, params) => {
-    // Ensure pool is ready
-    await ensurePoolReady();
+customerDbPool.on('error', (err) => {
+    console.error('❌ Customer database pool error:', err.message);
+    // Don't crash the app on connection errors
+});
+
+customerDbPool.on('remove', () => {
+    console.log('📊 Database client removed from pool');
+});
+
+// Test initial connection with retry
+let connectionTested = false;
+async function testConnection(retryCount = 0) {
+    if (connectionTested) return;
     
+    try {
+        console.log(`🔄 Testing database connection (attempt ${retryCount + 1}/3)...`);
+        const client = await customerDbPool.connect();
+        await client.query('SELECT NOW()');
+        client.release();
+        connectionTested = true;
+        console.log('✅ Database pool initialized and tested successfully');
+    } catch (error) {
+        console.error(`❌ Database connection test failed (attempt ${retryCount + 1}/3):`, error.message);
+        
+        if (retryCount < 2) {
+            // Retry after delay
+            const delay = (retryCount + 1) * 2000;
+            console.log(`⏳ Retrying in ${delay}ms...`);
+            setTimeout(() => testConnection(retryCount + 1), delay);
+        } else {
+            console.error('❌ Database connection test failed after 3 attempts');
+            console.log('⚠️ Application will continue but database operations may fail');
+        }
+    }
+}
+
+// Test connection on startup
+testConnection();
+
+// Helper function to execute queries with automatic retry
+const query = async (text, params) => {
     const start = Date.now();
-    const maxRetries = 2; // Reduced retries since connection should work
+    const maxRetries = 2;
     let lastError;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             const res = await customerDbPool.query(text, params);
             const duration = Date.now() - start;
-            console.log('📊 Customer DB Query executed:', { 
-                text: text.substring(0, 80) + '...', 
-                duration, 
-                rows: res.rowCount 
-            });
+            
+            // Only log first 80 chars of query to avoid log spam
+            const queryPreview = text.substring(0, 80).replace(/\s+/g, ' ');
+            console.log(`📊 Query OK: ${queryPreview}... (${duration}ms, ${res.rowCount} rows)`);
+            
             return res;
         } catch (error) {
             lastError = error;
-            console.error(`❌ Customer DB Query error (attempt ${attempt}/${maxRetries}):`, error.message);
             
-            // If it's a network error, wait and retry
-            if (attempt < maxRetries && (error.code === 'ENETUNREACH' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT')) {
-                const waitTime = 1000;
-                console.log(`⏳ Retrying in ${waitTime}ms...`);
+            // Check if it's a transient network error
+            const isNetworkError = ['ENETUNREACH', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNREFUSED'].includes(error.code);
+            
+            if (attempt < maxRetries && isNetworkError) {
+                const waitTime = attempt * 1000;
+                console.log(`⚠️ Query failed (${error.code}), retrying in ${waitTime}ms... (${attempt}/${maxRetries})`);
                 await new Promise(resolve => setTimeout(resolve, waitTime));
                 continue;
             }
+            
+            // For non-network errors or last attempt, log and throw
+            console.error(`❌ Query error (attempt ${attempt}/${maxRetries}):`, {
+                code: error.code,
+                message: error.message,
+                query: text.substring(0, 80)
+            });
             
             throw error;
         }
@@ -156,40 +154,68 @@ const query = async (text, params) => {
 
 // Helper function to get a client from the pool
 const getClient = async () => {
-    await ensurePoolReady();
-    return await customerDbPool.connect();
+    try {
+        return await customerDbPool.connect();
+    } catch (error) {
+        console.error('❌ Failed to get database client:', error.message);
+        throw error;
+    }
 };
 
 // Helper function to begin a transaction
 const beginTransaction = async () => {
     const client = await getClient();
-    await client.query('BEGIN');
-    return client;
+    try {
+        await client.query('BEGIN');
+        return client;
+    } catch (error) {
+        client.release();
+        throw error;
+    }
 };
 
 // Helper function to commit a transaction
 const commitTransaction = async (client) => {
-    await client.query('COMMIT');
-    client.release();
+    try {
+        await client.query('COMMIT');
+    } finally {
+        client.release();
+    }
 };
 
 // Helper function to rollback a transaction
 const rollbackTransaction = async (client) => {
-    await client.query('ROLLBACK');
-    client.release();
+    try {
+        await client.query('ROLLBACK');
+    } finally {
+        client.release();
+    }
 };
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
     console.log('📊 SIGTERM received, closing database pool...');
-    if (customerDbPool) {
+    try {
         await customerDbPool.end();
         console.log('✅ Database pool closed');
+    } catch (error) {
+        console.error('❌ Error closing database pool:', error.message);
     }
 });
 
+process.on('SIGINT', async () => {
+    console.log('📊 SIGINT received, closing database pool...');
+    try {
+        await customerDbPool.end();
+        console.log('✅ Database pool closed');
+    } catch (error) {
+        console.error('❌ Error closing database pool:', error.message);
+    }
+    process.exit(0);
+});
+
 module.exports = {
-    get pool() { return customerDbPool; },
+    pool: customerDbPool,
     query,
     getClient,
     beginTransaction,

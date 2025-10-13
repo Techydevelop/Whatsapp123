@@ -17,11 +17,13 @@ const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
             return;
         }
 
-        // Get session details
-        const sessionResult = await query(
-            'SELECT id, phone, customer_id FROM sessions WHERE id = $1',
-            [sessionId]
-        );
+        // Get session details with timeout
+        const sessionResult = await Promise.race([
+            query('SELECT id, phone, customer_id FROM sessions WHERE id = $1', [sessionId]),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Query timeout')), 5000)
+            )
+        ]);
 
         if (sessionResult.rows.length === 0) {
             console.log(`❌ Session not found: ${sessionId}`);
@@ -121,7 +123,14 @@ const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
         }
 
     } catch (error) {
-        console.error('❌ Error in notifyCustomerConnectionLost:', error);
+        // Only log network errors once every 5 minutes to avoid spam
+        const now = Date.now();
+        const lastLogKey = `notifyError_${sessionId}`;
+        if (!global[lastLogKey] || (now - global[lastLogKey]) > 300000) {
+            console.error('❌ Error in notifyCustomerConnectionLost:', error.message);
+            global[lastLogKey] = now;
+        }
+        // Don't throw - this is a background notification, shouldn't crash the app
     }
 };
 
