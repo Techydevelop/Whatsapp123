@@ -1,4 +1,10 @@
-# Force npm package manager
 {
-  "packageManager": "npm@10.0.0"
+  "name": "whatsapp-saas",
+  "version": "1.0.0",
+  "description": "WhatsApp SaaS Platform with Supabase and React",
+  "packageManager": "npm@10.0.0",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=10.0.0"
+  }
 }
