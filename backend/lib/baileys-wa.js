@@ -567,12 +567,12 @@ class BaileysWhatsAppManager {
       // Check if session is stuck and handle it
       if (client && client.status === 'connecting') {
         const timeSinceLastUpdate = Date.now() - client.lastUpdate;
-        if (timeSinceLastUpdate > 30000 && !client.qr) {
-          console.log(`🚨 Session ${sessionId} appears stuck, attempting refresh...`);
-          await this.handleStuckSession(sessionId);
-          // Wait a bit for refresh to complete
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          client = this.clients.get(sessionId);
+        if (timeSinceLastUpdate > 15000 && !client.qr) { // Reduced to 15 seconds
+          console.log(`🚨 Session ${sessionId} appears stuck, forcing QR generation...`);
+          const qrCode = await this.forceQRGeneration(sessionId);
+          if (qrCode) {
+            return qrCode;
+          }
         }
       }
 
@@ -872,27 +872,46 @@ class BaileysWhatsAppManager {
     }
   }
 
-  // Handle stuck sessions that never generate QR
-  async handleStuckSession(sessionId) {
+  // Force QR generation for stuck sessions
+  async forceQRGeneration(sessionId) {
     try {
-      const client = this.clients.get(sessionId);
-      if (!client) return false;
+      console.log(`🔄 Force generating QR for session: ${sessionId}`);
       
-      const timeSinceLastUpdate = Date.now() - client.lastUpdate;
+      // Clear existing client completely
+      this.clients.delete(sessionId);
       
-      // If session has been stuck for more than 30 seconds without QR
-      if (timeSinceLastUpdate > 30000 && !client.qr && client.status === 'connecting') {
-        console.log(`🚨 Session ${sessionId} is stuck, forcing refresh...`);
+      // Clear session data to force fresh connection
+      this.clearSessionData(sessionId);
+      
+      // Wait a moment
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Create new client
+      await this.createClient(sessionId);
+      
+      // Wait for QR generation
+      let attempts = 0;
+      const maxAttempts = 30; // 30 seconds
+      
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Force refresh
-        await this.forceRefreshQR(sessionId);
-        return true;
+        const client = this.clients.get(sessionId);
+        if (client && client.qr) {
+          console.log(`✅ QR generated successfully for ${sessionId}`);
+          return client.qr;
+        }
+        
+        attempts++;
+        console.log(`⏳ Waiting for QR generation... attempt ${attempts}/${maxAttempts}`);
       }
       
-      return false;
+      console.log(`❌ QR generation timeout for ${sessionId}`);
+      return null;
+      
     } catch (error) {
-      console.error(`❌ Error handling stuck session ${sessionId}:`, error);
-      return false;
+      console.error(`❌ Error force generating QR for ${sessionId}:`, error);
+      return null;
     }
   }
   

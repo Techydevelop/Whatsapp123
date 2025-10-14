@@ -2327,6 +2327,19 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
           .update({ qr: qrDataUrl, status: 'qr' })
             .eq('id', session.id);
         console.log(`✅ QR updated in database immediately`);
+      } else {
+        // If no QR after 2 seconds, try force generation
+        console.log(`🔄 No QR available, attempting force generation...`);
+        const forceQR = await waManager.forceQRGeneration(sessionName);
+        if (forceQR) {
+          console.log(`📱 Force QR generated, updating database...`);
+          const qrDataUrl = await qrcode.toDataURL(forceQR);
+          await supabaseAdmin
+            .from('sessions')
+            .update({ qr: qrDataUrl, status: 'qr' })
+            .eq('id', session.id);
+          console.log(`✅ Force QR updated in database`);
+        }
       }
         } catch (error) {
       console.error(`❌ Failed to create Baileys client:`, error);
