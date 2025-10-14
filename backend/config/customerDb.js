@@ -10,18 +10,36 @@ if (process.env.DATABASE_URL) {
     try {
         const url = new URL(process.env.DATABASE_URL);
         
-        // Force port 6543 for Supabase pooler (better IPv4 support)
-        // This helps with Render's IPv6 compatibility issues
-        const port = 6543; // Always use pooler port for Supabase
+        // Determine if we should use Supabase Pooler
+        // Pooler provides better IPv4 support for platforms like Render
+        let host = url.hostname;
+        let port = parseInt(url.port) || 5432;
         
-        console.log(`📊 Database connection: ${url.hostname}:${port} (Using Supabase Pooler)`);
+        // Check if this is a Supabase database
+        if (host.includes('supabase.co') && !host.includes('pooler')) {
+            // Extract project reference from hostname like: db.flvbcxokjmyffggdkxqy.supabase.co
+            const projectRef = host.split('.')[1];
+            
+            // Use environment variable for region or try to detect from hostname
+            const region = process.env.SUPABASE_REGION || 'eu-west-2'; // Default to eu-west-2
+            
+            // Construct pooler hostname
+            // Format: aws-0-[region].pooler.supabase.com
+            host = `aws-0-${region}.pooler.supabase.com`;
+            port = 6543; // Pooler uses port 6543 for transaction mode
+            
+            console.log(`✅ Using Supabase Pooler: ${host}:${port} (Region: ${region})`);
+            console.log(`💡 To specify region, set SUPABASE_REGION env variable`);
+        } else {
+            console.log(`📊 Database connection: ${host}:${port}`);
+        }
         
         // Use individual config parameters instead of connection string
         // This gives pg library more control over connection
         poolConfig = {
             user: url.username,
             password: decodeURIComponent(url.password),
-            host: url.hostname,
+            host: host,
             port: port,
             database: url.pathname.slice(1),
             ssl: { rejectUnauthorized: false },
