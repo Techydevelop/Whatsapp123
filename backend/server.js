@@ -2162,28 +2162,40 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     if (existing && existing.length > 0 && existing[0].status !== 'disconnected') {
       console.log(`📋 Found existing session: ${existing[0].id}, status: ${existing[0].status}`);
       
-      // If session exists but not connected, try to restore the client
-      if (existing[0].status === 'ready' || existing[0].status === 'qr') {
+      // If session exists and is already connected/ready, return it
+      if (existing[0].status === 'ready') {
         const cleanSubaccountId = existing[0].subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
         const sessionName = `location_${cleanSubaccountId}_${existing[0].id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
         
-        console.log(`🔄 Attempting to restore client for existing session: ${sessionName}`);
+        console.log(`✅ Session already ready: ${sessionName}`);
         
-        // Try to restore the client
-        try {
-          await waManager.createClient(sessionName);
-          console.log(`✅ Client restored for existing session: ${sessionName}`);
-        } catch (error) {
-          console.error(`❌ Failed to restore client for existing session:`, error);
-        }
+        return res.json({ 
+          status: existing[0].status, 
+          qr: existing[0].qr, 
+          phone_number: existing[0].phone_number,
+          session_id: existing[0].id
+        });
       }
       
-      return res.json({ 
-        status: existing[0].status, 
-        qr: existing[0].qr, 
-        phone_number: existing[0].phone_number,
-        session_id: existing[0].id
-      });
+      // If session exists but is in 'qr' or other state, clear it and create fresh
+      if (existing[0].status === 'qr' || existing[0].status === 'connecting' || existing[0].status === 'initializing') {
+        const cleanSubaccountId = existing[0].subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sessionName = `location_${cleanSubaccountId}_${existing[0].id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        
+        console.log(`🗑️ Clearing stale session data for: ${sessionName}`);
+        
+        // Clear old session data to force fresh QR generation
+        waManager.clearSessionData(sessionName);
+        
+        // Update status to disconnected
+        await supabaseAdmin
+          .from('sessions')
+          .update({ status: 'disconnected', qr: null })
+          .eq('id', existing[0].id);
+        
+        console.log(`✅ Stale session cleared, will create new one`);
+        // Continue to create new session below
+      }
     }
 
     // Create new session - let database generate UUID automatically
