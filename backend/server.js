@@ -308,17 +308,38 @@ app.use(helmet({
   }
 }));
 
+// CORS configuration - allow origins from env and common deploys
+const allowedOriginsFromEnv = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'https://whatsapp123-dhn1.onrender.com',
-    'https://whatsapp-saas-backend.onrender.com',
-    'https://whatsapp123-frontend.vercel.app',
-    'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
-    'https://whatsappghl.vercel.app',
-    'https://*.vercel.app',
-    'https://app.gohighlevel.com'
-  ],
+  origin: (origin, callback) => {
+    // Allow non-browser or same-origin requests
+    if (!origin) return callback(null, true);
+
+    const staticAllowed = [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:5173',
+      'https://whatsapp123-dhn1.onrender.com',
+      'https://whatsapp-saas-backend.onrender.com',
+      'https://whatsapp123-frontend.vercel.app',
+      'https://app.gohighlevel.com'
+    ];
+
+    const dynamicAllowed = new Set([...staticAllowed, ...allowedOriginsFromEnv]);
+
+    const isVercel = /https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin);
+    const isGHL = /https:\/\/.*\.gohighlevel\.com$/i.test(origin) || origin === 'https://app.gohighlevel.com';
+
+    if (dynamicAllowed.has(origin) || isVercel || isGHL) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
@@ -329,9 +350,7 @@ app.use((req, res, next) => {
   // Allow iframe embedding from GHL domains
   res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com https://app.gohighlevel.com https://*.gohighlevel.com");
   res.setHeader('X-Frame-Options', 'ALLOWALL');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+  // CORS headers are managed by cors() middleware above to support credentials
   next();
 });
 
@@ -339,7 +358,9 @@ app.use(express.json());
 
 // Handle preflight requests
 app.options('*', (req, res) => {
+  // Preflight response handled consistently with cors() configuration
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
   res.header('Access-Control-Allow-Credentials', 'true');
