@@ -6,7 +6,7 @@ const GHLClient = require('./lib/ghl');
 const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
-const { downloadContentFromMessage, downloadMediaMessage } = require('baileys');
+const { downloadContentFromMessage, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const axios = require('axios');
 
 const app = express();
