@@ -5,6 +5,8 @@ const { createClient } = require('@supabase/supabase-js');
 const GHLClient = require('./lib/ghl');
 const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
+const { processWhatsAppMedia } = require('./mediaHandler');
+const { downloadContentFromMessage, downloadMediaMessage } = require('baileys');
 const axios = require('axios');
 
 const app = express();
@@ -24,10 +26,10 @@ const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.w
 // Token refresh function
 async function refreshGHLToken(ghlAccount) {
   try {
-    console.log(`ðŸ”„ Refreshing token for GHL account: ${ghlAccount.id}`);
-    console.log(`ðŸ”‘ Using refresh token: ${ghlAccount.refresh_token ? 'Present' : 'Missing'}`);
-    console.log(`ðŸ”‘ Client ID: ${GHL_CLIENT_ID ? 'Present' : 'Missing'}`);
-    console.log(`ðŸ”‘ Client Secret: ${GHL_CLIENT_SECRET ? 'Present' : 'Missing'}`);
+    console.log(`🔄 Refreshing token for GHL account: ${ghlAccount.id}`);
+    console.log(`🔑 Using refresh token: ${ghlAccount.refresh_token ? 'Present' : 'Missing'}`);
+    console.log(`🔑 Client ID: ${GHL_CLIENT_ID ? 'Present' : 'Missing'}`);
+    console.log(`🔑 Client Secret: ${GHL_CLIENT_SECRET ? 'Present' : 'Missing'}`);
     
     if (!ghlAccount.refresh_token) {
       throw new Error('No refresh token available');
@@ -52,16 +54,16 @@ async function refreshGHLToken(ghlAccount) {
       body: formData.toString()
     });
 
-    console.log(`ðŸ“Š Token refresh response status: ${response.status}`);
+    console.log(`📊 Token refresh response status: ${response.status}`);
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`âŒ Token refresh failed: ${response.status} - ${errorText}`);
+      console.error(`❌ Token refresh failed: ${response.status} - ${errorText}`);
       throw new Error(`Token refresh failed: ${response.status} - ${errorText}`);
     }
 
     const tokenData = await response.json();
-    console.log(`âœ… Token refresh successful, expires in: ${tokenData.expires_in} seconds`);
+    console.log(`✅ Token refresh successful, expires in: ${tokenData.expires_in} seconds`);
     
     const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
     
@@ -77,24 +79,36 @@ async function refreshGHLToken(ghlAccount) {
       .eq('id', ghlAccount.id);
 
     if (error) {
-      console.error(`âŒ Database update failed:`, error);
+      console.error(`❌ Database update failed:`, error);
       throw new Error(`Database update failed: ${error.message}`);
     }
 
-    console.log(`âœ… Token refreshed and saved successfully for GHL account: ${ghlAccount.id}`);
+    console.log(`✅ Token refreshed and saved successfully for GHL account: ${ghlAccount.id}`);
     return tokenData.access_token;
     
   } catch (error) {
-    console.error(`âŒ Token refresh failed for GHL account ${ghlAccount.id}:`, error);
+    console.error(`❌ Token refresh failed for GHL account ${ghlAccount.id}:`, error);
     throw error;
   }
+}
+
+// Helper function for media message text
+function getMediaMessageText(messageType) {
+  const messages = {
+    'image': '🖼️ Image received',
+    'voice': '🎵 Voice note received',
+    'audio': '🎵 Audio file received',
+    'video': '🎥 Video received',
+    'document': '📄 Document received'
+  };
+  return messages[messageType] || '📎 Media received';
 }
 
 // Check and refresh token if needed
 async function ensureValidToken(ghlAccount, forceRefresh = false) {
   try {
     if (forceRefresh) {
-      console.log(`ðŸ”„ Force refreshing token for GHL account ${ghlAccount.id}`);
+      console.log(`🔄 Force refreshing token for GHL account ${ghlAccount.id}`);
       return await refreshGHLToken(ghlAccount);
     }
     
@@ -105,16 +119,16 @@ async function ensureValidToken(ghlAccount, forceRefresh = false) {
       const oneHourFromNow = new Date(now.getTime() + (60 * 60 * 1000));
       
       if (expiresAt <= oneHourFromNow) {
-        console.log(`ðŸ”„ Token expired or expiring soon for GHL account ${ghlAccount.id} (expires at: ${expiresAt.toISOString()})`);
+        console.log(`🔄 Token expired or expiring soon for GHL account ${ghlAccount.id} (expires at: ${expiresAt.toISOString()})`);
         return await refreshGHLToken(ghlAccount);
       }
     }
     
-    console.log(`âœ… Using valid token for GHL account ${ghlAccount.id} (expires: ${ghlAccount.token_expires_at})`);
+    console.log(`✅ Using valid token for GHL account ${ghlAccount.id} (expires: ${ghlAccount.token_expires_at})`);
     return ghlAccount.access_token;
   } catch (error) {
-    console.error(`âŒ Token validation failed for GHL account ${ghlAccount.id}:`, error);
-    console.error(`âŒ Falling back to stored token (may be expired)`);
+    console.error(`❌ Token validation failed for GHL account ${ghlAccount.id}:`, error);
+    console.error(`❌ Falling back to stored token (may be expired)`);
     return ghlAccount.access_token; // Return stored token even if expired, let GHL API handle the error
   }
 }
@@ -128,7 +142,7 @@ async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
     
     // If 401 and we haven't retried yet, refresh token and retry
     if (response.status === 401 && retryCount < MAX_RETRIES) {
-      console.log(`ðŸ”„ Got 401 error, refreshing token and retrying... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+      console.log(`🔄 Got 401 error, refreshing token and retrying... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
       
       // Refresh token
       const newToken = await refreshGHLToken(ghlAccount);
@@ -144,7 +158,7 @@ async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
         .single();
       
       if (updatedAccount) {
-        console.log(`âœ… Using refreshed token from database (expires: ${updatedAccount.token_expires_at})`);
+        console.log(`✅ Using refreshed token from database (expires: ${updatedAccount.token_expires_at})`);
       }
       
       // Retry the request
@@ -153,7 +167,7 @@ async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
     
     return response;
   } catch (error) {
-    console.error(`âŒ Request failed:`, error);
+    console.error(`❌ Request failed:`, error);
     throw error;
   }
 }
@@ -164,7 +178,7 @@ const waManager = new BaileysWhatsAppManager();
 // Scheduled token refresh (every 6 hours - more frequent for 24-hour tokens)
 setInterval(async () => {
   try {
-    console.log('ðŸ”„ Running scheduled token refresh...');
+    console.log('🔄 Running scheduled token refresh...');
     
     const { data: ghlAccounts } = await supabaseAdmin
       .from('ghl_accounts')
@@ -172,31 +186,31 @@ setInterval(async () => {
       .not('refresh_token', 'is', null);
 
     if (!ghlAccounts || ghlAccounts.length === 0) {
-      console.log('ðŸ“‹ No GHL accounts found for token refresh');
+      console.log('📋 No GHL accounts found for token refresh');
       return;
     }
 
-    console.log(`ðŸ“‹ Found ${ghlAccounts.length} GHL accounts to check for token refresh`);
+    console.log(`📋 Found ${ghlAccounts.length} GHL accounts to check for token refresh`);
 
     for (const account of ghlAccounts) {
       try {
         await ensureValidToken(account);
-        console.log(`âœ… Token check completed for GHL account: ${account.id}`);
+        console.log(`✅ Token check completed for GHL account: ${account.id}`);
       } catch (error) {
-        console.error(`âŒ Token refresh failed for GHL account ${account.id}:`, error);
+        console.error(`❌ Token refresh failed for GHL account ${account.id}:`, error);
       }
     }
     
-    console.log('âœ… Scheduled token refresh completed');
+    console.log('✅ Scheduled token refresh completed');
   } catch (error) {
-    console.error('âŒ Scheduled token refresh error:', error);
+    console.error('❌ Scheduled token refresh error:', error);
   }
 }, 6 * 60 * 60 * 1000); // Every 6 hours
 
 // Additional aggressive token refresh (every 2 hours for critical accounts)
 setInterval(async () => {
   try {
-    console.log('ðŸ”„ Running aggressive token refresh...');
+    console.log('🔄 Running aggressive token refresh...');
     
     const { data: ghlAccounts } = await supabaseAdmin
       .from('ghl_accounts')
@@ -215,22 +229,22 @@ setInterval(async () => {
         const eightHoursFromNow = new Date(now.getTime() + (8 * 60 * 60 * 1000));
         
         if (expiresAt <= eightHoursFromNow) {
-          console.log(`ðŸ”„ Aggressive refresh for account ${account.id} (expires in ${Math.round((expiresAt - now) / (60 * 60 * 1000))} hours)`);
+          console.log(`🔄 Aggressive refresh for account ${account.id} (expires in ${Math.round((expiresAt - now) / (60 * 60 * 1000))} hours)`);
           await refreshGHLToken(account);
         }
       } catch (error) {
-        console.error(`âŒ Aggressive token refresh failed for GHL account ${account.id}:`, error);
+        console.error(`❌ Aggressive token refresh failed for GHL account ${account.id}:`, error);
       }
     }
   } catch (error) {
-    console.error('âŒ Aggressive token refresh error:', error);
+    console.error('❌ Aggressive token refresh error:', error);
   }
 }, 2 * 60 * 60 * 1000); // Every 2 hours
 
 // Restore WhatsApp clients from database on startup
 async function restoreWhatsAppClients() {
   try {
-    console.log('ðŸ”„ Restoring WhatsApp clients from database...');
+    console.log('🔄 Restoring WhatsApp clients from database...');
     
     const { data: sessions, error } = await supabaseAdmin
       .from('sessions')
@@ -239,41 +253,41 @@ async function restoreWhatsAppClients() {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('âŒ Error fetching sessions:', error);
+      console.error('❌ Error fetching sessions:', error);
       return;
     }
 
     if (!sessions || sessions.length === 0) {
-      console.log('ðŸ“‹ No active WhatsApp sessions found in database');
+      console.log('📋 No active WhatsApp sessions found in database');
       return;
     }
 
-    console.log(`ðŸ“‹ Found ${sessions.length} active sessions to restore`);
+    console.log(`📋 Found ${sessions.length} active sessions to restore`);
 
     for (const session of sessions) {
       try {
         const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
         const sessionName = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
         
-        console.log(`ðŸ”„ Restoring client for session: ${sessionName}`);
+        console.log(`🔄 Restoring client for session: ${sessionName}`);
         await waManager.createClient(sessionName);
         
         // Wait a bit for client to initialize
         await new Promise(resolve => setTimeout(resolve, 2000));
         
         const status = waManager.getClientStatus(sessionName);
-        console.log(`ðŸ“Š Client status for ${sessionName}:`, status?.status);
+        console.log(`📊 Client status for ${sessionName}:`, status?.status);
         
       } catch (error) {
-        console.error(`âŒ Error restoring client for session ${session.id}:`, error);
+        console.error(`❌ Error restoring client for session ${session.id}:`, error);
       }
     }
 
-    console.log('âœ… WhatsApp client restoration completed');
-    console.log('ðŸ“Š Active clients:', waManager.getAllClients().map(c => c.sessionId));
+    console.log('✅ WhatsApp client restoration completed');
+    console.log('📊 Active clients:', waManager.getAllClients().map(c => c.sessionId));
     
   } catch (error) {
-    console.error('âŒ Error in client restoration:', error);
+    console.error('❌ Error in client restoration:', error);
   }
 }
 
@@ -358,6 +372,11 @@ const requireAuth = async (req, res, next) => {
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Simple webhook test
+app.get('/whatsapp/webhook', (req, res) => {
+  res.json({ status: 'WhatsApp webhook endpoint is working', timestamp: new Date().toISOString() });
 });
 
 // GHL OAuth Routes
@@ -454,8 +473,8 @@ app.get('/oauth/callback', async (req, res) => {
       });
 
     if (ghlError) {
-      console.error('âŒ Error storing GHL account:', ghlError);
-      console.error('âŒ Error details:', {
+      console.error('❌ Error storing GHL account:', ghlError);
+      console.error('❌ Error details:', {
         message: ghlError.message,
         code: ghlError.code,
         details: ghlError.details,
@@ -591,7 +610,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     // Check if this is a duplicate message (prevent echo)
     const messageKey = `${locationId}_${contactId}_${message}_${Date.now()}`;
     if (global.messageCache && global.messageCache.has(messageKey)) {
-      console.log(`ðŸš« Duplicate message detected, ignoring: ${messageKey}`);
+      console.log(`🚫 Duplicate message detected, ignoring: ${messageKey}`);
       return res.json({ success: true, status: 'duplicate_ignored' });
     }
     
@@ -632,9 +651,9 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     // Ensure valid token (auto-refresh if needed)
     try {
       const validToken = await ensureValidToken(ghlAccount);
-      console.log(`âœ… Token validated for GHL account: ${ghlAccount.id}`);
+      console.log(`✅ Token validated for GHL account: ${ghlAccount.id}`);
   } catch (error) {
-      console.error(`âŒ Token validation failed for GHL account ${ghlAccount.id}:`, error);
+      console.error(`❌ Token validation failed for GHL account ${ghlAccount.id}:`, error);
       return res.json({ status: 'error', message: 'Token validation failed' });
     }
 
@@ -657,30 +676,34 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
-    console.log(`ðŸ” Looking for client with key: ${clientKey}`);
+    console.log(`🔍 Looking for client with key: ${clientKey}`);
     const clientStatus = waManager.getClientStatus(clientKey);
     
-    // Allow messages if client is connected, ready, or qr_ready (in case of status sync issues)
-    if (!clientStatus || (clientStatus.status !== 'connected' && clientStatus.status !== 'ready' && clientStatus.status !== 'qr_ready')) {
-      console.log(`âŒ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
-      console.log(`ðŸ“‹ Available clients:`, waManager.getAllClients().map(c => c.sessionId));
+    if (!clientStatus || (clientStatus.status !== 'connected' && clientStatus.status !== 'ready')) {
+      console.log(`❌ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
+      console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
+      
+      // If client is in qr_ready status, provide helpful message
+      if (clientStatus && clientStatus.status === 'qr_ready') {
+        return res.json({ 
+          status: 'error', 
+          message: 'WhatsApp client QR code ready - please scan to connect',
+          clientStatus: clientStatus.status,
+          suggestion: 'Please scan the QR code in the dashboard to connect WhatsApp'
+        });
+      }
       
       return res.json({ 
         status: 'error', 
-        message: `WhatsApp client not ready - status: ${clientStatus?.status || 'not found'}`,
-        clientStatus: clientStatus?.status,
-        suggestion: 'Please check WhatsApp connection in dashboard'
+        message: 'WhatsApp client not connected',
+        clientStatus: clientStatus?.status || 'not found',
+        suggestion: 'Please reconnect WhatsApp'
       });
-    }
-    
-    // Log when client is ready for messages
-    if (clientStatus.status === 'ready') {
-      console.log(`âœ… Client is ready for messages: ${clientKey}`);
     }
     
     // If client is in ready status, it's connected and can send messages
     if (clientStatus && clientStatus.status === 'ready') {
-      console.log(`âœ… Client in ready status, sending message...`);
+      console.log(`✅ Client in ready status, sending message...`);
     }
     
     // Get phone number from webhook data
@@ -690,12 +713,12 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    console.log(`ðŸ“± Sending message to phone: ${phoneNumber}`);
+    console.log(`📱 Sending message to phone: ${phoneNumber}`);
     
     // Check if this message was just received from WhatsApp (prevent echo)
     const recentMessageKey = `whatsapp_${phoneNumber}_${message}`;
     if (global.recentMessages && global.recentMessages.has(recentMessageKey)) {
-      console.log(`ðŸš« Message echo detected, not sending back to WhatsApp: ${message}`);
+      console.log(`🚫 Message echo detected, not sending back to WhatsApp: ${message}`);
       return res.json({ status: 'success', reason: 'echo_prevented' });
     }
     
@@ -709,19 +732,19 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         const recentContent = key.split('_').slice(2).join('_').toLowerCase().trim();
         if (recentContent === messageContent) {
           isRecentEcho = true;
-          console.log(`ðŸš« Echo detected: ${message} from ${phoneNumber}`);
+          console.log(`🚫 Echo detected: ${message} from ${phoneNumber}`);
           break;
         }
       }
     }
     
     if (isRecentEcho) {
-      console.log(`ðŸš« Blocking echo message: ${message}`);
+      console.log(`🚫 Blocking echo message: ${message}`);
       return res.json({ status: 'success', reason: 'echo_prevented' });
     }
     
     
-    console.log(`ðŸ“± Sending message to phone: ${phoneNumber} (from GHL webhook)`);
+    console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
     // Send message using Baileys
     try {
@@ -742,7 +765,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
           mediaType = 'document';
         }
         
-        console.log(`ðŸ“Ž Sending ${mediaType} with URL: ${mediaUrl}`);
+        console.log(`📎 Sending ${mediaType} with URL: ${mediaUrl}`);
         sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '', mediaType, mediaUrl);
       } else {
         // Send text message
@@ -751,14 +774,14 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       
       // Check if message was skipped (no WhatsApp)
       if (sendResult && sendResult.status === 'skipped') {
-        console.warn(`âš ï¸ Message skipped: ${sendResult.reason} for ${phoneNumber}`);
+        console.warn(`⚠️ Message skipped: ${sendResult.reason} for ${phoneNumber}`);
         
         // Send notification message back to GHL conversation
         try {
           const notificationPayload = {
             type: "WhatsApp",
             contactId: contactId,
-            message: `âš ï¸ Message delivery failed\n\nâŒ ${phoneNumber} does not have WhatsApp\n\nðŸ’¡ Please verify the phone number or use another contact method.`,
+            message: `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`,
             direction: "inbound",
             status: "delivered",
             altId: `failed_${Date.now()}`
@@ -776,10 +799,10 @@ app.post('/ghl/provider/webhook', async (req, res) => {
           }, ghlAccount);
           
           if (notificationRes.ok) {
-            console.log(`âœ… Failure notification sent to GHL conversation`);
+            console.log(`✅ Failure notification sent to GHL conversation`);
           }
         } catch (notifError) {
-          console.error(`âŒ Failed to send notification to GHL:`, notifError.message);
+          console.error(`❌ Failed to send notification to GHL:`, notifError.message);
         }
         
         return res.json({ 
@@ -790,16 +813,16 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         });
       }
       
-      console.log('âœ… Message sent successfully via Baileys');
+      console.log('✅ Message sent successfully via Baileys');
     } catch (sendError) {
-      console.error('âŒ Error sending message via Baileys:', sendError.message);
+      console.error('❌ Error sending message via Baileys:', sendError.message);
       
       // Send error notification to GHL conversation
       try {
         const errorPayload = {
           type: "WhatsApp",
           contactId: contactId,
-          message: `âš ï¸ Message delivery failed\n\nâŒ Error: ${sendError.message}\n\nðŸ’¡ Please check the phone number and try again.`,
+          message: `⚠️ Message delivery failed\n\n❌ Error: ${sendError.message}\n\n💡 Please check the phone number and try again.`,
           direction: "inbound",
           status: "delivered",
           altId: `error_${Date.now()}`
@@ -817,10 +840,10 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         }, ghlAccount);
         
         if (errorRes.ok) {
-          console.log(`âœ… Error notification sent to GHL conversation`);
+          console.log(`✅ Error notification sent to GHL conversation`);
         }
       } catch (notifError) {
-        console.error(`âŒ Failed to send error notification to GHL:`, notifError.message);
+        console.error(`❌ Failed to send error notification to GHL:`, notifError.message);
       }
       
       return res.json({ 
@@ -852,11 +875,11 @@ const HEADERS = {
 function validateEnvironment() {
   // Only check for GHL_PROVIDER_ID, others are optional
   if (!process.env.GHL_PROVIDER_ID) {
-    console.log('âš ï¸ GHL_PROVIDER_ID not set - will use fallback provider ID');
+    console.log('⚠️ GHL_PROVIDER_ID not set - will use fallback provider ID');
     return false;
   }
   
-  console.log('âœ… GHL_PROVIDER_ID found');
+  console.log('✅ GHL_PROVIDER_ID found');
   return true;
 }
 
@@ -865,59 +888,121 @@ function getProviderId() {
   return process.env.GHL_PROVIDER_ID || null;
 }
 
-// WhatsApp inbound webhook - TEXT MESSAGES ONLY
+// WhatsApp message receiver webhook (for incoming WhatsApp messages)
 app.post('/whatsapp/webhook', async (req, res) => {
   try {
     console.log('📨 Received WhatsApp message:', req.body);
+    console.log('📨 Webhook headers:', req.headers);
+    console.log('📨 Webhook timestamp:', new Date().toISOString());
     
-    const { from, message, sessionId, whatsappMsgId } = req.body;
+    const { from, message, messageType = 'text', mediaUrl, mediaMessage, timestamp: messageTimestamp, sessionId, whatsappMsgId } = req.body;
     
-    // Validation
-    if (!from || !message) {
-      console.log('Missing required fields in WhatsApp webhook');
+    if (!from) {
+      console.log('Missing required field "from" in WhatsApp webhook');
       return res.json({ status: 'success' });
     }
     
-    // Get phone number
-    const waNumber = from.replace('@s.whatsapp.net', '');
-    const phone = "+" + waNumber;
+    // Allow empty message for media messages
+    if (!message && !mediaUrl && !mediaMessage) {
+      console.log('Missing message content in WhatsApp webhook');
+      return res.json({ status: 'success' });
+    }
     
-    // Find GHL account from session
+    // Deterministic mapping: phone → locationId → providerId → location_api_key
+    const waNumber = from.replace('@s.whatsapp.net', '');
+    const phone = "+" + waNumber; // E.164 format
+    
+    // Get GHL account from session or use first available
     let ghlAccount = null;
     if (sessionId) {
+      console.log(`🔍 Looking for session: ${sessionId}`);
+      
       const { data: session } = await supabaseAdmin
-        .from('sessions')
+            .from('sessions')
         .select('*, ghl_accounts(*)')
         .eq('id', sessionId)
         .maybeSingle();
       
+      console.log(`📋 Session found:`, session ? 'Yes' : 'No');
+      
       if (session && session.ghl_accounts) {
         ghlAccount = session.ghl_accounts;
+        console.log(`✅ Using GHL account from session: ${ghlAccount.id}`);
+      } else {
+        console.log(`⚠️ Session found but no GHL account linked`);
       }
     }
     
-    // Fallback to any account
+    // Fallback: Try to find GHL account by session ID pattern
+    if (!ghlAccount && sessionId) {
+      console.log(`🔄 Trying to find GHL account by session ID pattern`);
+      
+      // Extract subaccount ID from session ID (location_xxx_yyy format)
+      const sessionParts = sessionId.split('_');
+      if (sessionParts.length >= 2) {
+        const subaccountId = sessionParts[1]; // location_XXX_yyy -> XXX
+        console.log(`🔍 Extracted subaccount ID: ${subaccountId}`);
+        
+        const { data: accountBySubaccount } = await supabaseAdmin
+          .from('ghl_accounts')
+          .select('*')
+          .eq('id', subaccountId)
+          .maybeSingle();
+        
+        if (accountBySubaccount) {
+          ghlAccount = accountBySubaccount;
+          console.log(`✅ Found GHL account by subaccount ID: ${ghlAccount.id}`);
+        }
+      }
+    }
+    
+    // Final fallback to any GHL account if still not found
     if (!ghlAccount) {
+      console.log(`🔄 Final fallback to any available GHL account`);
+      
       const { data: anyAccount } = await supabaseAdmin
-        .from('ghl_accounts')
-        .select('*')
+      .from('ghl_accounts')
+      .select('*')
         .limit(1)
         .maybeSingle();
       
       if (anyAccount) {
         ghlAccount = anyAccount;
+        console.log(`✅ Using final fallback GHL account: ${ghlAccount.id}`);
       }
     }
     
     if (!ghlAccount) {
-      console.log(`❌ No GHL account found`);
+      console.log(`❌ No GHL account found for message from: ${from}`);
       return res.json({ status: 'success' });
     }
     
     const locationId = ghlAccount.location_id;
+    
+    // Use account's conversation provider ID (more reliable)
+    let providerId = ghlAccount.conversation_provider_id;
+    if (!providerId) {
+      // Fallback to environment provider ID
+      providerId = getProviderId();
+      if (!providerId) {
+        console.error('❌ No conversation provider ID found');
+        return res.json({ status: 'error', message: 'Provider ID not available' });
+      }
+    }
+    
+    console.log(`🔑 Provider ID being used: ${providerId}`);
+    console.log(`🔑 Account conversation provider ID: ${ghlAccount.conversation_provider_id}`);
+    console.log(`🔑 Environment provider ID: ${getProviderId()}`);
+    
+    console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
+    console.log(`📨 Raw message from WhatsApp:`, JSON.stringify(req.body, null, 2));
+    console.log(`💬 Extracted message text:`, `"${message}"`);
+    console.log(`🔍 Message type:`, typeof message);
+    
+    // Get valid token for this GHL account
     const validToken = await ensureValidToken(ghlAccount);
     
-    // Create/update contact
+    // Upsert contact (same location)
     let contactId = null;
     try {
       const contactRes = await makeGHLRequest(`${BASE}/contacts/`, {
@@ -937,34 +1022,212 @@ app.post('/whatsapp/webhook', async (req, res) => {
       if (contactRes.ok) {
         const contactData = await contactRes.json();
         contactId = contactData.contact?.id;
+        console.log(`✅ Contact upserted: ${contactId}`);
       } else {
         const errorText = await contactRes.text();
+        console.error(`❌ Failed to upsert contact:`, errorText);
+        
+        // Try to extract contactId from error if it's a duplicate contact error
         try {
           const errorJson = JSON.parse(errorText);
           if (errorJson.meta && errorJson.meta.contactId) {
             contactId = errorJson.meta.contactId;
+            console.log(`📝 Using contact ID from error message: ${contactId}`);
           }
-        } catch (e) {}
+        } catch (parseError) {
+          console.error(`❌ Could not parse error response:`, parseError);
+        }
       }
     } catch (contactError) {
       console.error(`❌ Error upserting contact:`, contactError);
     }
     
     if (!contactId) {
-      console.log(`❌ No contact ID available`);
+      console.log(`❌ No contact ID available, cannot forward message to GHL`);
       return res.json({ status: 'success' });
     }
     
-    // Send TEXT message to GHL
+    // Add INBOUND message (Custom provider)
     try {
-      const payload = {
-        type: "WhatsApp",
-        contactId: contactId,
-        message: message,
-        direction: "inbound",
-        status: "delivered",
-        altId: whatsappMsgId || `wa_${Date.now()}`
-      };
+        let attachments = [];
+        
+        let finalMessage = message || "—";
+        
+        // If this is a media message, process and upload to GHL
+        if (mediaUrl && (messageType === 'image' || messageType === 'voice' || messageType === 'video' || messageType === 'audio')) {
+          console.log(`📎 Processing media message: ${messageType}`);
+          
+          try {
+            // Get GHL access token
+            const accessToken = await ensureValidToken(ghlAccount);
+            
+            let mediaBuffer;
+            
+            // Check if this is encrypted media that needs decryption
+            if (mediaUrl === 'ENCRYPTED_MEDIA' && mediaMessage) {
+              console.log(`🔓 Decrypting encrypted media with Baileys...`);
+              
+              // Get the WhatsApp client for this session
+              const client = waManager.getClient(sessionId);
+              if (!client || !client.socket) {
+                throw new Error('WhatsApp client not available for decryption');
+              }
+              
+              // Decrypt the media using Baileys
+              try {
+                // Try downloadContentFromMessage first (newer method)
+                console.log(`🔄 Trying downloadContentFromMessage...`);
+                const stream = await downloadContentFromMessage(mediaMessage, messageType);
+                const chunks = [];
+                for await (const chunk of stream) {
+                  chunks.push(chunk);
+                }
+                mediaBuffer = Buffer.concat(chunks);
+                console.log(`✅ Decrypted ${mediaBuffer.length} bytes using downloadContentFromMessage`);
+              } catch (downloadError) {
+                console.error(`❌ downloadContentFromMessage failed:`, downloadError.message);
+                
+                // Fallback to downloadMediaMessage
+                console.log(`🔄 Trying fallback method downloadMediaMessage...`);
+                try {
+                  mediaBuffer = await downloadMediaMessage(
+                    mediaMessage,
+                    'buffer',
+                    {},
+                    {
+                      logger: console,
+                      reuploadRequest: client.socket.updateMediaMessage
+                    }
+                  );
+                  console.log(`✅ Decrypted ${mediaBuffer.length} bytes using downloadMediaMessage fallback`);
+                } catch (decryptError) {
+                  console.error(`❌ Media decryption failed:`, decryptError.message);
+                  
+                  // Try alternative approach - use the URL directly
+                if (mediaMessage.message.audioMessage?.url) {
+                  console.log(`🔄 Trying direct URL download as fallback...`);
+                  const response = await fetch(mediaMessage.message.audioMessage.url);
+                  if (response.ok) {
+                    mediaBuffer = Buffer.from(await response.arrayBuffer());
+                    console.log(`✅ Downloaded ${mediaBuffer.length} bytes via direct URL`);
+                  } else {
+                    throw new Error('Direct URL download also failed');
+                  }
+                } else {
+                  throw decryptError;
+                }
+                }
+              }
+              
+            } else if (mediaUrl && mediaUrl.includes('.enc')) {
+              console.log(`🔓 Detected encrypted URL, trying direct download...`);
+              // Try direct download first
+              const response = await fetch(mediaUrl);
+              if (response.ok) {
+                mediaBuffer = Buffer.from(await response.arrayBuffer());
+                console.log(`✅ Downloaded ${mediaBuffer.length} bytes`);
+      } else {
+                throw new Error('Failed to download encrypted media');
+              }
+            } else {
+              // Regular URL download
+              const response = await fetch(mediaUrl);
+              if (response.ok) {
+                mediaBuffer = Buffer.from(await response.arrayBuffer());
+                console.log(`✅ Downloaded ${mediaBuffer.length} bytes`);
+              } else {
+                throw new Error('Failed to download media');
+              }
+            }
+            
+            // Try to upload to GHL media library
+            try {
+              const { uploadMediaToGHL } = require('./mediaHandler');
+              const ghlResponse = await uploadMediaToGHL(
+                mediaBuffer,
+                messageType,
+                contactId,
+                validToken,
+                locationId
+              );
+              
+              console.log(`✅ Media uploaded to GHL successfully:`, ghlResponse);
+              
+              // For successful upload, we don't need to send another message
+              return res.json({ 
+                status: 'success', 
+                message: 'Media uploaded successfully',
+                ghlResponse: ghlResponse
+              });
+              
+            } catch (uploadError) {
+              console.error(`❌ GHL media upload failed (trying direct URL method):`, uploadError.message);
+              
+              // Fallback: Send message with media URL as attachment
+              if (mediaUrl && !mediaUrl.includes('ENCRYPTED')) {
+                console.log(`🔄 Sending media URL as attachment instead...`);
+                
+                const payload = {
+                  type: "WhatsApp",
+                  contactId: contactId,
+                  message: `${getMediaMessageText(messageType)}\n\nMedia URL: ${mediaUrl}`,
+                  direction: "inbound",
+                  status: "delivered",
+                  altId: whatsappMsgId,
+                  attachments: [mediaUrl]  // Send URL directly as attachment
+                };
+                
+                const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${validToken}`,
+                    Version: "2021-07-28",
+                    "Content-Type": "application/json"
+                  },
+                  body: JSON.stringify(payload)
+                }, ghlAccount);
+                
+                if (inboundRes.ok) {
+                  console.log(`✅ Media URL sent as attachment to GHL`);
+                  return res.json({ 
+                    status: 'success', 
+                    message: 'Media sent as URL attachment' 
+                  });
+                }
+              }
+              
+              // If all fails, fall through to text notification
+              throw uploadError;
+            }
+            
+          } catch (error) {
+            console.error(`❌ Media processing failed:`, error.message);
+            
+            // Fallback: Send text notification
+            finalMessage = `📎 ${getMediaMessageText(messageType)}\n\n⚠️ Media could not be processed. Please check WhatsApp directly.`;
+          }
+        }
+        
+        const payload = {
+          type: "WhatsApp",
+          contactId: contactId,
+          message: finalMessage,
+          direction: "inbound",
+          status: "delivered",
+          altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
+        };
+        
+        // Only add attachments if we have them
+        if (attachments.length > 0) {
+          payload.attachments = attachments;
+        }
+      
+      console.log(`📤 Sending to GHL:`, JSON.stringify(payload, null, 2));
+      console.log(`🔑 Using Provider ID:`, providerId);
+      console.log(`👤 Using Contact ID:`, contactId);
+      console.log(`💬 Message Content:`, `"${message}"`);
+      console.log(`📏 Message Length:`, message.length);
+      console.log(`📎 Attachments Count:`, attachments.length);
       
       const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
         method: 'POST',
@@ -977,14 +1240,59 @@ app.post('/whatsapp/webhook', async (req, res) => {
       }, ghlAccount);
       
       if (inboundRes.ok) {
-        console.log(`✅ Text message sent to GHL`);
+        const responseData = await inboundRes.json();
+        console.log(`✅ Inbound message added to GHL conversation for contact: ${contactId}`);
+        console.log(`📊 GHL Response:`, JSON.stringify(responseData, null, 2));
+        console.log(`📊 Response Status:`, inboundRes.status);
+        console.log(`📊 Response Headers:`, Object.fromEntries(inboundRes.headers.entries()));
+        
+        // Check if message was actually created
+        if (responseData.messageId) {
+          console.log(`📝 Message ID created: ${responseData.messageId}`);
+          console.log(`💬 Message should be visible in GHL with content: "${message}"`);
+          
+          // Try to fetch the message back to verify it was created
+          try {
+            const verifyRes = await makeGHLRequest(`${BASE}/conversations/${responseData.conversationId}/messages/${responseData.messageId}`, {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${validToken}`,
+                Version: "2021-07-28",
+                "Content-Type": "application/json"
+              }
+            }, ghlAccount);
+            
+            if (verifyRes.ok) {
+              const verifyData = await verifyRes.json();
+              console.log(`🔍 Message verification:`, JSON.stringify(verifyData, null, 2));
+            } else {
+              console.log(`⚠️ Could not verify message: ${verifyRes.status}`);
+            }
+          } catch (verifyError) {
+            console.log(`⚠️ Message verification failed:`, verifyError.message);
+          }
+        }
+        
+        // Track this message to prevent echo
+        if (!global.recentInboundMessages) {
+          global.recentInboundMessages = new Set();
+        }
+        const messageKey = `${contactId}_${message}`;
+        global.recentInboundMessages.add(messageKey);
+        setTimeout(() => {
+          global.recentInboundMessages.delete(messageKey);
+        }, 10000); // 10 seconds
       } else {
         const errorText = await inboundRes.text();
-        console.error(`❌ Failed to send to GHL:`, errorText);
+        console.error(`❌ Failed to add inbound message to GHL:`, errorText);
+        console.error(`📊 Status Code:`, inboundRes.status);
+        console.error(`📊 Headers:`, Object.fromEntries(inboundRes.headers.entries()));
       }
-    } catch (error) {
-      console.error(`❌ Error sending to GHL:`, error);
+    } catch (inboundError) {
+      console.error(`❌ Error adding inbound message to GHL:`, inboundError);
     }
+    
+    // IMPORTANT: Yahan WhatsApp ko kuch wapas send na karein (no echo)
     
     res.json({ status: 'success' });
   } catch (error) {
@@ -1050,7 +1358,7 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
     }
     
     if (!ghlAccount) {
-      console.log(`âŒ No GHL account found for outbound message`);
+      console.log(`❌ No GHL account found for outbound message`);
       return res.sendStatus(200);
     }
     
@@ -1074,11 +1382,11 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
         console.log(`📱 Found phone for contact ${contactId}: ${phone}`);
       }
     } catch (contactError) {
-      console.error(`âŒ Error looking up contact:`, contactError);
+      console.error(`❌ Error looking up contact:`, contactError);
     }
     
     if (!phone) {
-      console.log(`âŒ No phone found for contact: ${contactId}`);
+      console.log(`❌ No phone found for contact: ${contactId}`);
       return res.sendStatus(200);
     }
     
@@ -1098,7 +1406,7 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
         .maybeSingle();
 
       if (!session) {
-        console.log(`âŒ No active WhatsApp session found for location: ${ghlAccount.location_id}`);
+        console.log(`❌ No active WhatsApp session found for location: ${ghlAccount.location_id}`);
         return res.sendStatus(200);
       }
 
@@ -1106,19 +1414,19 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
       const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
       const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       
-      console.log(`ðŸ” Looking for client with key: ${clientKey}`);
+      console.log(`🔍 Looking for client with key: ${clientKey}`);
       const clientStatus = waManager.getClientStatus(clientKey);
       
       if (clientStatus && clientStatus.status === 'connected') {
-        console.log(`âœ… Sending WhatsApp message to ${waJid}: ${text}`);
+        console.log(`✅ Sending WhatsApp message to ${waJid}: ${text}`);
         await waManager.sendMessage(clientKey, waNumber, text, 'text', null);
-        console.log(`âœ… Message sent to WhatsApp: ${waJid}`);
+        console.log(`✅ Message sent to WhatsApp: ${waJid}`);
       } else {
-        console.log(`âŒ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
-        console.log(`ðŸ“‹ Available clients:`, waManager.getAllClients().map(c => c.sessionId));
+        console.log(`❌ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
+        console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
       }
     } catch (waError) {
-      console.error(`âŒ Error sending WhatsApp message:`, waError);
+      console.error(`❌ Error sending WhatsApp message:`, waError);
     }
     
     res.sendStatus(200);
@@ -1163,7 +1471,7 @@ app.post('/ghl/provider/send', async (req, res) => {
     const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
-    console.log(`ðŸ” Looking for WhatsApp client with key: ${clientKey}`);
+    console.log(`🔍 Looking for WhatsApp client with key: ${clientKey}`);
     const clientStatus = waManager.getClientStatus(clientKey);
     
     if (clientStatus && (clientStatus.status === 'connected' || clientStatus.status === 'connecting')) {
@@ -1171,15 +1479,15 @@ app.post('/ghl/provider/send', async (req, res) => {
       const msgType = messageType || 'text';
       const media = mediaUrl || null;
       
-      console.log(`âœ… Sending WhatsApp ${msgType} to ${to}: ${messageText}`);
+      console.log(`✅ Sending WhatsApp ${msgType} to ${to}: ${messageText}`);
       if (media) {
-        console.log(`ðŸ“Ž Media URL: ${media}`);
+        console.log(`📎 Media URL: ${media}`);
       }
       await waManager.sendMessage(clientKey, to, messageText, msgType, media);
       res.json({ status: 'success', messageId: Date.now().toString() });
     } else {
-      console.error(`âŒ WhatsApp client not found or not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
-      console.log(`ðŸ“‹ Available clients:`, waManager.getAllClients().map(c => c.sessionId));
+      console.error(`❌ WhatsApp client not found or not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
+      console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
       res.status(500).json({ 
         error: 'WhatsApp client not available', 
         status: clientStatus?.status || 'not found',
@@ -1261,12 +1569,12 @@ app.get('/ghl/provider', async (req, res) => {
       return res.status(400).send(`
       <html>
           <body style="font-family: Arial, sans-serif; padding: 20px; text-align: center;">
-            <h2>âš ï¸ Setup Required</h2>
+            <h2>⚠️ Setup Required</h2>
             <p>Please add your Location ID to the custom menu link:</p>
             <code style="background: #f0f0f0; padding: 10px; border-radius: 5px;">
               ${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/ghl/provider?locationId=YOUR_LOCATION_ID
             </code>
-            <p>Find your Location ID in GHL Settings â†’ General â†’ Location ID</p>
+            <p>Find your Location ID in GHL Settings → General → Location ID</p>
           </body>
         </html>
       `);
@@ -1488,7 +1796,7 @@ app.get('/ghl/provider', async (req, res) => {
           <div class="container">
             <div class="card">
               <div class="header">
-                <div class="logo">ðŸ“±</div>
+                <div class="logo">📱</div>
                 <h1 class="title">WhatsApp SMS Provider</h1>
                 <p class="subtitle">Connect your WhatsApp to GoHighLevel</p>
               </div>
@@ -1522,10 +1830,10 @@ app.get('/ghl/provider', async (req, res) => {
               </div>
 
               <div class="instructions">
-                <h3>ðŸ“‹ How to Connect:</h3>
+                <h3>📋 How to Connect:</h3>
                 <ol>
                   <li><strong>Open WhatsApp</strong> on your phone</li>
-                  <li><strong>Tap Menu</strong> (three dots) â†’ <strong>Linked Devices</strong></li>
+                  <li><strong>Tap Menu</strong> (three dots) → <strong>Linked Devices</strong></li>
                   <li><strong>Tap "Link a Device"</strong></li>
                   <li><strong>Scan the QR code</strong> above with your phone</li>
                   <li><strong>Wait for "Connected"</strong> status</li>
@@ -1534,9 +1842,9 @@ app.get('/ghl/provider', async (req, res) => {
               </div>
 
               <div class="button-group">
-                <button id="reset" class="btn-secondary">ðŸ”„ Reset QR</button>
-                <button id="refresh" class="btn-primary">ðŸ”„ Refresh Status</button>
-                <button id="close" class="btn-success" style="display: none;">âœ… Close</button>
+                <button id="reset" class="btn-secondary">🔄 Reset QR</button>
+                <button id="refresh" class="btn-primary">🔄 Refresh Status</button>
+                <button id="close" class="btn-success" style="display: none;">✅ Close</button>
               </div>
             </div>
           </div>
@@ -1572,14 +1880,14 @@ app.get('/ghl/provider', async (req, res) => {
                   break;
                   
                 case 'qr':
-                  statusEl.innerHTML = 'ðŸ“± <strong>Scan QR Code</strong><br><small>Open WhatsApp â†’ Menu â†’ Linked Devices â†’ Link a Device</small>';
+                  statusEl.innerHTML = '📱 <strong>Scan QR Code</strong><br><small>Open WhatsApp → Menu → Linked Devices → Link a Device</small>';
                   qrEl.style.display = 'block';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
                   break;
                   
                 case 'ready':
-                  statusEl.innerHTML = 'âœ… <strong>Connected Successfully!</strong><br><small>WhatsApp is now linked to this location</small>';
+                  statusEl.innerHTML = '✅ <strong>Connected Successfully!</strong><br><small>WhatsApp is now linked to this location</small>';
                   qrEl.style.display = 'none';
                   phoneRowEl.style.display = 'flex';
                   phoneNumberEl.textContent = phoneNumber || 'Unknown';
@@ -1587,14 +1895,14 @@ app.get('/ghl/provider', async (req, res) => {
                   break;
                   
                 case 'disconnected':
-                  statusEl.innerHTML = 'âŒ <strong>Disconnected</strong><br><small>WhatsApp session ended</small>';
+                  statusEl.innerHTML = '❌ <strong>Disconnected</strong><br><small>WhatsApp session ended</small>';
                   qrEl.style.display = 'none';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
                   break;
                   
                 default:
-                  statusEl.innerHTML = 'â“ <strong>Unknown Status</strong><br><small>Status: ' + status + '</small>';
+                  statusEl.innerHTML = '❓ <strong>Unknown Status</strong><br><small>Status: ' + status + '</small>';
                   qrEl.style.display = 'none';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
@@ -1852,42 +2160,30 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       .limit(1);
 
     if (existing && existing.length > 0 && existing[0].status !== 'disconnected') {
-      console.log(`ðŸ“‹ Found existing session: ${existing[0].id}, status: ${existing[0].status}`);
+      console.log(`📋 Found existing session: ${existing[0].id}, status: ${existing[0].status}`);
       
-      // If session exists and is already connected/ready, return it
-      if (existing[0].status === 'ready') {
+      // If session exists but not connected, try to restore the client
+      if (existing[0].status === 'ready' || existing[0].status === 'qr') {
         const cleanSubaccountId = existing[0].subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
         const sessionName = `location_${cleanSubaccountId}_${existing[0].id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
         
-        console.log(`✅ Session already ready: ${sessionName}`);
+        console.log(`🔄 Attempting to restore client for existing session: ${sessionName}`);
         
-        return res.json({ 
-          status: existing[0].status, 
-          qr: existing[0].qr, 
-          phone_number: existing[0].phone_number,
-          session_id: existing[0].id
-        });
+        // Try to restore the client
+        try {
+          await waManager.createClient(sessionName);
+          console.log(`✅ Client restored for existing session: ${sessionName}`);
+        } catch (error) {
+          console.error(`❌ Failed to restore client for existing session:`, error);
+        }
       }
       
-      // If session exists but is in 'qr' or other state, clear it and create fresh
-      if (existing[0].status === 'qr' || existing[0].status === 'connecting' || existing[0].status === 'initializing') {
-        const cleanSubaccountId = existing[0].subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const sessionName = `location_${cleanSubaccountId}_${existing[0].id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-        
-        console.log(`🗑️ Clearing stale session data for: ${sessionName}`);
-        
-        // Clear old session data to force fresh QR generation
-        waManager.clearSessionData(sessionName);
-        
-        // Update status to disconnected
-        await supabaseAdmin
-          .from('sessions')
-          .update({ status: 'disconnected', qr: null })
-          .eq('id', existing[0].id);
-        
-        console.log(`✅ Stale session cleared, will create new one`);
-        // Continue to create new session below
-      }
+      return res.json({ 
+        status: existing[0].status, 
+        qr: existing[0].qr, 
+        phone_number: existing[0].phone_number,
+        session_id: existing[0].id
+      });
     }
 
     // Create new session - let database generate UUID automatically
@@ -1950,7 +2246,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     // Create Baileys client
     try {
       const client = await waManager.createClient(sessionName);
-      console.log(`âœ… Baileys client created for session: ${sessionName}`);
+      console.log(`✅ Baileys client created for session: ${sessionName}`);
       
       // Wait a moment for QR to be generated
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -1958,31 +2254,31 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       // Check if QR is already available
       const qrCode = await waManager.getQRCode(sessionName);
       if (qrCode) {
-        console.log(`ðŸ“± QR already available, updating database immediately...`);
+        console.log(`📱 QR already available, updating database immediately...`);
         const qrDataUrl = await qrcode.toDataURL(qrCode);
           await supabaseAdmin
             .from('sessions')
           .update({ qr: qrDataUrl, status: 'qr' })
             .eq('id', session.id);
-        console.log(`âœ… QR updated in database immediately`);
+        console.log(`✅ QR updated in database immediately`);
       }
         } catch (error) {
-      console.error(`âŒ Failed to create Baileys client:`, error);
+      console.error(`❌ Failed to create Baileys client:`, error);
       return res.status(500).json({ error: 'Failed to create WhatsApp client' });
     }
     
     // Set up QR code polling
     const qrPolling = setInterval(async () => {
       try {
-        console.log(`ðŸ” Checking for QR code for session: ${sessionName}`);
+        console.log(`🔍 Checking for QR code for session: ${sessionName}`);
         const qrCode = await waManager.getQRCode(sessionName);
-        console.log(`ðŸ“± QR code result:`, qrCode ? 'Found' : 'Not found');
+        console.log(`📱 QR code result:`, qrCode ? 'Found' : 'Not found');
         
         if (qrCode) {
           clearTimeout(initTimeout); // Clear timeout when QR is generated
-          console.log(`ðŸ”„ Converting QR to data URL...`);
+          console.log(`🔄 Converting QR to data URL...`);
           const qrDataUrl = await qrcode.toDataURL(qrCode);
-          console.log(`ðŸ’¾ Saving QR to database...`);
+          console.log(`💾 Saving QR to database...`);
           
           const { error: qrUpdateError } = await supabaseAdmin
             .from('sessions')
@@ -1990,14 +2286,14 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
             .eq('id', session.id);
           
           if (qrUpdateError) {
-            console.error('âŒ QR update failed:', qrUpdateError);
+            console.error('❌ QR update failed:', qrUpdateError);
           } else {
-            console.log(`âœ… QR generated and saved for location ${locationId}:`, session.id);
+            console.log(`✅ QR generated and saved for location ${locationId}:`, session.id);
             clearInterval(qrPolling); // Stop polling once QR is saved
           }
         }
       } catch (e) {
-        console.error('âŒ QR polling error:', e);
+        console.error('❌ QR polling error:', e);
       }
     }, 1000); // Check every 1 second (fastest)
 
@@ -2005,7 +2301,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     const statusPolling = setInterval(async () => {
       try {
         const status = waManager.getClientStatus(sessionName);
-        console.log(`ðŸ“Š Status check for ${sessionName}:`, status);
+        console.log(`📊 Status check for ${sessionName}:`, status);
         
         if (status && status.status === 'connected') {
           clearInterval(qrPolling);
@@ -2016,7 +2312,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
           const client = waManager.getClientsMap()?.get(sessionName);
           const phoneNumber = client?.phoneNumber || 'Unknown';
           
-          console.log(`ðŸ“± Connected phone number: ${phoneNumber}`);
+          console.log(`📱 Connected phone number: ${phoneNumber}`);
           
           const { error: readyUpdateError } = await supabaseAdmin
             .from('sessions')
@@ -2030,10 +2326,10 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
           if (readyUpdateError) {
             console.error('Ready update failed:', readyUpdateError);
           } else {
-            console.log(`âœ… WhatsApp connected and saved for location ${locationId}`);
-            console.log(`âœ… Phone number stored: ${phoneNumber}`);
-            console.log(`âœ… Client stored with sessionName: ${sessionName}`);
-            console.log(`ðŸ“‹ Available clients after connection:`, waManager.getAllClients().map(client => client.sessionId));
+            console.log(`✅ WhatsApp connected and saved for location ${locationId}`);
+            console.log(`✅ Phone number stored: ${phoneNumber}`);
+            console.log(`✅ Client stored with sessionName: ${sessionName}`);
+            console.log(`📋 Available clients after connection:`, waManager.getAllClients().map(client => client.sessionId));
           }
         }
       } catch (e) {
@@ -2142,20 +2438,23 @@ app.post('/ghl/location/:locationId/session/logout', async (req, res) => {
     }
 
     // Disconnect WhatsApp client
-    const cleanSubaccountId = ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const sessionName = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const sessionName = `location_${locationId}_${session.id}`;
     await waManager.disconnectClient(sessionName);
     
-    // Clear session data (removes auth files)
+    // Clear session data
     waManager.clearSessionData(sessionName);
     
-    // Delete session from database completely
+    // Update session status in database
     await supabaseAdmin
       .from('sessions')
-      .delete()
+      .update({ 
+        status: 'disconnected',
+        phone_number: null,
+        qr: null
+      })
       .eq('id', session.id);
 
-    console.log(`âœ… Session logged out for location: ${locationId}`);
+    console.log(`✅ Session logged out for location: ${locationId}`);
     res.json({ status: 'success', message: 'Session logged out successfully' });
   } catch (error) {
     console.error('Logout session error:', error);
@@ -2210,7 +2509,7 @@ app.delete('/admin/ghl/delete-subaccount', async (req, res) => {
       .delete()
       .eq('id', ghlAccount.id);
 
-    console.log(`âœ… Subaccount deleted for location: ${locationId}`);
+    console.log(`✅ Subaccount deleted for location: ${locationId}`);
     res.json({ status: 'success', message: 'Subaccount deleted successfully' });
   } catch (error) {
     console.error('Delete subaccount error:', error);
@@ -2221,7 +2520,7 @@ app.delete('/admin/ghl/delete-subaccount', async (req, res) => {
 // Sync all subaccounts (refresh tokens and reconnect WhatsApp)
 app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
   try {
-    console.log('ðŸ”„ Starting sync for all subaccounts...');
+    console.log('🔄 Starting sync for all subaccounts...');
     
     // Get all GHL accounts
     const { data: ghlAccounts } = await supabaseAdmin
@@ -2237,7 +2536,7 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
       });
     }
 
-    console.log(`ðŸ“‹ Found ${ghlAccounts.length} subaccounts to sync`);
+    console.log(`📋 Found ${ghlAccounts.length} subaccounts to sync`);
 
     let syncedCount = 0;
     let errorCount = 0;
@@ -2245,16 +2544,16 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
 
     for (const ghlAccount of ghlAccounts) {
       try {
-        console.log(`ðŸ”„ Syncing subaccount: ${ghlAccount.location_id}`);
+        console.log(`🔄 Syncing subaccount: ${ghlAccount.location_id}`);
         
         // 1. Refresh token
         let tokenRefreshed = false;
         try {
           await ensureValidToken(ghlAccount, true); // Force refresh
           tokenRefreshed = true;
-          console.log(`âœ… Token refreshed for: ${ghlAccount.location_id}`);
+          console.log(`✅ Token refreshed for: ${ghlAccount.location_id}`);
         } catch (tokenError) {
-          console.error(`âŒ Token refresh failed for ${ghlAccount.location_id}:`, tokenError);
+          console.error(`❌ Token refresh failed for ${ghlAccount.location_id}:`, tokenError);
         }
 
         // 2. Get existing sessions
@@ -2273,7 +2572,7 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
           try {
             // Check current client status
             const clientStatus = waManager.getClientStatus(sessionName);
-            console.log(`ðŸ” Current client status for ${ghlAccount.location_id}: ${clientStatus?.status || 'not found'}`);
+            console.log(`🔍 Current client status for ${ghlAccount.location_id}: ${clientStatus?.status || 'not found'}`);
             
             // If client is not connected or in qr_ready state, reconnect
             if (!clientStatus || (clientStatus.status !== 'connected' && clientStatus.status !== 'connecting')) {
@@ -2284,13 +2583,13 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
               // Create new client
               await waManager.createClient(sessionName);
               sessionReconnected = true;
-              console.log(`âœ… WhatsApp session reconnected for: ${ghlAccount.location_id}`);
+              console.log(`✅ WhatsApp session reconnected for: ${ghlAccount.location_id}`);
     } else {
-              console.log(`âœ… WhatsApp session already active for: ${ghlAccount.location_id}`);
+              console.log(`✅ WhatsApp session already active for: ${ghlAccount.location_id}`);
               sessionReconnected = true;
             }
           } catch (sessionError) {
-            console.error(`âŒ Session reconnect failed for ${ghlAccount.location_id}:`, sessionError);
+            console.error(`❌ Session reconnect failed for ${ghlAccount.location_id}:`, sessionError);
           }
         }
 
@@ -2304,7 +2603,7 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
 
       } catch (error) {
         errorCount++;
-        console.error(`âŒ Sync failed for ${ghlAccount.location_id}:`, error);
+        console.error(`❌ Sync failed for ${ghlAccount.location_id}:`, error);
         results.push({
           locationId: ghlAccount.location_id,
           status: 'error',
@@ -2313,7 +2612,7 @@ app.post('/admin/ghl/sync-all-subaccounts', async (req, res) => {
       }
     }
 
-    console.log(`âœ… Sync completed: ${syncedCount} successful, ${errorCount} failed`);
+    console.log(`✅ Sync completed: ${syncedCount} successful, ${errorCount} failed`);
 
     res.json({ 
       success: true, 
@@ -2426,7 +2725,7 @@ app.get('/debug/whatsapp-clients', (req, res) => {
 app.post('/debug/clear-session/:sessionId', (req, res) => {
   try {
     const { sessionId } = req.params;
-    console.log(`ðŸ—‘ï¸ Clearing session data for: ${sessionId}`);
+    console.log(`🗑️ Clearing session data for: ${sessionId}`);
     
     waManager.clearSessionData(sessionId);
     
@@ -2601,6 +2900,50 @@ app.post('/debug/send-message', async (req, res) => {
   }
 });
 
+// Test incoming message webhook
+app.post('/debug/test-incoming', async (req, res) => {
+  try {
+    const { from, message, locationId } = req.body;
+    
+    if (!from || !message) {
+      return res.status(400).json({ error: 'From and message required' });
+    }
+    
+    // Simulate incoming WhatsApp message
+    const webhookData = {
+      from: from.includes('@') ? from : `${from}@s.whatsapp.net`,
+      message,
+      timestamp: Date.now(),
+      whatsappMsgId: `test_${Date.now()}`
+    };
+    
+    console.log('🧪 Testing webhook with data:', webhookData);
+    
+    // Call the webhook internally
+    const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/whatsapp/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(webhookData)
+    });
+    
+    const responseText = await webhookResponse.text();
+    
+    res.json({
+      success: true,
+      message: 'Test webhook called',
+      webhookData,
+      webhookStatus: webhookResponse.status,
+      webhookResponse: responseText
+    });
+  } catch (error) {
+    console.error('Test incoming webhook error:', error);
+    res.status(500).json({ error: 'Failed to test webhook', details: error.message });
+  }
+});
+
+
 // Emergency message sending endpoint - creates new client if needed
 app.post('/emergency/send-message', async (req, res) => {
   try {
@@ -2610,10 +2953,10 @@ app.post('/emergency/send-message', async (req, res) => {
       return res.status(400).json({ error: 'Phone number and message required' });
     }
     
-    console.log(`ðŸš¨ Emergency message sending to: ${phoneNumber}`);
+    console.log(`🚨 Emergency message sending to: ${phoneNumber}`);
     
     // Direct message sending without client dependency
-    console.log(`ðŸš¨ Direct emergency message sending to: ${phoneNumber}`);
+    console.log(`🚨 Direct emergency message sending to: ${phoneNumber}`);
     
     // Try to find any available client first
     const clients = waManager.getAllClients();
@@ -2631,7 +2974,7 @@ app.post('/emergency/send-message', async (req, res) => {
           if (client.status === 'connected') {
             console.log(`Client ready, sending message...`);
             await waManager.sendMessage(sessionKey, phoneNumber, message);
-            console.log(`âœ… Message sent successfully via client: ${sessionKey}`);
+            console.log(`✅ Message sent successfully via client: ${sessionKey}`);
             messageSent = true;
             break;
           } else {
@@ -2647,7 +2990,7 @@ app.post('/emergency/send-message', async (req, res) => {
     }
     
     if (!messageSent) {
-      console.log(`âŒ No working clients found, message not sent`);
+      console.log(`❌ No working clients found, message not sent`);
       return res.status(500).json({ 
         error: 'No working WhatsApp clients available',
         phoneNumber,
@@ -2687,7 +3030,7 @@ app.post('/debug/test-outbound', async (req, res) => {
       locationId: process.env.GHL_LOCATION_ID
     };
     
-    console.log('ðŸ§ª Testing outbound webhook with data:', webhookData);
+    console.log('🧪 Testing outbound webhook with data:', webhookData);
     
     // Call the webhook internally
     const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/webhooks/ghl/provider-outbound`, {
@@ -2712,7 +3055,7 @@ app.post('/debug/test-outbound', async (req, res) => {
 // Team notification webhook endpoint for GHL workflow
 app.post('/api/team-notification', async (req, res) => {
   try {
-    console.log('ðŸ”” Team notification webhook received:', JSON.stringify(req.body, null, 2));
+    console.log('🔔 Team notification webhook received:', JSON.stringify(req.body, null, 2));
     
     // Support both old format (message, user) and new format (last_message, assigned_user, contact_phone, contact_name)
     const message = req.body.message || req.body.last_message;
@@ -2725,7 +3068,7 @@ app.post('/api/team-notification', async (req, res) => {
     
     // Validate required fields
     if (!message) {
-      console.log('âŒ Missing required field: message or last_message');
+      console.log('❌ Missing required field: message or last_message');
       return res.status(400).json({ 
         status: 'error', 
         message: 'Missing required field: message or last_message',
@@ -2734,7 +3077,7 @@ app.post('/api/team-notification', async (req, res) => {
     }
     
     if (users.length === 0) {
-      console.log('âŒ Missing required field: user or assigned_user');
+      console.log('❌ Missing required field: user or assigned_user');
       return res.status(400).json({ 
         status: 'error', 
         message: 'Missing required field: user (phone number) or assigned_user',
@@ -2742,10 +3085,10 @@ app.post('/api/team-notification', async (req, res) => {
       });
     }
     
-    console.log(`ðŸ“± Sending notification to ${users.length} team member(s): ${users.join(', ')}`);
-    console.log(`ðŸ‘¤ Contact name: ${contactName || 'N/A'}`);
-    console.log(`ðŸ“ž Contact phone: ${contactPhone || 'N/A'}`);
-    console.log(`ðŸ’¬ Message content: ${message}`);
+    console.log(`📱 Sending notification to ${users.length} team member(s): ${users.join(', ')}`);
+    console.log(`👤 Contact name: ${contactName || 'N/A'}`);
+    console.log(`📞 Contact phone: ${contactPhone || 'N/A'}`);
+    console.log(`💬 Message content: ${message}`);
     
     // Find an available WhatsApp client for sending notifications
     const availableClients = waManager.getAllClients().filter(client => 
@@ -2753,7 +3096,7 @@ app.post('/api/team-notification', async (req, res) => {
     );
     
     if (availableClients.length === 0) {
-      console.log('âŒ No available WhatsApp clients for team notifications');
+      console.log('❌ No available WhatsApp clients for team notifications');
       return res.status(503).json({ 
         status: 'error', 
         message: 'No WhatsApp clients available for notifications' 
@@ -2764,19 +3107,19 @@ app.post('/api/team-notification', async (req, res) => {
     const notificationClient = availableClients[0];
     const clientKey = notificationClient.sessionId;
     
-    console.log(`ðŸ“± Using client: ${clientKey} for team notifications`);
+    console.log(`📱 Using client: ${clientKey} for team notifications`);
     
     // Format notification message with contact details
-    let notificationMessage = `ðŸ”” *Customer Replied*\n\n`;
+    let notificationMessage = `🔔 *Customer Replied*\n\n`;
     
     if (contactName) {
-      notificationMessage += `ðŸ‘¤ Customer: ${contactName}\n`;
+      notificationMessage += `👤 Customer: ${contactName}\n`;
     }
     if (contactPhone) {
-      notificationMessage += `ðŸ“ž Phone: ${contactPhone}\n`;
+      notificationMessage += `📞 Phone: ${contactPhone}\n`;
     }
     
-    notificationMessage += `ðŸ’¬ Message: ${message}`;
+    notificationMessage += `💬 Message: ${message}`;
     
     // Send notification to all team members
     const results = [];
@@ -2788,10 +3131,10 @@ app.post('/api/team-notification', async (req, res) => {
           notificationMessage,
           'text'
         );
-        console.log(`âœ… Team notification sent successfully to: ${userPhone}`);
+        console.log(`✅ Team notification sent successfully to: ${userPhone}`);
         results.push({ phone: userPhone, status: 'success' });
       } catch (error) {
-        console.error(`âŒ Failed to send notification to ${userPhone}:`, error.message);
+        console.error(`❌ Failed to send notification to ${userPhone}:`, error.message);
         results.push({ phone: userPhone, status: 'failed', error: error.message });
       }
     }
@@ -2804,7 +3147,7 @@ app.post('/api/team-notification', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('âŒ Team notification error:', error);
+    console.error('❌ Team notification error:', error);
     res.status(500).json({ 
       status: 'error', 
       message: error.message 
@@ -2817,7 +3160,7 @@ app.post('/admin/force-reauthorize/:accountId', async (req, res) => {
   try {
     const { accountId } = req.params;
     
-    console.log(`ðŸ”„ Force re-authorization for account: ${accountId}`);
+    console.log(`🔄 Force re-authorization for account: ${accountId}`);
     
     // Delete the account tokens to force re-auth
     const { error } = await supabaseAdmin
@@ -2844,7 +3187,7 @@ app.post('/admin/force-reauthorize/:accountId', async (req, res) => {
 // Test team notification webhook endpoint
 app.post('/api/test-team-notification', async (req, res) => {
   try {
-    console.log('ðŸ§ª Testing team notification webhook');
+    console.log('🧪 Testing team notification webhook');
     
     const testData = {
       message: 'This is a test message from customer',

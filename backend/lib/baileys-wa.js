@@ -175,11 +175,6 @@ class BaileysWhatsAppManager {
       // Check if we have existing credentials
       const hasCredentials = this.hasExistingCredentials(sessionId);
       console.log(`📋 Session ${sessionId} has existing credentials: ${hasCredentials}`);
-      
-      // If this is a fresh session (no credentials), skip restoration
-      if (!hasCredentials) {
-        console.log(`🆕 Fresh session detected, skipping restoration checks`);
-      }
 
       const socket = makeWASocket({
         auth: state,
@@ -241,23 +236,15 @@ class BaileysWhatsAppManager {
           stable: connectionStable
         });
         
-      if (qr) {
-        console.log(`📱 QR Code generated for session: ${sessionId}`);
-        // Only set qr_ready if not already connected AND connection is not stable
-        if (!connectionStable && (!this.clients.has(sessionId) || this.clients.get(sessionId).status !== 'connected')) {
+        if (qr) {
+          console.log(`📱 QR Code generated for session: ${sessionId}`);
           this.clients.set(sessionId, {
             socket,
             qr,
             status: 'qr_ready',
             lastUpdate: Date.now()
           });
-          console.log(`📱 Status set to 'qr_ready' for session: ${sessionId}`);
-        } else if (connectionStable) {
-          console.log(`🚫 Ignoring QR generation - connection is stable for session: ${sessionId}`);
-        } else {
-          console.log(`🚫 Ignoring QR generation - client already connected for session: ${sessionId}`);
         }
-      }
 
         if (connection === 'close') {
           // Clear stability timer if connection closes
@@ -280,8 +267,8 @@ class BaileysWhatsAppManager {
           }
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} in 30 seconds...`);
-            // Longer delay to prevent false reconnections and reduce server load
+            console.log(`🔄 Reconnecting session: ${sessionId} in 15 seconds...`);
+            // Longer delay to prevent false reconnections
             setTimeout(() => {
               // Check if client is still disconnected before reconnecting
               const currentClient = this.clients.get(sessionId);
@@ -293,7 +280,7 @@ class BaileysWhatsAppManager {
               } else {
                 console.log(`✅ Client ${sessionId} already reconnected, skipping reconnection`);
               }
-            }, 30000); // Increased to 30 seconds to reduce unnecessary checks
+            }, 15000); // Increased to 15 seconds to prevent false reconnections
           } else {
             // Only delete if logged out
             this.clients.delete(sessionId);
@@ -313,33 +300,36 @@ class BaileysWhatsAppManager {
             connectedAt: Date.now()
           });
           
-          // Immediate connection - no stability delay
-          connectionStable = true;
-          const currentTime = Date.now();
-          this.clients.set(sessionId, {
-            socket,
-            qr: null,
-            status: 'connected',
-            phoneNumber: socket.user?.id?.split(':')[0],
-            lastUpdate: currentTime,
-            connectedAt: currentTime
-          });
+          // Start stability timer - wait 5 seconds before marking as stable
+          if (stabilityTimer) {
+            clearTimeout(stabilityTimer);
+          }
           
-          console.log(`✅ WhatsApp immediately connected for session: ${sessionId}`);
-          console.log(`🔒 Status set to 'connected' for session: ${sessionId}`);
-          
-          // Update database status immediately
-          this.updateDatabaseStatus(sessionId, 'ready', socket.user?.id?.split(':')[0]);
-          
-          // Update lastUpdate periodically to keep connection alive
-          setInterval(() => {
+          stabilityTimer = setTimeout(() => {
             if (this.clients.has(sessionId)) {
               const client = this.clients.get(sessionId);
-              if (client.status === 'connected') {
+              if (client && client.status === 'connecting') {
+                connectionStable = true;
+                client.status = 'connected';
                 client.lastUpdate = Date.now();
+                
+                console.log(`🎯 Connection stable for session: ${sessionId} (${Date.now() - connectionOpenTime}ms)`);
+                
+                // Update database status to 'ready' only after stability confirmed
+                this.updateDatabaseStatus(sessionId, 'ready', socket.user?.id?.split(':')[0]);
+                
+                // Update lastUpdate periodically to keep connection alive
+                setInterval(() => {
+                  if (this.clients.has(sessionId)) {
+                    const client = this.clients.get(sessionId);
+                    if (client.status === 'connected') {
+                      client.lastUpdate = Date.now();
+                    }
+                  }
+                }, 30000); // Update every 30 seconds
               }
             }
-          }, 30000); // Update every 30 seconds
+          }, 5000); // 5 second stability check
         } else if (connection === 'connecting') {
           console.log(`🔄 Connecting session: ${sessionId}`);
           this.clients.set(sessionId, {
@@ -360,8 +350,6 @@ class BaileysWhatsAppManager {
           lastUpdate: Date.now()
         });
         console.log(`🔄 Restoring existing session: ${sessionId}`);
-      } else {
-        console.log(`🆕 Fresh session - no restoration needed: ${sessionId}`);
       }
 
       // Handle credentials update
@@ -372,36 +360,7 @@ class BaileysWhatsAppManager {
         try {
           const msg = m.messages[0];
           if (!msg.key.fromMe && m.type === 'notify') {
-            // Only process messages received after connection is established
-            const client = this.clients.get(sessionId);
-            const connectionTime = client?.connectedAt;
-            
             const from = msg.key.remoteJid;
-            
-            console.log(`🔍 Message timestamp check for ${from}:`);
-            console.log(`   Message timestamp: ${msg.messageTimestamp} (${new Date(msg.messageTimestamp * 1000).toLocaleString()})`);
-            console.log(`   Client found: ${!!client}`);
-            console.log(`   Connection time: ${connectionTime} (${connectionTime ? new Date(connectionTime).toLocaleString() : 'Not set'})`);
-            console.log(`   Client status: ${client?.status || 'unknown'}`);
-            
-            if (connectionTime) {
-              // Convert connection time to seconds for comparison (WhatsApp timestamps are in seconds)
-              const connectionTimeSeconds = Math.floor(connectionTime / 1000);
-              console.log(`   Connection time (seconds): ${connectionTimeSeconds}`);
-              console.log(`   Comparison: ${msg.messageTimestamp} < ${connectionTimeSeconds} = ${msg.messageTimestamp < connectionTimeSeconds}`);
-              
-              if (msg.messageTimestamp < connectionTimeSeconds) {
-                console.log(`🚫 Ignoring old message received before connection:`);
-                console.log(`   Difference: ${connectionTimeSeconds - msg.messageTimestamp} seconds`);
-                console.log(`   This prevents duplicate contacts in GHL!`);
-                return;
-              } else {
-                console.log(`✅ Message is newer than connection, processing...`);
-              }
-            } else {
-              console.log(`⚠️ No connection time set - this might be an old message!`);
-              console.log(`⚠️ Processing anyway but this could create duplicate contacts!`);
-            }
             // Detect message type and content
             let messageText = '';
             let messageType = 'text';
@@ -561,7 +520,7 @@ class BaileysWhatsAppManager {
     try {
       const client = this.clients.get(sessionId);
       
-      if (!client || (client.status !== 'connected' && client.status !== 'ready' && client.status !== 'qr_ready')) {
+      if (!client || (client.status !== 'connected' && client.status !== 'ready')) {
         throw new Error(`Client not ready for session: ${sessionId}, status: ${client?.status || 'not found'}`);
       }
       
@@ -747,8 +706,8 @@ class BaileysWhatsAppManager {
       // Also cleanup disconnected clients from memory
       this.clients.forEach((client, sessionKey) => {
         if (sessionKey.includes(subaccountId) && sessionKey !== `location_${subaccountId}_${currentSessionId}`) {
-          if (client.status === 'disconnected' || client.status === 'qr_ready' || client.status === 'connecting') {
-            console.log(`🗑️ Removing old client from memory: ${sessionKey} (status: ${client.status})`);
+          if (client.status === 'disconnected' || client.status === 'qr_ready') {
+            console.log(`🗑️ Removing old client from memory: ${sessionKey}`);
             this.clients.delete(sessionKey);
           }
         }
