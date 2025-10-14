@@ -15,9 +15,9 @@ Server runs on port 3001 (or PORT environment variable)
 
 ✅ **WhatsApp Integration** - Baileys library for WhatsApp Web  
 ✅ **GHL OAuth** - GoHighLevel account linking  
-✅ **Message Sync** - Bi-directional message synchronization  
-✅ **Media Support** - Images, videos, audio, documents  
+✅ **Outbound Messages** - Send messages from GHL to WhatsApp  
 ✅ **Multi-Session** - Multiple WhatsApp connections per user  
+✅ **QR Code Generation** - Easy WhatsApp connection setup  
 
 ---
 
@@ -73,7 +73,7 @@ backend/
 - `GET /oauth/initiate` - Start GHL OAuth flow
 - `GET /oauth/callback` - OAuth callback handler
 - `GET /ghl/locations` - Get GHL locations
-- `POST /whatsapp/webhook` - Receive messages from WhatsApp
+- `POST /webhooks/ghl/provider-outbound` - Send messages from GHL to WhatsApp
 
 ### Provider Testing
 - `POST /ghl/provider/test` - Test WhatsApp provider in GHL
@@ -86,7 +86,7 @@ backend/
 2. **Connects GHL account** via OAuth
 3. **Creates WhatsApp session** for each location
 4. **Scans QR code** to link WhatsApp
-5. **Messages sync** bidirectionally (WhatsApp ↔ GHL)
+5. **Sends messages** from GHL to WhatsApp (outbound only)
 
 ---
 
@@ -130,10 +130,10 @@ npm list baileys
 - ✅ Supabase Auth integration
 - ✅ GHL OAuth flow
 - ✅ WhatsApp connection management
-- ✅ Message sending/receiving
-- ✅ Media support
+- ✅ Outbound message sending (GHL → WhatsApp)
 - ✅ Error handling
 - ✅ Auto-reconnection
+- ✅ Clean, minimal codebase
 
 ---
 
