@@ -2244,34 +2244,43 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       const client = await waManager.createClient(sessionName);
       console.log(`✅ Baileys client created for session: ${sessionName}`);
       
-      // Wait a moment for QR to be generated
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Wait briefly for QR to be generated (reduced from 2s to 500ms)
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       // Check if QR is already available
       const qrCode = await waManager.getQRCode(sessionName);
       if (qrCode) {
         console.log(`📱 QR already available, updating database immediately...`);
         const qrDataUrl = await qrcode.toDataURL(qrCode);
-          await supabaseAdmin
-            .from('sessions')
+        await supabaseAdmin
+          .from('sessions')
           .update({ qr: qrDataUrl, status: 'qr' })
-            .eq('id', session.id);
+          .eq('id', session.id);
         console.log(`✅ QR updated in database immediately`);
+        clearTimeout(initTimeout); // Clear timeout since QR is generated
       }
-        } catch (error) {
+    } catch (error) {
       console.error(`❌ Failed to create Baileys client:`, error);
+      clearTimeout(initTimeout);
       return res.status(500).json({ error: 'Failed to create WhatsApp client' });
     }
     
-    // Set up QR code polling
+    // Set up QR code polling (faster interval)
+    let qrPollAttempts = 0;
+    const maxQrPollAttempts = 30; // 30 attempts * 500ms = 15 seconds max
+    
     const qrPolling = setInterval(async () => {
       try {
-        console.log(`🔍 Checking for QR code for session: ${sessionName}`);
+        qrPollAttempts++;
+        console.log(`🔍 Checking for QR code for session: ${sessionName} (attempt ${qrPollAttempts}/${maxQrPollAttempts})`);
+        
         const qrCode = await waManager.getQRCode(sessionName);
         console.log(`📱 QR code result:`, qrCode ? 'Found' : 'Not found');
         
         if (qrCode) {
           clearTimeout(initTimeout); // Clear timeout when QR is generated
+          clearInterval(qrPolling); // Stop polling immediately
+          
           console.log(`🔄 Converting QR to data URL...`);
           const qrDataUrl = await qrcode.toDataURL(qrCode);
           console.log(`💾 Saving QR to database...`);
@@ -2285,13 +2294,16 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
             console.error('❌ QR update failed:', qrUpdateError);
           } else {
             console.log(`✅ QR generated and saved for location ${locationId}:`, session.id);
-            clearInterval(qrPolling); // Stop polling once QR is saved
           }
+        } else if (qrPollAttempts >= maxQrPollAttempts) {
+          // Stop polling after max attempts
+          clearInterval(qrPolling);
+          console.error(`❌ QR generation timeout after ${qrPollAttempts} attempts`);
         }
       } catch (e) {
         console.error('❌ QR polling error:', e);
       }
-    }, 1000); // Check every 1 second (fastest)
+    }, 500); // Check every 500ms (faster than before)
 
     // Set up connection status polling
     const statusPolling = setInterval(async () => {
