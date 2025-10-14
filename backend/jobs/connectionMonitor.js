@@ -31,7 +31,7 @@ const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
 
         // Get session details with short timeout
         const sessionResult = await Promise.race([
-            query('SELECT id, phone, customer_id FROM sessions WHERE id = $1', [sessionId]),
+            query('SELECT id, phone_number, customer_id FROM sessions WHERE id = $1', [sessionId]),
             new Promise((_, reject) => 
                 setTimeout(() => reject(new Error('Query timeout')), 3000)
             )
@@ -116,7 +116,7 @@ const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
                 customer.email,
                 reconnectUrl,
                 customer.business_name,
-                session.phone,
+                session.phone_number, // Fixed: use phone_number instead of phone
                 reason
             );
 
@@ -179,7 +179,7 @@ const checkDisconnectedSessions = async () => {
 
         // Get all disconnected sessions with customer_id
         const disconnectedSessions = await query(
-            `SELECT s.id, s.phone, s.customer_id, c.email, c.business_name
+            `SELECT s.id, s.phone_number, s.customer_id, c.email, c.business_name
              FROM sessions s
              JOIN customers c ON s.customer_id = c.id
              WHERE s.status = 'disconnected' AND s.customer_id IS NOT NULL`,
