@@ -996,7 +996,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
 // GHL Provider Outbound Message Webhook
 app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
   try {
-    console.log('ðŸ“¤ GHL Provider Outbound Message:', req.body);
+    console.log('📤 GHL Provider Outbound Message:', req.body);
     
     // Check if this is an echo from our own inbound message
     const evt = req.body;
@@ -1004,14 +1004,14 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
     
     // If altId starts with 'wa_' it's from our WhatsApp webhook - ignore it
     if (altId && altId.startsWith('wa_')) {
-      console.log('ðŸš« Ignoring echo from our own WhatsApp message:', altId);
+      console.log('🚫 Ignoring echo from our own WhatsApp message:', altId);
       return res.sendStatus(200);
     }
     
     // If message was sent in last 10 seconds, likely an echo
     const now = Date.now();
     if (global.recentInboundMessages && global.recentInboundMessages.has(`${contactId}_${text}`)) {
-      console.log('ðŸš« Ignoring recent echo message');
+      console.log('🚫 Ignoring recent echo message');
       return res.sendStatus(200);
     }
     
@@ -1071,7 +1071,7 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
       if (contactRes.ok) {
         const contactData = await contactRes.json();
         phone = contactData.contact?.phone;
-        console.log(`ðŸ“± Found phone for contact ${contactId}: ${phone}`);
+        console.log(`📱 Found phone for contact ${contactId}: ${phone}`);
       }
     } catch (contactError) {
       console.error(`âŒ Error looking up contact:`, contactError);
@@ -1854,28 +1854,40 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     if (existing && existing.length > 0 && existing[0].status !== 'disconnected') {
       console.log(`ðŸ“‹ Found existing session: ${existing[0].id}, status: ${existing[0].status}`);
       
-      // If session exists but not connected, try to restore the client
-      if (existing[0].status === 'ready' || existing[0].status === 'qr') {
+      // If session exists and is already connected/ready, return it
+      if (existing[0].status === 'ready') {
         const cleanSubaccountId = existing[0].subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
         const sessionName = `location_${cleanSubaccountId}_${existing[0].id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
         
-        console.log(`ðŸ”„ Attempting to restore client for existing session: ${sessionName}`);
+        console.log(`✅ Session already ready: ${sessionName}`);
         
-        // Try to restore the client
-        try {
-          await waManager.createClient(sessionName);
-          console.log(`âœ… Client restored for existing session: ${sessionName}`);
-        } catch (error) {
-          console.error(`âŒ Failed to restore client for existing session:`, error);
-        }
+        return res.json({ 
+          status: existing[0].status, 
+          qr: existing[0].qr, 
+          phone_number: existing[0].phone_number,
+          session_id: existing[0].id
+        });
       }
       
-      return res.json({ 
-        status: existing[0].status, 
-        qr: existing[0].qr, 
-        phone_number: existing[0].phone_number,
-        session_id: existing[0].id
-      });
+      // If session exists but is in 'qr' or other state, clear it and create fresh
+      if (existing[0].status === 'qr' || existing[0].status === 'connecting' || existing[0].status === 'initializing') {
+        const cleanSubaccountId = existing[0].subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sessionName = `location_${cleanSubaccountId}_${existing[0].id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        
+        console.log(`🗑️ Clearing stale session data for: ${sessionName}`);
+        
+        // Clear old session data to force fresh QR generation
+        waManager.clearSessionData(sessionName);
+        
+        // Update status to disconnected
+        await supabaseAdmin
+          .from('sessions')
+          .update({ status: 'disconnected', qr: null })
+          .eq('id', existing[0].id);
+        
+        console.log(`✅ Stale session cleared, will create new one`);
+        // Continue to create new session below
+      }
     }
 
     // Create new session - let database generate UUID automatically
