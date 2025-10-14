@@ -276,21 +276,13 @@ class BaileysWhatsAppManager {
         
       if (qr) {
         console.log(`📱 QR Code generated for session: ${sessionId}`);
-        console.log(`📱 QR Code value:`, qr ? qr.substring(0, 50) + '...' : 'null');
-        
-        // Set QR code immediately
         this.clients.set(sessionId, {
           socket,
           qr,
-          status: 'qr',  // Changed from 'qr_ready' to 'qr' to match database status
+          status: 'qr_ready',
           lastUpdate: Date.now()
         });
-        console.log(`✅ QR code set for session: ${sessionId} with status 'qr'`);
-        
-        // Update database immediately when QR is generated
-        this.updateDatabaseStatus(sessionId, 'qr').catch(err => {
-          console.error(`❌ Failed to update database status to 'qr':`, err);
-        });
+        console.log(`✅ QR code set for session: ${sessionId}`);
       }
 
         if (connection === 'close') {
@@ -641,12 +633,17 @@ class BaileysWhatsAppManager {
     try {
       const client = this.clients.get(sessionId);
       
-      if (!client || (client.status !== 'connected' && client.status !== 'ready')) {
+      if (!client || (client.status !== 'connected' && client.status !== 'ready' && client.status !== 'qr_ready')) {
         throw new Error(`Client not ready for session: ${sessionId}, status: ${client?.status || 'not found'}`);
       }
       
-      // Check if socket is properly initialized
-      if (!client.socket || !client.socket.user) {
+      // For qr_ready status, don't send messages
+      if (client.status === 'qr_ready') {
+        throw new Error(`Please scan QR code first to activate this session`);
+      }
+      
+      // Check if socket is properly initialized (only for connected/ready status)
+      if ((client.status === 'connected' || client.status === 'ready') && (!client.socket || !client.socket.user)) {
         throw new Error(`Socket not properly initialized for session: ${sessionId}`);
       }
 
@@ -931,7 +928,7 @@ class BaileysWhatsAppManager {
       // Also cleanup disconnected clients from memory
       this.clients.forEach((client, sessionKey) => {
         if (sessionKey.includes(subaccountId) && sessionKey !== `location_${subaccountId}_${currentSessionId}`) {
-          if (client.status === 'disconnected' || client.status === 'qr' || client.status === 'connecting') {
+          if (client.status === 'disconnected' || client.status === 'qr_ready' || client.status === 'connecting') {
             console.log(`🗑️ Removing old client from memory: ${sessionKey} (status: ${client.status})`);
             this.clients.delete(sessionKey);
           }
