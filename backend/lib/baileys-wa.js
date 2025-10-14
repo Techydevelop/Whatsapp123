@@ -202,7 +202,7 @@ class BaileysWhatsAppManager {
         syncFullHistory: false,
         defaultQueryTimeoutMs: 120000,
         keepAliveIntervalMs: 10000, // More frequent keep-alive
-        connectTimeoutMs: 120000,
+        connectTimeoutMs: 180000, // 3 minutes timeout for Render
         retryRequestDelayMs: 2000, // Longer delay between retries
         maxMsgRetryCount: 3,
         heartbeatIntervalMs: 5000, // More frequent heartbeat
@@ -267,8 +267,8 @@ class BaileysWhatsAppManager {
           }
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} in 15 seconds...`);
-            // Longer delay to prevent false reconnections
+            console.log(`🔄 Reconnecting session: ${sessionId} in 30 seconds...`);
+            // Longer delay for Render deployment - prevent aggressive reconnections
             setTimeout(() => {
               // Check if client is still disconnected before reconnecting
               const currentClient = this.clients.get(sessionId);
@@ -280,7 +280,7 @@ class BaileysWhatsAppManager {
               } else {
                 console.log(`✅ Client ${sessionId} already reconnected, skipping reconnection`);
               }
-            }, 15000); // Increased to 15 seconds to prevent false reconnections
+            }, 30000); // 30 seconds for Render - reduce server load
           } else {
             // Only delete if logged out
             this.clients.delete(sessionId);
