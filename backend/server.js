@@ -865,6 +865,134 @@ function getProviderId() {
   return process.env.GHL_PROVIDER_ID || null;
 }
 
+// WhatsApp inbound webhook - TEXT MESSAGES ONLY
+app.post('/whatsapp/webhook', async (req, res) => {
+  try {
+    console.log('📨 Received WhatsApp message:', req.body);
+    
+    const { from, message, sessionId, whatsappMsgId } = req.body;
+    
+    // Validation
+    if (!from || !message) {
+      console.log('Missing required fields in WhatsApp webhook');
+      return res.json({ status: 'success' });
+    }
+    
+    // Get phone number
+    const waNumber = from.replace('@s.whatsapp.net', '');
+    const phone = "+" + waNumber;
+    
+    // Find GHL account from session
+    let ghlAccount = null;
+    if (sessionId) {
+      const { data: session } = await supabaseAdmin
+        .from('sessions')
+        .select('*, ghl_accounts(*)')
+        .eq('id', sessionId)
+        .maybeSingle();
+      
+      if (session && session.ghl_accounts) {
+        ghlAccount = session.ghl_accounts;
+      }
+    }
+    
+    // Fallback to any account
+    if (!ghlAccount) {
+      const { data: anyAccount } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+      
+      if (anyAccount) {
+        ghlAccount = anyAccount;
+      }
+    }
+    
+    if (!ghlAccount) {
+      console.log(`❌ No GHL account found`);
+      return res.json({ status: 'success' });
+    }
+    
+    const locationId = ghlAccount.location_id;
+    const validToken = await ensureValidToken(ghlAccount);
+    
+    // Create/update contact
+    let contactId = null;
+    try {
+      const contactRes = await makeGHLRequest(`${BASE}/contacts/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${validToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          phone: phone,
+          name: phone,
+          locationId: locationId
+        })
+      }, ghlAccount);
+      
+      if (contactRes.ok) {
+        const contactData = await contactRes.json();
+        contactId = contactData.contact?.id;
+      } else {
+        const errorText = await contactRes.text();
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.meta && errorJson.meta.contactId) {
+            contactId = errorJson.meta.contactId;
+          }
+        } catch (e) {}
+      }
+    } catch (contactError) {
+      console.error(`❌ Error upserting contact:`, contactError);
+    }
+    
+    if (!contactId) {
+      console.log(`❌ No contact ID available`);
+      return res.json({ status: 'success' });
+    }
+    
+    // Send TEXT message to GHL
+    try {
+      const payload = {
+        type: "WhatsApp",
+        contactId: contactId,
+        message: message,
+        direction: "inbound",
+        status: "delivered",
+        altId: whatsappMsgId || `wa_${Date.now()}`
+      };
+      
+      const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${validToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      }, ghlAccount);
+      
+      if (inboundRes.ok) {
+        console.log(`✅ Text message sent to GHL`);
+      } else {
+        const errorText = await inboundRes.text();
+        console.error(`❌ Failed to send to GHL:`, errorText);
+      }
+    } catch (error) {
+      console.error(`❌ Error sending to GHL:`, error);
+    }
+    
+    res.json({ status: 'success' });
+  } catch (error) {
+    console.error('WhatsApp webhook error:', error);
+    res.json({ status: 'success' });
+  }
+});
+
 // GHL Provider Outbound Message Webhook
 app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
   try {
