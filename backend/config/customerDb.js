@@ -15,12 +15,36 @@ if (process.env.DATABASE_URL) {
         let host = url.hostname;
         let port = parseInt(url.port) || 5432;
         
-        // Use direct connection - pooler requires Pro plan
-        console.log(`📊 Database connection: ${host}:${port}`);
+        // Check if we should use Supabase Pooler via environment variable
+        const usePooler = process.env.USE_SUPABASE_POOLER === 'true';
+        
+        if (usePooler && host.includes('supabase.co') && !host.includes('pooler')) {
+            // Extract project reference from hostname like: db.flvbcxokjmyffggdkxqy.supabase.co
+            const projectRef = host.split('.')[1];
+            
+            // Use environment variable for region or try to detect from hostname
+            const region = process.env.SUPABASE_REGION || 'eu-west-2'; // Default to eu-west-2
+            
+            // Construct pooler hostname
+            // Format: aws-1-[region].pooler.supabase.com (note: aws-1, not aws-0)
+            host = `aws-1-${region}.pooler.supabase.com`;
+            port = 6543; // Pooler uses port 6543 for transaction mode
+            
+            // Important: Supabase pooler requires username in format: postgres.[project_ref]
+            if (!user.includes('.')) {
+                user = `${user}.${projectRef}`;
+                console.log(`✅ Using Supabase Pooler with user: ${user}`);
+            }
+            
+            console.log(`✅ Pooler connection: ${host}:${port} (Region: ${region})`);
+        } else {
+            console.log(`📊 Direct database connection: ${host}:${port}`);
+            console.log(`💡 To enable pooler, set USE_SUPABASE_POOLER=true`);
+        }
         
         // Use individual config parameters instead of connection string
         poolConfig = {
-            user: url.username,
+            user: user,
             password: decodeURIComponent(url.password),
             host: host,
             port: port,
@@ -57,7 +81,7 @@ if (process.env.DATABASE_URL) {
 } else {
     console.warn('⚠️ DATABASE_URL not set');
     poolConfig = {
-        connectionString: process.env.DATABASE_URL,
+    connectionString: process.env.DATABASE_URL,
         ssl: { rejectUnauthorized: false },
         max: 20,
     };
@@ -117,16 +141,16 @@ const query = async (text, params) => {
     let lastError;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            const res = await customerDbPool.query(text, params);
-            const duration = Date.now() - start;
+    try {
+        const res = await customerDbPool.query(text, params);
+        const duration = Date.now() - start;
             
             // Only log first 80 chars of query to avoid log spam
             const queryPreview = text.substring(0, 80).replace(/\s+/g, ' ');
             console.log(`📊 Query OK: ${queryPreview}... (${duration}ms, ${res.rowCount} rows)`);
             
-            return res;
-        } catch (error) {
+        return res;
+    } catch (error) {
             lastError = error;
             
             // Check if it's a transient network error
@@ -146,8 +170,8 @@ const query = async (text, params) => {
                 query: text.substring(0, 80)
             });
             
-            throw error;
-        }
+        throw error;
+    }
     }
     
     throw lastError;
@@ -156,7 +180,7 @@ const query = async (text, params) => {
 // Helper function to get a client from the pool
 const getClient = async () => {
     try {
-        return await customerDbPool.connect();
+    return await customerDbPool.connect();
     } catch (error) {
         console.error('❌ Failed to get database client:', error.message);
         throw error;
@@ -167,8 +191,8 @@ const getClient = async () => {
 const beginTransaction = async () => {
     const client = await getClient();
     try {
-        await client.query('BEGIN');
-        return client;
+    await client.query('BEGIN');
+    return client;
     } catch (error) {
         client.release();
         throw error;
@@ -178,18 +202,18 @@ const beginTransaction = async () => {
 // Helper function to commit a transaction
 const commitTransaction = async (client) => {
     try {
-        await client.query('COMMIT');
+    await client.query('COMMIT');
     } finally {
-        client.release();
+    client.release();
     }
 };
 
 // Helper function to rollback a transaction
 const rollbackTransaction = async (client) => {
     try {
-        await client.query('ROLLBACK');
+    await client.query('ROLLBACK');
     } finally {
-        client.release();
+    client.release();
     }
 };
 
