@@ -6,10 +6,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "build": "cd frontend && npm run build"
+    "build": "cd frontend && npm run build",
+    "diagnose": "node diagnose.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
+    "@wppconnect-team/wppconnect": "^1.30.0",
     "axios": "^1.12.2",
     "baileys": "6.7.9",
     "bcryptjs": "^3.0.2",

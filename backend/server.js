@@ -3,10 +3,10 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { createClient } = require('@supabase/supabase-js');
 const GHLClient = require('./lib/ghl');
-const BaileysWhatsAppManager = require('./lib/baileys-wa');
+const WPPConnectManager = require('./lib/wppconnect-wa');
 const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
-const { downloadContentFromMessage, downloadMediaMessage } = require('baileys');
+// const { downloadContentFromMessage, downloadMediaMessage } = require('baileys'); // Not needed with WPPConnect
 const axios = require('axios');
 
 const app = express();
@@ -172,8 +172,8 @@ async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
   }
 }
 
-// WhatsApp Manager (Baileys)
-const waManager = new BaileysWhatsAppManager();
+// WhatsApp Manager (WPPConnect)
+const waManager = new WPPConnectManager();
 
 // Scheduled token refresh (every 6 hours - more frequent for 24-hour tokens)
 setInterval(async () => {
@@ -672,7 +672,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client using Baileys - use subaccount_id from session
+    // Get WhatsApp client using WPPConnect - use subaccount_id from session
     const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
@@ -746,7 +746,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
-    // Send message using Baileys
+    // Send message using WPPConnect
     try {
       let sendResult;
       
@@ -813,9 +813,9 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         });
       }
       
-      console.log('✅ Message sent successfully via Baileys');
+      console.log('✅ Message sent successfully via WPPConnect');
     } catch (sendError) {
-      console.error('❌ Error sending message via Baileys:', sendError.message);
+      console.error('❌ Error sending message via WPPConnect:', sendError.message);
       
       // Send error notification to GHL conversation
       try {
@@ -2253,12 +2253,12 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       }
     }, 300000); // 300 seconds timeout (5 minutes for WhatsApp connection)
 
-    console.log(`Creating Baileys WhatsApp client with sessionName: ${sessionName}`);
+    console.log(`Creating WPPConnect WhatsApp client with sessionName: ${sessionName}`);
     
-    // Create Baileys client
+    // Create WPPConnect client
     try {
       const client = await waManager.createClient(sessionName);
-      console.log(`✅ Baileys client created for session: ${sessionName}`);
+      console.log(`✅ WPPConnect client created for session: ${sessionName}`);
       
       // Wait a moment for QR to be generated
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -2275,7 +2275,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
         console.log(`✅ QR updated in database immediately`);
       }
         } catch (error) {
-      console.error(`❌ Failed to create Baileys client:`, error);
+      console.error(`❌ Failed to create WPPConnect client:`, error);
       return res.status(500).json({ error: 'Failed to create WhatsApp client' });
     }
     
@@ -2675,7 +2675,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
       return res.status(404).json({ error: 'No active WhatsApp session found' });
     }
 
-    // Send message via WhatsApp using Baileys
+    // Send message via WhatsApp using WPPConnect
     const sessionId = session[0].id;
     const clientStatus = waManager.getClientStatus(sessionId);
     if (!clientStatus || clientStatus.status !== 'connected') {
@@ -2695,7 +2695,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
       .select()
       .single();
 
-    // Send via WhatsApp using Baileys
+    // Send via WhatsApp using WPPConnect
     await waManager.sendMessage(sessionId, contactId, message);
 
     res.json({
@@ -2710,7 +2710,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
 });
 
 
-// Debug endpoint to check WhatsApp clients (Baileys)
+// Debug endpoint to check WhatsApp clients (WPPConnect)
 app.get('/debug/whatsapp-clients', (req, res) => {
   try {
     const clients = waManager.getAllClients();
