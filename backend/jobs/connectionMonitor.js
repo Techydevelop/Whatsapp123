@@ -30,12 +30,22 @@ const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
         }
 
         // Get session details with short timeout
-        const sessionResult = await Promise.race([
-            query('SELECT id, phone_number, customer_id FROM sessions WHERE id = $1', [sessionId]),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Query timeout')), 3000)
-            )
-        ]).catch(error => {
+        // Note: sessionId might be a string format, not UUID
+        let sessionResult;
+        try {
+            sessionResult = await Promise.race([
+                query('SELECT id, phone_number, customer_id FROM sessions WHERE id::text = $1', [sessionId]),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Query timeout')), 3000)
+                )
+            ]);
+        } catch (error) {
+            // If UUID conversion fails, try alternative approach
+            if (error.code === '22P02') {
+                console.log(`⚠️ Session ID format issue for: ${sessionId}, skipping notification`);
+                return;
+            }
+            
             // Mark database as unhealthy on network errors
             if (['ENETUNREACH', 'ENOTFOUND', 'ETIMEDOUT', 'XX000'].includes(error.code) || 
                 error.message === 'Query timeout') {
@@ -44,7 +54,7 @@ const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
                 console.log(`⚠️ Database health check failed, disabling notifications for 5 minutes`);
             }
             throw error;
-        });
+        }
         
         // If query succeeded, mark database as healthy
         isDatabaseHealthy = true;
