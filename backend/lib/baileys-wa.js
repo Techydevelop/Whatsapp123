@@ -2,14 +2,7 @@ const { makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMess
 const fs = require('fs');
 const path = require('path');
 
-// Import connection monitoring for SaaS notifications
-let notifyCustomerConnectionLost = null;
-try {
-  const connectionMonitor = require('../jobs/connectionMonitor');
-  notifyCustomerConnectionLost = connectionMonitor.notifyCustomerConnectionLost;
-} catch (error) {
-  console.log('⚠️ Connection monitoring not available (SaaS features disabled)');
-}
+// Connection monitoring removed - keeping core functionality only
 
 class BaileysWhatsAppManager {
   constructor() {
@@ -94,6 +87,25 @@ class BaileysWhatsAppManager {
     }, 30000); // Check every 30 seconds
   }
 
+  async handleStuckSession(sessionId) {
+    try {
+      console.log(`🔄 Handling stuck session: ${sessionId}`);
+      
+      // Clear the stuck client
+      this.clients.delete(sessionId);
+      
+      // Clear session data
+      this.clearSessionData(sessionId);
+      
+      // Update database to disconnected
+      await this.updateDatabaseStatus(sessionId, 'disconnected');
+      
+      console.log(`✅ Stuck session cleared: ${sessionId}`);
+    } catch (error) {
+      console.error(`❌ Error handling stuck session ${sessionId}:`, error);
+    }
+  }
+
   hasExistingCredentials(sessionId) {
     const authDir = path.join(this.dataDir, `baileys_${sessionId}`);
     const credsFile = path.join(authDir, 'creds.json');
@@ -173,14 +185,20 @@ class BaileysWhatsAppManager {
     try {
       console.log(`🔄 Processing QR queue for session: ${sessionId} (${this.qrQueue.length} remaining)`);
       const socket = await this.createClientInternal(sessionId);
-      resolve(socket);
+      if (socket) {
+        resolve(socket);
+      } else {
+        reject(new Error('Socket creation returned null'));
+      }
     } catch (error) {
       console.error(`❌ Error processing QR queue for ${sessionId}:`, error);
       reject(error);
     } finally {
       this.isGeneratingQR = false;
-      // Process next in queue after a delay
-      setTimeout(() => this.processQRQueue(), 1000); // 1 second delay between QR generations
+      // Process next in queue after a smaller delay
+      if (this.qrQueue.length > 0) {
+        setTimeout(() => this.processQRQueue(), 500); // Reduced to 500ms for faster processing
+      }
     }
   }
   
@@ -258,14 +276,21 @@ class BaileysWhatsAppManager {
         
       if (qr) {
         console.log(`📱 QR Code generated for session: ${sessionId}`);
-        // Always set QR code when generated - simplified logic
+        console.log(`📱 QR Code value:`, qr ? qr.substring(0, 50) + '...' : 'null');
+        
+        // Set QR code immediately
         this.clients.set(sessionId, {
           socket,
           qr,
-          status: 'qr_ready',
+          status: 'qr',  // Changed from 'qr_ready' to 'qr' to match database status
           lastUpdate: Date.now()
         });
-        console.log(`📱 QR code set immediately for session: ${sessionId}`);
+        console.log(`✅ QR code set for session: ${sessionId} with status 'qr'`);
+        
+        // Update database immediately when QR is generated
+        this.updateDatabaseStatus(sessionId, 'qr').catch(err => {
+          console.error(`❌ Failed to update database status to 'qr':`, err);
+        });
       }
 
         if (connection === 'close') {
@@ -286,21 +311,6 @@ class BaileysWhatsAppManager {
             const client = this.clients.get(sessionId);
             client.status = 'disconnected';
             client.lastUpdate = Date.now();
-          }
-
-          // Notify customer about connection loss (SaaS feature)
-          if (notifyCustomerConnectionLost) {
-            try {
-              notifyCustomerConnectionLost(sessionId, {
-                reason: lastDisconnect?.error?.message || 'Connection lost',
-                timestamp: new Date().toISOString(),
-                shouldReconnect: shouldReconnect
-              }).catch(notificationError => {
-                console.error('❌ Error sending connection lost notification:', notificationError);
-              });
-            } catch (notificationError) {
-              console.error('❌ Error sending connection lost notification:', notificationError);
-            }
           }
           
           if (shouldReconnect) {
@@ -387,7 +397,14 @@ class BaileysWhatsAppManager {
         });
         console.log(`🔄 Restoring existing session: ${sessionId}`);
       } else {
-        console.log(`🆕 Fresh session - no restoration needed: ${sessionId}`);
+        // For fresh sessions, set to connecting and wait for QR
+        this.clients.set(sessionId, {
+          socket,
+          qr: null,
+          status: 'connecting',
+          lastUpdate: Date.now()
+        });
+        console.log(`🆕 Fresh session created, waiting for QR: ${sessionId}`);
       }
 
       // Handle credentials update
@@ -624,22 +641,13 @@ class BaileysWhatsAppManager {
     try {
       const client = this.clients.get(sessionId);
       
-      if (!client || (client.status !== 'connected' && client.status !== 'ready' && client.status !== 'qr_ready')) {
+      if (!client || (client.status !== 'connected' && client.status !== 'ready')) {
         throw new Error(`Client not ready for session: ${sessionId}, status: ${client?.status || 'not found'}`);
       }
       
-      // Check if socket is properly initialized (only for connected/ready status)
-      if ((client.status === 'connected' || client.status === 'ready') && (!client.socket || !client.socket.user)) {
+      // Check if socket is properly initialized
+      if (!client.socket || !client.socket.user) {
         throw new Error(`Socket not properly initialized for session: ${sessionId}`);
-      }
-      
-      // For qr_ready status, don't send messages
-      if (client.status === 'qr_ready') {
-        // Extract subaccount ID from session ID for better error message
-        const sessionParts = sessionId.split('_');
-        const subaccountId = sessionParts.length >= 2 ? sessionParts[1] : 'Unknown';
-        
-        throw new Error(`Connection has lost due to inactivity. Please logout and reconnect.`);
       }
 
       // Format phone number
@@ -923,7 +931,7 @@ class BaileysWhatsAppManager {
       // Also cleanup disconnected clients from memory
       this.clients.forEach((client, sessionKey) => {
         if (sessionKey.includes(subaccountId) && sessionKey !== `location_${subaccountId}_${currentSessionId}`) {
-          if (client.status === 'disconnected' || client.status === 'qr_ready' || client.status === 'connecting') {
+          if (client.status === 'disconnected' || client.status === 'qr' || client.status === 'connecting') {
             console.log(`🗑️ Removing old client from memory: ${sessionKey} (status: ${client.status})`);
             this.clients.delete(sessionKey);
           }
