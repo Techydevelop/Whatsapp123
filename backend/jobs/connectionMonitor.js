@@ -7,6 +7,11 @@ const { sendConnectionLostWhatsApp } = require('../utils/whatsapp-notification')
  * @param {string} sessionId - Session ID
  * @param {object} metadata - Connection metadata
  */
+// Global variable to track database health
+let isDatabaseHealthy = true;
+let lastHealthCheck = Date.now();
+const HEALTH_CHECK_INTERVAL = 5 * 60 * 1000; // Check every 5 minutes
+
 const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
     try {
         console.log(`🔍 Checking connection loss for session: ${sessionId}`);
@@ -17,13 +22,32 @@ const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
             return;
         }
 
-        // Get session details with timeout
+        // Check database health before attempting query
+        const now = Date.now();
+        if (!isDatabaseHealthy && (now - lastHealthCheck) < HEALTH_CHECK_INTERVAL) {
+            console.log(`⚠️ Database unreachable, skipping notification for: ${sessionId}`);
+            return;
+        }
+
+        // Get session details with short timeout
         const sessionResult = await Promise.race([
             query('SELECT id, phone, customer_id FROM sessions WHERE id = $1', [sessionId]),
             new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Query timeout')), 5000)
+                setTimeout(() => reject(new Error('Query timeout')), 3000)
             )
-        ]);
+        ]).catch(error => {
+            // Mark database as unhealthy on network errors
+            if (['ENETUNREACH', 'ENOTFOUND', 'ETIMEDOUT', 'XX000'].includes(error.code) || 
+                error.message === 'Query timeout') {
+                isDatabaseHealthy = false;
+                lastHealthCheck = now;
+                console.log(`⚠️ Database health check failed, disabling notifications for 5 minutes`);
+            }
+            throw error;
+        });
+        
+        // If query succeeded, mark database as healthy
+        isDatabaseHealthy = true;
 
         if (sessionResult.rows.length === 0) {
             console.log(`❌ Session not found: ${sessionId}`);
@@ -123,12 +147,17 @@ const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
         }
 
     } catch (error) {
-        // Only log network errors once every 5 minutes to avoid spam
-        const now = Date.now();
-        const lastLogKey = `notifyError_${sessionId}`;
-        if (!global[lastLogKey] || (now - global[lastLogKey]) > 300000) {
+        // Mark database as unhealthy on connection errors
+        if (['ENETUNREACH', 'ENOTFOUND', 'ETIMEDOUT', 'XX000'].includes(error.code)) {
+            isDatabaseHealthy = false;
+            lastHealthCheck = Date.now();
+            // Only log once when database becomes unhealthy
+            if (isDatabaseHealthy !== false) {
+                console.error('❌ Database connection failed, notifications disabled temporarily:', error.message);
+            }
+        } else {
+            // Log other errors normally (but not network errors repeatedly)
             console.error('❌ Error in notifyCustomerConnectionLost:', error.message);
-            global[lastLogKey] = now;
         }
         // Don't throw - this is a background notification, shouldn't crash the app
     }
@@ -140,6 +169,12 @@ const notifyCustomerConnectionLost = async (sessionId, metadata = {}) => {
  */
 const checkDisconnectedSessions = async () => {
     try {
+        // Skip if database is marked as unhealthy
+        if (!isDatabaseHealthy) {
+            console.log('⚠️ Skipping disconnected sessions check - database unhealthy');
+            return;
+        }
+
         console.log('🔍 Checking for disconnected sessions...');
 
         // Get all disconnected sessions with customer_id
@@ -174,7 +209,14 @@ const checkDisconnectedSessions = async () => {
         console.log('✅ Disconnected sessions check completed');
 
     } catch (error) {
-        console.error('❌ Error checking disconnected sessions:', error);
+        // Mark database as unhealthy on connection errors
+        if (['ENETUNREACH', 'ENOTFOUND', 'ETIMEDOUT', 'XX000'].includes(error.code)) {
+            isDatabaseHealthy = false;
+            lastHealthCheck = Date.now();
+            console.log('⚠️ Database connection failed during session check, marking as unhealthy');
+        } else {
+            console.error('❌ Error checking disconnected sessions:', error.message);
+        }
     }
 };
 
@@ -183,6 +225,12 @@ const checkDisconnectedSessions = async () => {
  */
 const getConnectionStats = async () => {
     try {
+        // Skip if database is marked as unhealthy
+        if (!isDatabaseHealthy) {
+            console.log('⚠️ Skipping connection stats - database unhealthy');
+            return null;
+        }
+        
         // Get total sessions
         const totalSessionsResult = await query('SELECT COUNT(*) as count FROM sessions');
         const totalSessions = parseInt(totalSessionsResult.rows[0].count);
@@ -216,7 +264,12 @@ const getConnectionStats = async () => {
         return stats;
 
     } catch (error) {
-        console.error('❌ Error getting connection stats:', error);
+        // Mark database as unhealthy on connection errors
+        if (['ENETUNREACH', 'ENOTFOUND', 'ETIMEDOUT', 'XX000'].includes(error.code)) {
+            isDatabaseHealthy = false;
+            lastHealthCheck = Date.now();
+        }
+        console.error('❌ Error getting connection stats:', error.message);
         return null;
     }
 };

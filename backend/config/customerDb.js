@@ -15,40 +15,12 @@ if (process.env.DATABASE_URL) {
         let host = url.hostname;
         let port = parseInt(url.port) || 5432;
         
-        // Check if this is a Supabase database
-        let user = url.username;
-        
-        // Check if we should use Supabase Pooler via environment variable
-        const usePooler = process.env.USE_SUPABASE_POOLER === 'true';
-        
-        if (usePooler && host.includes('supabase.co') && !host.includes('pooler')) {
-            // Extract project reference from hostname like: db.flvbcxokjmyffggdkxqy.supabase.co
-            const projectRef = host.split('.')[1];
-            
-            // Use environment variable for region or try to detect from hostname
-            const region = process.env.SUPABASE_REGION || 'eu-west-2'; // Default to eu-west-2
-            
-            // Construct pooler hostname
-            // Format: aws-0-[region].pooler.supabase.com
-            host = `aws-0-${region}.pooler.supabase.com`;
-            port = 6543; // Pooler uses port 6543 for transaction mode
-            
-            // Important: Supabase pooler requires username in format: postgres.[project_ref]
-            if (!user.includes('.')) {
-                user = `${user}.${projectRef}`;
-                console.log(`✅ Using Supabase Pooler with user: ${user}`);
-            }
-            
-            console.log(`✅ Pooler connection: ${host}:${port} (Region: ${region})`);
-        } else {
-            console.log(`📊 Direct database connection: ${host}:${port}`);
-            console.log(`💡 To enable pooler, set USE_SUPABASE_POOLER=true`);
-        }
+        // Use direct connection - pooler requires Pro plan
+        console.log(`📊 Database connection: ${host}:${port}`);
         
         // Use individual config parameters instead of connection string
-        // This gives pg library more control over connection
         poolConfig = {
-            user: user,
+            user: url.username,
             password: decodeURIComponent(url.password),
             host: host,
             port: port,
