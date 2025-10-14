@@ -6,12 +6,9 @@ services:
     region: oregon
     plan: free
     buildCommand: |
-      # Install Node dependencies only (no Chromium needed for Baileys)
-      cd backend && npm install --production --no-optional
+      # Install Node dependencies (yarn will be used automatically)
+      cd backend && yarn install --production
     startCommand: cd backend && npm start
     envVars:
       - key: NODE_ENV
         value: production
-      # Force npm
-      - key: NPM_CONFIG_PACKAGE_MANAGER
-        value: npm
