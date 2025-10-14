@@ -12,6 +12,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
     "axios": "^1.12.2",
+    "baileys": "6.7.16",
     "venom-bot": "^5.0.30",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
