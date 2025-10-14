@@ -205,7 +205,7 @@ setInterval(async () => {
   } catch (error) {
     console.error('❌ Scheduled token refresh error:', error);
   }
-}, 6 * 60 * 60 * 1000); // Every 6 hours
+}, 12 * 60 * 60 * 1000); // Every 12 hours (reduced frequency)
 
 // Additional aggressive token refresh (every 2 hours for critical accounts)
 setInterval(async () => {
@@ -239,7 +239,7 @@ setInterval(async () => {
   } catch (error) {
     console.error('❌ Aggressive token refresh error:', error);
   }
-}, 2 * 60 * 60 * 1000); // Every 2 hours
+}, 6 * 60 * 60 * 1000); // Every 6 hours (reduced frequency)
 
 // Restore WhatsApp clients from database on startup
 async function restoreWhatsAppClients() {
@@ -2327,19 +2327,6 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
           .update({ qr: qrDataUrl, status: 'qr' })
             .eq('id', session.id);
         console.log(`✅ QR updated in database immediately`);
-      } else {
-        // If no QR after 2 seconds, try force generation
-        console.log(`🔄 No QR available, attempting force generation...`);
-        const forceQR = await waManager.forceQRGeneration(sessionName);
-        if (forceQR) {
-          console.log(`📱 Force QR generated, updating database...`);
-          const qrDataUrl = await qrcode.toDataURL(forceQR);
-          await supabaseAdmin
-            .from('sessions')
-            .update({ qr: qrDataUrl, status: 'qr' })
-            .eq('id', session.id);
-          console.log(`✅ Force QR updated in database`);
-        }
       }
         } catch (error) {
       console.error(`❌ Failed to create Baileys client:`, error);
@@ -3331,10 +3318,10 @@ app.listen(PORT, () => {
   // Validate environment variables (non-blocking)
   validateEnvironment();
   
-  // Start background job scheduler
+  // Start background job scheduler - DISABLED FOR NOW
   try {
-    startScheduler();
-    console.log('✅ Background jobs initialized successfully');
+    // startScheduler(); // Disabled to reduce server load
+    console.log('⚠️ Background jobs disabled to reduce server load');
   } catch (error) {
     console.error('❌ Failed to start background jobs:', error);
   }

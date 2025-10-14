@@ -19,8 +19,8 @@ class BaileysWhatsAppManager {
     this.qrQueue = []; // Queue for sequential QR generation
     this.isGeneratingQR = false;
     
-    // Start connection health monitor
-    this.startHealthMonitor();
+      // Start connection health monitor
+      this.startHealthMonitor();
   }
 
   // Make clients accessible for phone number retrieval
@@ -179,8 +179,8 @@ class BaileysWhatsAppManager {
       reject(error);
     } finally {
       this.isGeneratingQR = false;
-      // Process next in queue immediately for faster QR generation
-      setTimeout(() => this.processQRQueue(), 100); // Reduced to 100ms delay
+      // Process next in queue after a delay
+      setTimeout(() => this.processQRQueue(), 3000); // 3 second delay between QR generations
     }
   }
   
@@ -220,14 +220,15 @@ class BaileysWhatsAppManager {
         },
         browser: ['GHLTechy', 'Chrome', '1.0.0'],
         generateHighQualityLinkPreview: true,
-        markOnlineOnConnect: false, // Changed to false to prevent connection issues
+        markOnlineOnConnect: true,
         syncFullHistory: false,
-        defaultQueryTimeoutMs: 60000,
-        keepAliveIntervalMs: 30000, // Less frequent to reduce load
-        connectTimeoutMs: 60000, // Reduced timeout
-        retryRequestDelayMs: 1000, // Faster retries
+        defaultQueryTimeoutMs: 120000,
+        keepAliveIntervalMs: 10000, // More frequent keep-alive
+        connectTimeoutMs: 120000,
+        retryRequestDelayMs: 2000, // Longer delay between retries
         maxMsgRetryCount: 3,
-        heartbeatIntervalMs: 30000, // Less frequent heartbeat
+        heartbeatIntervalMs: 5000, // More frequent heartbeat
+        defaultQueryTimeoutMs: 60000, // Shorter query timeout
         msgRetryCounterCache: new Map(),
         getMessage: async (key) => {
           return {
@@ -236,16 +237,13 @@ class BaileysWhatsAppManager {
         },
         shouldSyncHistoryMessage: () => false,
         shouldIgnoreJid: () => false,
-        fireInitQueries: false, // Changed to false to prevent connection issues
-        emitOwnEvents: false,
-        // Add connection options for better stability
-        connectionOptions: {
-          maxRetries: 5,
-          retryDelay: 2000
-        }
+        fireInitQueries: true,
+        emitOwnEvents: false
       });
 
-      // Handle connection updates - simplified
+      // Handle connection updates with stability check
+      let connectionStable = false;
+      let stabilityTimer = null;
       let connectionOpenTime = null;
       
       socket.ev.on('connection.update', (update) => {
@@ -261,17 +259,29 @@ class BaileysWhatsAppManager {
         
       if (qr) {
         console.log(`📱 QR Code generated for session: ${sessionId}`);
-        // Always set QR code immediately when generated - simplified logic
-        this.clients.set(sessionId, {
-          socket,
-          qr,
-          status: 'qr_ready',
-          lastUpdate: Date.now()
-        });
-        console.log(`📱 QR code set immediately for session: ${sessionId}`);
+        // Only set qr_ready if not already connected AND connection is not stable
+        if (!connectionStable && (!this.clients.has(sessionId) || this.clients.get(sessionId).status !== 'connected')) {
+          this.clients.set(sessionId, {
+            socket,
+            qr,
+            status: 'qr_ready',
+            lastUpdate: Date.now()
+          });
+          console.log(`📱 Status set to 'qr_ready' for session: ${sessionId}`);
+        } else if (connectionStable) {
+          console.log(`🚫 Ignoring QR generation - connection is stable for session: ${sessionId}`);
+        } else {
+          console.log(`🚫 Ignoring QR generation - client already connected for session: ${sessionId}`);
+        }
       }
 
         if (connection === 'close') {
+          // Clear stability timer if connection closes
+          if (stabilityTimer) {
+            clearTimeout(stabilityTimer);
+            stabilityTimer = null;
+          }
+          connectionStable = false;
           connectionOpenTime = null;
           
           const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
@@ -326,17 +336,29 @@ class BaileysWhatsAppManager {
           console.log(`✅ WhatsApp connected for session: ${sessionId}`);
           console.log(`📱 Phone number: ${socket.user?.id?.split(':')[0] || 'Unknown'}`);
           
-          // Set connected status immediately
+          // Set temporary status as 'connecting' until stable
           this.clients.set(sessionId, {
             socket,
             qr: null,
-            status: 'connected',
+            status: 'connecting',
             phoneNumber: socket.user?.id?.split(':')[0],
             lastUpdate: Date.now(),
             connectedAt: Date.now()
           });
           
-          console.log(`✅ WhatsApp connected for session: ${sessionId}`);
+          // Immediate connection - no stability delay
+          connectionStable = true;
+          const currentTime = Date.now();
+          this.clients.set(sessionId, {
+            socket,
+            qr: null,
+            status: 'connected',
+            phoneNumber: socket.user?.id?.split(':')[0],
+            lastUpdate: currentTime,
+            connectedAt: currentTime
+          });
+          
+          console.log(`✅ WhatsApp immediately connected for session: ${sessionId}`);
           console.log(`🔒 Status set to 'connected' for session: ${sessionId}`);
           
           // Update database status immediately
@@ -559,21 +581,9 @@ class BaileysWhatsAppManager {
       if (!client) {
         console.log(`🔄 No client found for ${sessionId}, creating new one...`);
         await this.createClient(sessionId);
-        // Reduced wait time for faster QR generation
-        await new Promise(resolve => setTimeout(resolve, 500)); // Reduced to 500ms
+        // Wait a bit for client to initialize
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Quick wait
         client = this.clients.get(sessionId);
-      }
-
-      // Check if session is stuck and handle it
-      if (client && client.status === 'connecting') {
-        const timeSinceLastUpdate = Date.now() - client.lastUpdate;
-        if (timeSinceLastUpdate > 15000 && !client.qr) { // Reduced to 15 seconds
-          console.log(`🚨 Session ${sessionId} appears stuck, forcing QR generation...`);
-          const qrCode = await this.forceQRGeneration(sessionId);
-          if (qrCode) {
-            return qrCode;
-          }
-        }
       }
 
       if (client && client.qr) {
@@ -850,70 +860,6 @@ class BaileysWhatsAppManager {
     this.isGeneratingQR = false;
   }
   
-  // Force refresh QR for stuck sessions
-  async forceRefreshQR(sessionId) {
-    try {
-      console.log(`🔄 Force refreshing QR for session: ${sessionId}`);
-      
-      // Clear existing client
-      this.clients.delete(sessionId);
-      
-      // Clear session data to force fresh connection
-      this.clearSessionData(sessionId);
-      
-      // Create new client immediately
-      await this.createClient(sessionId);
-      
-      console.log(`✅ QR refresh initiated for session: ${sessionId}`);
-      return true;
-    } catch (error) {
-      console.error(`❌ Error force refreshing QR for ${sessionId}:`, error);
-      return false;
-    }
-  }
-
-  // Force QR generation for stuck sessions
-  async forceQRGeneration(sessionId) {
-    try {
-      console.log(`🔄 Force generating QR for session: ${sessionId}`);
-      
-      // Clear existing client completely
-      this.clients.delete(sessionId);
-      
-      // Clear session data to force fresh connection
-      this.clearSessionData(sessionId);
-      
-      // Wait a moment
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Create new client
-      await this.createClient(sessionId);
-      
-      // Wait for QR generation
-      let attempts = 0;
-      const maxAttempts = 30; // 30 seconds
-      
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const client = this.clients.get(sessionId);
-        if (client && client.qr) {
-          console.log(`✅ QR generated successfully for ${sessionId}`);
-          return client.qr;
-        }
-        
-        attempts++;
-        console.log(`⏳ Waiting for QR generation... attempt ${attempts}/${maxAttempts}`);
-      }
-      
-      console.log(`❌ QR generation timeout for ${sessionId}`);
-      return null;
-      
-    } catch (error) {
-      console.error(`❌ Error force generating QR for ${sessionId}:`, error);
-      return null;
-    }
-  }
   
   // Update database status
   async updateDatabaseStatus(sessionId, status, phoneNumber = null) {
