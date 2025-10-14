@@ -1,0 +1,4 @@
+# Force npm package manager
+{
+  "packageManager": "npm@10.0.0"
+}

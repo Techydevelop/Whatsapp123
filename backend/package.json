@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "build": "cd frontend && npm run build",
-    "diagnose": "node diagnose.js"
+    "diagnose": "node diagnose.js",
+    "postinstall": "echo 'Using npm package manager'"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
