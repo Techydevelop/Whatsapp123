@@ -57,7 +57,7 @@ export default function AdminDashboard() {
   const fetchAnalytics = async () => {
     try {
       const token = localStorage.getItem('adminToken');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/analytics`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://whatsapp123-dhn1.onrender.com'}/api/admin/analytics`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
