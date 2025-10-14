@@ -180,7 +180,7 @@ class BaileysWhatsAppManager {
     } finally {
       this.isGeneratingQR = false;
       // Process next in queue after a delay
-      setTimeout(() => this.processQRQueue(), 3000); // 3 second delay between QR generations
+      setTimeout(() => this.processQRQueue(), 1000); // 1 second delay between QR generations
     }
   }
   
@@ -220,15 +220,14 @@ class BaileysWhatsAppManager {
         },
         browser: ['GHLTechy', 'Chrome', '1.0.0'],
         generateHighQualityLinkPreview: true,
-        markOnlineOnConnect: true,
+        markOnlineOnConnect: false,
         syncFullHistory: false,
-        defaultQueryTimeoutMs: 120000,
-        keepAliveIntervalMs: 10000, // More frequent keep-alive
-        connectTimeoutMs: 120000,
-        retryRequestDelayMs: 2000, // Longer delay between retries
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000, // Less frequent to reduce load
+        connectTimeoutMs: 60000, // Reduced timeout
+        retryRequestDelayMs: 1000, // Faster retries
         maxMsgRetryCount: 3,
-        heartbeatIntervalMs: 5000, // More frequent heartbeat
-        defaultQueryTimeoutMs: 60000, // Shorter query timeout
+        heartbeatIntervalMs: 30000, // Less frequent heartbeat
         msgRetryCounterCache: new Map(),
         getMessage: async (key) => {
           return {
@@ -237,7 +236,7 @@ class BaileysWhatsAppManager {
         },
         shouldSyncHistoryMessage: () => false,
         shouldIgnoreJid: () => false,
-        fireInitQueries: true,
+        fireInitQueries: false,
         emitOwnEvents: false
       });
 
@@ -259,20 +258,14 @@ class BaileysWhatsAppManager {
         
       if (qr) {
         console.log(`📱 QR Code generated for session: ${sessionId}`);
-        // Only set qr_ready if not already connected AND connection is not stable
-        if (!connectionStable && (!this.clients.has(sessionId) || this.clients.get(sessionId).status !== 'connected')) {
-          this.clients.set(sessionId, {
-            socket,
-            qr,
-            status: 'qr_ready',
-            lastUpdate: Date.now()
-          });
-          console.log(`📱 Status set to 'qr_ready' for session: ${sessionId}`);
-        } else if (connectionStable) {
-          console.log(`🚫 Ignoring QR generation - connection is stable for session: ${sessionId}`);
-        } else {
-          console.log(`🚫 Ignoring QR generation - client already connected for session: ${sessionId}`);
-        }
+        // Always set QR code when generated - simplified logic
+        this.clients.set(sessionId, {
+          socket,
+          qr,
+          status: 'qr_ready',
+          lastUpdate: Date.now()
+        });
+        console.log(`📱 QR code set immediately for session: ${sessionId}`);
       }
 
         if (connection === 'close') {
