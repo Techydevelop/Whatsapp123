@@ -57,7 +57,7 @@ class BaileysWhatsAppManager {
   // Connection health monitor
   startHealthMonitor() {
     setInterval(() => {
-      this.clients.forEach((client, sessionId) => {
+      this.clients.forEach(async (client, sessionId) => {
         if (client.status === 'connected') {
           const timeSinceLastUpdate = Date.now() - client.lastUpdate;
           
@@ -81,6 +81,13 @@ class BaileysWhatsAppManager {
               client.status = 'disconnected';
               client.lastUpdate = Date.now();
             }
+          }
+        } else if (client.status === 'connecting') {
+          // Check for stuck connecting sessions
+          const timeSinceLastUpdate = Date.now() - client.lastUpdate;
+          if (timeSinceLastUpdate > 30000 && !client.qr) {
+            console.log(`🚨 Health monitor detected stuck session: ${sessionId}`);
+            await this.handleStuckSession(sessionId);
           }
         }
       });
@@ -213,15 +220,14 @@ class BaileysWhatsAppManager {
         },
         browser: ['GHLTechy', 'Chrome', '1.0.0'],
         generateHighQualityLinkPreview: true,
-        markOnlineOnConnect: true,
+        markOnlineOnConnect: false, // Changed to false to prevent connection issues
         syncFullHistory: false,
-        defaultQueryTimeoutMs: 120000,
-        keepAliveIntervalMs: 10000, // More frequent keep-alive
-        connectTimeoutMs: 120000,
-        retryRequestDelayMs: 2000, // Longer delay between retries
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000, // Less frequent to reduce load
+        connectTimeoutMs: 60000, // Reduced timeout
+        retryRequestDelayMs: 1000, // Faster retries
         maxMsgRetryCount: 3,
-        heartbeatIntervalMs: 5000, // More frequent heartbeat
-        defaultQueryTimeoutMs: 60000, // Shorter query timeout
+        heartbeatIntervalMs: 30000, // Less frequent heartbeat
         msgRetryCounterCache: new Map(),
         getMessage: async (key) => {
           return {
@@ -230,8 +236,13 @@ class BaileysWhatsAppManager {
         },
         shouldSyncHistoryMessage: () => false,
         shouldIgnoreJid: () => false,
-        fireInitQueries: true,
-        emitOwnEvents: false
+        fireInitQueries: false, // Changed to false to prevent connection issues
+        emitOwnEvents: false,
+        // Add connection options for better stability
+        connectionOptions: {
+          maxRetries: 5,
+          retryDelay: 2000
+        }
       });
 
       // Handle connection updates - simplified
@@ -290,20 +301,22 @@ class BaileysWhatsAppManager {
           }
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} in 30 seconds...`);
-            // Longer delay to prevent false reconnections and reduce server load
+            console.log(`🔄 Reconnecting session: ${sessionId} in 5 seconds...`);
+            // Faster reconnection for better user experience
             setTimeout(() => {
               // Check if client is still disconnected before reconnecting
               const currentClient = this.clients.get(sessionId);
               if (currentClient && currentClient.status === 'disconnected') {
                 console.log(`🔄 Attempting reconnection for: ${sessionId}`);
+                // Clear session data and force fresh connection
+                this.clearSessionData(sessionId);
                 this.createClient(sessionId).catch(err => {
                   console.error(`❌ Reconnection failed for ${sessionId}:`, err);
                 });
               } else {
                 console.log(`✅ Client ${sessionId} already reconnected, skipping reconnection`);
               }
-            }, 30000); // Increased to 30 seconds to reduce unnecessary checks
+            }, 5000); // Reduced to 5 seconds for faster recovery
           } else {
             // Only delete if logged out
             this.clients.delete(sessionId);
@@ -549,6 +562,18 @@ class BaileysWhatsAppManager {
         // Reduced wait time for faster QR generation
         await new Promise(resolve => setTimeout(resolve, 500)); // Reduced to 500ms
         client = this.clients.get(sessionId);
+      }
+
+      // Check if session is stuck and handle it
+      if (client && client.status === 'connecting') {
+        const timeSinceLastUpdate = Date.now() - client.lastUpdate;
+        if (timeSinceLastUpdate > 30000 && !client.qr) {
+          console.log(`🚨 Session ${sessionId} appears stuck, attempting refresh...`);
+          await this.handleStuckSession(sessionId);
+          // Wait a bit for refresh to complete
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          client = this.clients.get(sessionId);
+        }
       }
 
       if (client && client.qr) {
@@ -843,6 +868,30 @@ class BaileysWhatsAppManager {
       return true;
     } catch (error) {
       console.error(`❌ Error force refreshing QR for ${sessionId}:`, error);
+      return false;
+    }
+  }
+
+  // Handle stuck sessions that never generate QR
+  async handleStuckSession(sessionId) {
+    try {
+      const client = this.clients.get(sessionId);
+      if (!client) return false;
+      
+      const timeSinceLastUpdate = Date.now() - client.lastUpdate;
+      
+      // If session has been stuck for more than 30 seconds without QR
+      if (timeSinceLastUpdate > 30000 && !client.qr && client.status === 'connecting') {
+        console.log(`🚨 Session ${sessionId} is stuck, forcing refresh...`);
+        
+        // Force refresh
+        await this.forceRefreshQR(sessionId);
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error(`❌ Error handling stuck session ${sessionId}:`, error);
       return false;
     }
   }
