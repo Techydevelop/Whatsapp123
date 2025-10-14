@@ -1,8 +1,8 @@
-const wppconnect = require('@wppconnect-team/wppconnect');
+const venom = require('venom-bot');
 const fs = require('fs');
 const path = require('path');
 
-class WPPConnectManager {
+class VenomWhatsAppManager {
   constructor() {
     this.clients = new Map();
     this.dataDir = path.join(__dirname, '../data');
@@ -28,9 +28,9 @@ class WPPConnectManager {
   // Clear session data
   clearSessionData(sessionId) {
     try {
-      const tokenPath = path.join(this.dataDir, `${sessionId}-token.data`);
+      const tokenPath = path.join(this.dataDir, 'tokens', sessionId);
       if (fs.existsSync(tokenPath)) {
-        fs.unlinkSync(tokenPath);
+        fs.rmSync(tokenPath, { recursive: true, force: true });
         console.log(`🗑️ Cleared session data for: ${sessionId}`);
       }
       this.clients.delete(sessionId);
@@ -40,13 +40,13 @@ class WPPConnectManager {
   }
 
   hasExistingCredentials(sessionId) {
-    const tokenPath = path.join(this.dataDir, `${sessionId}-token.data`);
+    const tokenPath = path.join(this.dataDir, 'tokens', sessionId);
     return fs.existsSync(tokenPath);
   }
 
   async createClient(sessionId) {
     try {
-      console.log(`🚀 Creating WPPConnect client for session: ${sessionId}`);
+      console.log(`🚀 Creating Venom client for session: ${sessionId}`);
       
       // Check if client already exists
       if (this.clients.has(sessionId)) {
@@ -61,40 +61,11 @@ class WPPConnectManager {
         let qrGenerated = false;
         let qrCode = null;
 
-        wppconnect
-          .create({
-            session: sessionId,
-            tokenStore: 'file',
-            folderNameToken: this.dataDir,
-            headless: true, // Important for Render
-            devtools: false,
-            useChrome: true,
-            debug: false,
-            logQR: false,
-            browserArgs: [
-              '--no-sandbox',
-              '--disable-setuid-sandbox',
-              '--disable-dev-shm-usage',
-              '--disable-accelerated-2d-canvas',
-              '--no-first-run',
-              '--no-zygote',
-              '--disable-gpu'
-            ],
-            // Puppeteer options for better stability
-            puppeteerOptions: {
-              headless: true,
-              args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--disable-gpu'
-              ]
-            },
-            // QR Code callback
-            catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
+        venom
+          .create(
+            sessionId,
+            (base64Qr, asciiQR, attempts, urlCode) => {
+              // QR Code callback
               console.log(`📱 QR Code generated for session: ${sessionId} (Attempt ${attempts})`);
               qrGenerated = true;
               qrCode = base64Qr;
@@ -107,8 +78,8 @@ class WPPConnectManager {
                 lastUpdate: Date.now()
               });
             },
-            // Status callback
-            statusFind: (statusSession, session) => {
+            (statusSession, session) => {
+              // Status callback
               console.log(`🔄 Status for ${session}: ${statusSession}`);
               
               if (this.clients.has(sessionId)) {
@@ -116,29 +87,53 @@ class WPPConnectManager {
                 client.statusSession = statusSession;
                 client.lastUpdate = Date.now();
               }
+            },
+            {
+              folderNameToken: path.join(this.dataDir, 'tokens'),
+              headless: true,
+              useChrome: true,
+              debug: false,
+              logQR: false,
+              browserArgs: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
+                '--disable-extensions'
+              ],
+              // Use system Chrome if available
+              executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || 
+                             process.env.CHROME_BIN || 
+                             undefined,
+              disableSpins: true,
+              disableWelcome: true,
+              updatesLog: false
+            },
+            undefined,
+            (browser, page) => {
+              // Browser session started
+              console.log(`🌐 Browser session started for: ${sessionId}`);
             }
-          })
+          )
           .then((client) => {
-            console.log(`✅ WPPConnect client created for session: ${sessionId}`);
+            console.log(`✅ Venom client created for session: ${sessionId}`);
             
-            // Store client
-            this.clients.set(sessionId, {
-              client: client,
-              qr: qrCode,
-              status: 'connected',
-              lastUpdate: Date.now(),
-              phoneNumber: null
-            });
-
             // Get phone number
             client.getHostDevice().then((phone) => {
               const phoneNumber = phone.id.user;
               console.log(`📱 Connected phone number: ${phoneNumber}`);
               
-              const clientData = this.clients.get(sessionId);
-              if (clientData) {
-                clientData.phoneNumber = phoneNumber;
-              }
+              // Store client
+              this.clients.set(sessionId, {
+                client: client,
+                qr: qrCode,
+                status: 'connected',
+                lastUpdate: Date.now(),
+                phoneNumber: phoneNumber
+              });
 
               // Update database
               this.updateDatabaseStatus(sessionId, 'ready', phoneNumber);
@@ -154,7 +149,7 @@ class WPPConnectManager {
             resolve(client);
           })
           .catch((error) => {
-            console.error(`❌ Error creating WPPConnect client for ${sessionId}:`, error);
+            console.error(`❌ Error creating Venom client for ${sessionId}:`, error);
             reject(error);
           });
       });
@@ -240,7 +235,7 @@ class WPPConnectManager {
     try {
       const clientData = this.clients.get(sessionId);
       if (clientData && clientData.client) {
-        await clientData.client.logout();
+        await clientData.client.close();
         this.clients.delete(sessionId);
         console.log(`🔌 Disconnected client for session: ${sessionId}`);
       }
@@ -251,7 +246,7 @@ class WPPConnectManager {
 
   async handleIncomingMessage(sessionId, message) {
     try {
-      // Skip if message is from self
+      // Skip if message is from self or group
       if (message.isGroupMsg || message.fromMe) {
         return;
       }
@@ -325,5 +320,5 @@ class WPPConnectManager {
   }
 }
 
-module.exports = WPPConnectManager;
+module.exports = VenomWhatsAppManager;
 

@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
-    "@wppconnect-team/wppconnect": "^1.30.0",
     "axios": "^1.12.2",
     "baileys": "6.7.9",
+    "venom-bot": "^5.0.30",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

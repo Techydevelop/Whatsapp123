@@ -3,7 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { createClient } = require('@supabase/supabase-js');
 const GHLClient = require('./lib/ghl');
-const WPPConnectManager = require('./lib/wppconnect-wa');
+const WhatsAppManagerFactory = require('./lib/wa-manager');
 const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
 // const { downloadContentFromMessage, downloadMediaMessage } = require('baileys'); // Not needed with WPPConnect
@@ -172,8 +172,8 @@ async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
   }
 }
 
-// WhatsApp Manager (WPPConnect)
-const waManager = new WPPConnectManager();
+// WhatsApp Manager (Auto-select: Baileys or WPPConnect based on WA_PROVIDER env var)
+const waManager = WhatsAppManagerFactory.create();
 
 // Scheduled token refresh (every 6 hours - more frequent for 24-hour tokens)
 setInterval(async () => {
