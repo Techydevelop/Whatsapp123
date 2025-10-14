@@ -205,7 +205,7 @@ setInterval(async () => {
   } catch (error) {
     console.error('❌ Scheduled token refresh error:', error);
   }
-}, 12 * 60 * 60 * 1000); // Every 12 hours (reduced frequency)
+}, 6 * 60 * 60 * 1000); // Every 6 hours
 
 // Additional aggressive token refresh (every 2 hours for critical accounts)
 setInterval(async () => {
@@ -239,7 +239,7 @@ setInterval(async () => {
   } catch (error) {
     console.error('❌ Aggressive token refresh error:', error);
   }
-}, 6 * 60 * 60 * 1000); // Every 6 hours (reduced frequency)
+}, 2 * 60 * 60 * 1000); // Every 2 hours
 
 // Restore WhatsApp clients from database on startup
 async function restoreWhatsAppClients() {
@@ -308,39 +308,17 @@ app.use(helmet({
   }
 }));
 
-// CORS configuration - allow origins from env and common deploys
-const allowedOriginsFromEnv = (process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean);
-
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow non-browser or same-origin requests
-    if (!origin) return callback(null, true);
-
-    const staticAllowed = [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:5173',
-      'https://whatsapp123-dhn1.onrender.com',
-      'https://whatsapp-saas-backend.onrender.com',
-      'https://whatsapp123-frontend.vercel.app',
-      'https://whatsapp123-website.vercel.app',
-      'https://app.gohighlevel.com'
-    ];
-
-    const dynamicAllowed = new Set([...staticAllowed, ...allowedOriginsFromEnv]);
-
-    const isVercel = /https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin);
-    const isGHL = /https:\/\/.*\.gohighlevel\.com$/i.test(origin) || origin === 'https://app.gohighlevel.com';
-
-    if (dynamicAllowed.has(origin) || isVercel || isGHL) {
-      return callback(null, true);
-    }
-
-    return callback(new Error('Not allowed by CORS'));
-  },
+  origin: [
+    'http://localhost:3000',
+    'https://whatsapp123-dhn1.onrender.com',
+    'https://whatsapp-saas-backend.onrender.com',
+    'https://whatsapp123-frontend.vercel.app',
+    'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
+    'https://whatsappghl.vercel.app',
+    'https://*.vercel.app',
+    'https://app.gohighlevel.com'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
@@ -351,7 +329,9 @@ app.use((req, res, next) => {
   // Allow iframe embedding from GHL domains
   res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com https://app.gohighlevel.com https://*.gohighlevel.com");
   res.setHeader('X-Frame-Options', 'ALLOWALL');
-  // CORS headers are managed by cors() middleware above to support credentials
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
   next();
 });
 
@@ -359,9 +339,7 @@ app.use(express.json());
 
 // Handle preflight requests
 app.options('*', (req, res) => {
-  // Preflight response handled consistently with cors() configuration
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -690,13 +668,8 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       .maybeSingle();
     
     if (!session) {
-      console.log(`❌ No active WhatsApp session found for location: ${locationId}`);
-      console.log(`💡 Please scan QR code first for this location to establish WhatsApp connection`);
-      return res.json({ 
-        status: 'error', 
-        message: `Connection has lost due to inactivity. Please logout and reconnect.`,
-        suggestion: 'Please check dashboard and logout then reconnect'
-      });
+      console.log(`No active WhatsApp session found for location: ${locationId}`);
+      return res.json({ status: 'success' });
     }
     
     // Get WhatsApp client using Baileys - use subaccount_id from session
@@ -792,45 +765,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '', mediaType, mediaUrl);
       } else {
         // Send text message
-        try {
-          sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '');
-        } catch (error) {
-          console.error(`❌ Error sending message via Baileys: ${error.message}`);
-          
-          // Check if it's a QR ready error
-          if (error.message.includes('Connection has lost due to inactivity')) {
-            console.log(`📱 Client needs QR scan for session: ${clientKey}`);
-            
-            // Send notification to GHL about QR scan needed
-            try {
-              const notificationPayload = {
-                type: "WhatsApp",
-                contactId: contactId,
-                message: `⚠️ Connection has lost due to inactivity. Please logout and reconnect.`,
-                direction: "outbound",
-                status: "sent"
-              };
-              
-              const notificationResponse = await fetch(`https://services.leadconnectorhq.com/conversations/messages`, {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${ghlAccount.access_token}`,
-                  'Version': '2021-07-28',
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(notificationPayload)
-              });
-              
-              if (notificationResponse.ok) {
-                console.log('✅ QR scan notification sent to GHL conversation');
-              }
-            } catch (notifError) {
-              console.error('❌ Failed to send QR scan notification:', notifError);
-            }
-          }
-          
-          throw error; // Re-throw the error
-        }
+        sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '');
       }
       
       // Check if message was skipped (no WhatsApp)
@@ -1468,12 +1403,7 @@ app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
 
       if (!session) {
         console.log(`❌ No active WhatsApp session found for location: ${ghlAccount.location_id}`);
-        console.log(`💡 Please scan QR code first for this location to establish WhatsApp connection`);
-        return res.json({ 
-          status: 'error', 
-          message: `Connection has lost due to inactivity. Please logout and reconnect.`,
-          suggestion: 'Please check dashboard and logout then reconnect'
-        });
+        return res.sendStatus(200);
       }
 
       // Use consistent client key format - use subaccount_id from session
@@ -3281,35 +3211,6 @@ app.post('/api/test-team-notification', async (req, res) => {
   }
 });
 
-// Import new SaaS routes
-const authRoutes = require('./routes/auth');
-const adminAuthRoutes = require('./routes/admin-auth');
-const customerRoutes = require('./routes/customer');
-const adminRoutes = require('./routes/admin');
-
-// Import background job scheduler
-const { startScheduler } = require('./jobs/scheduler');
-
-// Register new SaaS routes
-app.use('/api/auth', authRoutes);
-app.use('/api/admin/auth', adminAuthRoutes);
-app.use('/api/customer', customerRoutes);
-app.use('/api/admin', adminRoutes);
-
-// Health check endpoint for new SaaS system
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    services: {
-      whatsapp: 'active',
-      ghl: 'active',
-      database: 'active',
-      saas: 'active'
-    }
-  });
-});
-
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
@@ -3317,12 +3218,4 @@ app.listen(PORT, () => {
   
   // Validate environment variables (non-blocking)
   validateEnvironment();
-  
-  // Start background job scheduler - DISABLED FOR NOW
-  try {
-    // startScheduler(); // Disabled to reduce server load
-    console.log('⚠️ Background jobs disabled to reduce server load');
-  } catch (error) {
-    console.error('❌ Failed to start background jobs:', error);
-  }
 });
