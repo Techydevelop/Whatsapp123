@@ -16,6 +16,8 @@ if (process.env.DATABASE_URL) {
         let port = parseInt(url.port) || 5432;
         
         // Check if this is a Supabase database
+        let user = url.username;
+        
         if (host.includes('supabase.co') && !host.includes('pooler')) {
             // Extract project reference from hostname like: db.flvbcxokjmyffggdkxqy.supabase.co
             const projectRef = host.split('.')[1];
@@ -28,7 +30,13 @@ if (process.env.DATABASE_URL) {
             host = `aws-0-${region}.pooler.supabase.com`;
             port = 6543; // Pooler uses port 6543 for transaction mode
             
-            console.log(`✅ Using Supabase Pooler: ${host}:${port} (Region: ${region})`);
+            // Important: Supabase pooler requires username in format: postgres.[project_ref]
+            if (!user.includes('.')) {
+                user = `${user}.${projectRef}`;
+                console.log(`✅ Using Supabase Pooler with user: ${user}`);
+            }
+            
+            console.log(`✅ Pooler connection: ${host}:${port} (Region: ${region})`);
             console.log(`💡 To specify region, set SUPABASE_REGION env variable`);
         } else {
             console.log(`📊 Database connection: ${host}:${port}`);
@@ -37,7 +45,7 @@ if (process.env.DATABASE_URL) {
         // Use individual config parameters instead of connection string
         // This gives pg library more control over connection
         poolConfig = {
-            user: url.username,
+            user: user,
             password: decodeURIComponent(url.password),
             host: host,
             port: port,
