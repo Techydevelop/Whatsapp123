@@ -2,8 +2,6 @@ const { makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMess
 const fs = require('fs');
 const path = require('path');
 
-// Connection monitoring removed - keeping core functionality only
-
 class BaileysWhatsAppManager {
   constructor() {
     this.clients = new Map();
@@ -12,8 +10,8 @@ class BaileysWhatsAppManager {
     this.qrQueue = []; // Queue for sequential QR generation
     this.isGeneratingQR = false;
     
-      // Start connection health monitor
-      this.startHealthMonitor();
+    // Start connection health monitor
+    this.startHealthMonitor();
   }
 
   // Make clients accessible for phone number retrieval
@@ -50,7 +48,7 @@ class BaileysWhatsAppManager {
   // Connection health monitor
   startHealthMonitor() {
     setInterval(() => {
-      this.clients.forEach(async (client, sessionId) => {
+      this.clients.forEach((client, sessionId) => {
         if (client.status === 'connected') {
           const timeSinceLastUpdate = Date.now() - client.lastUpdate;
           
@@ -75,35 +73,9 @@ class BaileysWhatsAppManager {
               client.lastUpdate = Date.now();
             }
           }
-        } else if (client.status === 'connecting') {
-          // Check for stuck connecting sessions
-          const timeSinceLastUpdate = Date.now() - client.lastUpdate;
-          if (timeSinceLastUpdate > 30000 && !client.qr) {
-            console.log(`🚨 Health monitor detected stuck session: ${sessionId}`);
-            await this.handleStuckSession(sessionId);
-          }
         }
       });
     }, 30000); // Check every 30 seconds
-  }
-
-  async handleStuckSession(sessionId) {
-    try {
-      console.log(`🔄 Handling stuck session: ${sessionId}`);
-      
-      // Clear the stuck client
-      this.clients.delete(sessionId);
-      
-      // Clear session data
-      this.clearSessionData(sessionId);
-      
-      // Update database to disconnected
-      await this.updateDatabaseStatus(sessionId, 'disconnected');
-      
-      console.log(`✅ Stuck session cleared: ${sessionId}`);
-    } catch (error) {
-      console.error(`❌ Error handling stuck session ${sessionId}:`, error);
-    }
   }
 
   hasExistingCredentials(sessionId) {
@@ -183,22 +155,15 @@ class BaileysWhatsAppManager {
     const { sessionId, resolve, reject } = this.qrQueue.shift();
     
     try {
-      console.log(`🔄 Processing QR queue for session: ${sessionId} (${this.qrQueue.length} remaining)`);
+      console.log(`🔄 Processing QR queue for session: ${sessionId}`);
       const socket = await this.createClientInternal(sessionId);
-      if (socket) {
-        resolve(socket);
-      } else {
-        reject(new Error('Socket creation returned null'));
-      }
+      resolve(socket);
     } catch (error) {
-      console.error(`❌ Error processing QR queue for ${sessionId}:`, error);
       reject(error);
     } finally {
       this.isGeneratingQR = false;
-      // Process next in queue after a smaller delay
-      if (this.qrQueue.length > 0) {
-        setTimeout(() => this.processQRQueue(), 500); // Reduced to 500ms for faster processing
-      }
+      // Process next in queue after a delay
+      setTimeout(() => this.processQRQueue(), 3000); // 3 second delay between QR generations
     }
   }
   
@@ -238,14 +203,15 @@ class BaileysWhatsAppManager {
         },
         browser: ['GHLTechy', 'Chrome', '1.0.0'],
         generateHighQualityLinkPreview: true,
-        markOnlineOnConnect: false,
+        markOnlineOnConnect: true,
         syncFullHistory: false,
-        defaultQueryTimeoutMs: 60000,
-        keepAliveIntervalMs: 30000, // Less frequent to reduce load
-        connectTimeoutMs: 60000, // Reduced timeout
-        retryRequestDelayMs: 1000, // Faster retries
+        defaultQueryTimeoutMs: 120000,
+        keepAliveIntervalMs: 10000, // More frequent keep-alive
+        connectTimeoutMs: 120000,
+        retryRequestDelayMs: 2000, // Longer delay between retries
         maxMsgRetryCount: 3,
-        heartbeatIntervalMs: 30000, // Less frequent heartbeat
+        heartbeatIntervalMs: 5000, // More frequent heartbeat
+        defaultQueryTimeoutMs: 60000, // Shorter query timeout
         msgRetryCounterCache: new Map(),
         getMessage: async (key) => {
           return {
@@ -254,7 +220,7 @@ class BaileysWhatsAppManager {
         },
         shouldSyncHistoryMessage: () => false,
         shouldIgnoreJid: () => false,
-        fireInitQueries: false,
+        fireInitQueries: true,
         emitOwnEvents: false
       });
 
@@ -271,18 +237,26 @@ class BaileysWhatsAppManager {
           hasQR: !!qr, 
           isNewLogin, 
           isOnline,
-          lastDisconnect: lastDisconnect?.error?.message
+          lastDisconnect: lastDisconnect?.error?.message,
+          stable: connectionStable
         });
         
       if (qr) {
         console.log(`📱 QR Code generated for session: ${sessionId}`);
-        this.clients.set(sessionId, {
-          socket,
-          qr,
-          status: 'qr_ready',
-          lastUpdate: Date.now()
-        });
-        console.log(`✅ QR code set for session: ${sessionId}`);
+        // Only set qr_ready if not already connected AND connection is not stable
+        if (!connectionStable && (!this.clients.has(sessionId) || this.clients.get(sessionId).status !== 'connected')) {
+          this.clients.set(sessionId, {
+            socket,
+            qr,
+            status: 'qr_ready',
+            lastUpdate: Date.now()
+          });
+          console.log(`📱 Status set to 'qr_ready' for session: ${sessionId}`);
+        } else if (connectionStable) {
+          console.log(`🚫 Ignoring QR generation - connection is stable for session: ${sessionId}`);
+        } else {
+          console.log(`🚫 Ignoring QR generation - client already connected for session: ${sessionId}`);
+        }
       }
 
         if (connection === 'close') {
@@ -306,22 +280,20 @@ class BaileysWhatsAppManager {
           }
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} in 5 seconds...`);
-            // Faster reconnection for better user experience
+            console.log(`🔄 Reconnecting session: ${sessionId} in 30 seconds...`);
+            // Longer delay to prevent false reconnections and reduce server load
             setTimeout(() => {
               // Check if client is still disconnected before reconnecting
               const currentClient = this.clients.get(sessionId);
               if (currentClient && currentClient.status === 'disconnected') {
                 console.log(`🔄 Attempting reconnection for: ${sessionId}`);
-                // Clear session data and force fresh connection
-                this.clearSessionData(sessionId);
                 this.createClient(sessionId).catch(err => {
                   console.error(`❌ Reconnection failed for ${sessionId}:`, err);
                 });
               } else {
                 console.log(`✅ Client ${sessionId} already reconnected, skipping reconnection`);
               }
-            }, 5000); // Reduced to 5 seconds for faster recovery
+            }, 30000); // Increased to 30 seconds to reduce unnecessary checks
           } else {
             // Only delete if logged out
             this.clients.delete(sessionId);
@@ -389,14 +361,7 @@ class BaileysWhatsAppManager {
         });
         console.log(`🔄 Restoring existing session: ${sessionId}`);
       } else {
-        // For fresh sessions, set to connecting and wait for QR
-        this.clients.set(sessionId, {
-          socket,
-          qr: null,
-          status: 'connecting',
-          lastUpdate: Date.now()
-        });
-        console.log(`🆕 Fresh session created, waiting for QR: ${sessionId}`);
+        console.log(`🆕 Fresh session - no restoration needed: ${sessionId}`);
       }
 
       // Handle credentials update
@@ -406,43 +371,6 @@ class BaileysWhatsAppManager {
       socket.ev.on('messages.upsert', async (m) => {
         try {
           const msg = m.messages[0];
-          
-          // Handle OUTBOUND messages (from mobile WhatsApp)
-          if (msg.key.fromMe && m.type === 'notify') {
-            console.log('📤 Outbound message detected from mobile WhatsApp:', msg.message);
-            console.log('🎯 This will sync with GHL to prevent "Replied from another device" issue');
-            
-            // Extract message content
-            let messageText = '';
-            if (msg.message?.conversation) {
-              messageText = msg.message.conversation;
-            } else if (msg.message?.extendedTextMessage?.text) {
-              messageText = msg.message.extendedTextMessage.text;
-            } else if (msg.message?.imageMessage) {
-              messageText = msg.message.imageMessage.caption || '🖼️ Image';
-            } else if (msg.message?.videoMessage) {
-              messageText = msg.message.videoMessage.caption || '🎥 Video';
-            } else if (msg.message?.audioMessage) {
-              messageText = '🎵 Audio Message';
-            } else if (msg.message?.documentMessage) {
-              messageText = msg.message.documentMessage.fileName || '📄 Document';
-            } else {
-              messageText = '📎 Media/Other';
-            }
-            
-            // Send to GHL as outbound message
-            await this.sendOutboundToGHL({
-              sessionId: sessionId,
-              to: msg.key.remoteJid,
-              message: messageText,
-              messageId: msg.key.id,
-              timestamp: msg.messageTimestamp
-            });
-            
-            return; // Don't process as inbound
-          }
-          
-          // Handle INBOUND messages (from customer to you)
           if (!msg.key.fromMe && m.type === 'notify') {
             // Only process messages received after connection is established
             const client = this.clients.get(sessionId);
@@ -637,13 +565,8 @@ class BaileysWhatsAppManager {
         throw new Error(`Client not ready for session: ${sessionId}, status: ${client?.status || 'not found'}`);
       }
       
-      // For qr_ready status, don't send messages
-      if (client.status === 'qr_ready') {
-        throw new Error(`Please scan QR code first to activate this session`);
-      }
-      
-      // Check if socket is properly initialized (only for connected/ready status)
-      if ((client.status === 'connected' || client.status === 'ready') && (!client.socket || !client.socket.user)) {
+      // Check if socket is properly initialized
+      if (!client.socket || !client.socket.user) {
         throw new Error(`Socket not properly initialized for session: ${sessionId}`);
       }
 
@@ -736,109 +659,6 @@ class BaileysWhatsAppManager {
     }));
   }
 
-  // Send outbound message to GHL
-  async sendOutboundToGHL(messageData) {
-    try {
-      console.log('📤 Processing outbound message for GHL:', messageData);
-      
-      // Extract subaccount ID from session ID
-      const sessionParts = messageData.sessionId.split('_');
-      if (sessionParts.length < 2) {
-        console.log('❌ Invalid session ID format:', messageData.sessionId);
-        return;
-      }
-      
-      const subaccountId = sessionParts[1]; // location_XXX_yyy -> XXX
-      console.log('🔍 Extracted subaccount ID:', subaccountId);
-      
-      // Get GHL account from database
-      const { createClient } = await import('@supabase/supabase-js');
-      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-      
-      const { data: ghlAccount } = await supabase
-        .from('ghl_accounts')
-        .select('*')
-        .eq('id', subaccountId)
-        .single();
-      
-      if (!ghlAccount) {
-        console.log('❌ GHL account not found for subaccount:', subaccountId);
-        return;
-      }
-      
-      console.log('✅ Found GHL account:', ghlAccount.id);
-      
-      // Extract phone number
-      const phoneNumber = messageData.to.split('@')[0];
-      console.log('📱 Phone number:', phoneNumber);
-      
-      // Get or create contact
-      let contactId;
-      try {
-        const contactResponse = await fetch(`https://services.leadconnectorhq.com/contacts/upsert`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${ghlAccount.access_token}`,
-            'Version': '2021-07-28',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            phone: `+${phoneNumber}`,
-            locationId: ghlAccount.location_id
-          })
-        });
-        
-        if (contactResponse.ok) {
-          const contactData = await contactResponse.json();
-          contactId = contactData.contact.id;
-          console.log('✅ Contact found/created:', contactId);
-        } else {
-          console.log('❌ Failed to get/create contact:', contactResponse.status);
-          return;
-        }
-      } catch (error) {
-        console.log('❌ Error getting/creating contact:', error);
-        return;
-      }
-      
-      // Send message to GHL as outbound (for display only - no duplicate to customer)
-      const messageResponse = await fetch('https://services.leadconnectorhq.com/conversations/messages', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${ghlAccount.access_token}`,
-          'Version': '2021-07-28',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          type: "SMS",
-          contactId: contactId,
-          message: messageData.message,
-          status: "delivered",
-          altId: `wa_outbound_${messageData.messageId}`,
-          from: "whatsapp_web",
-          to: messageData.to,
-          timestamp: messageData.timestamp
-        })
-      });
-      
-      if (messageResponse.ok) {
-        const messageData = await messageResponse.json();
-        console.log('✅ Outbound message sent to GHL successfully:', messageData.messageId);
-        console.log('📊 GHL Response:', messageData);
-        console.log('🎯 This prevents "Replied from another device" issue!');
-        console.log('📱 Customer will NOT receive duplicate message');
-        console.log('✅ Message will show with green tick and "Sent from another device" indicator');
-      } else {
-        console.log('❌ Failed to send outbound message to GHL:', messageResponse.status);
-        const errorText = await messageResponse.text();
-        console.log('❌ Error details:', errorText);
-      }
-      
-    } catch (error) {
-      console.error('❌ Error in sendOutboundToGHL:', error);
-    }
-  }
-
   async disconnectClient(sessionId) {
     try {
       const client = this.clients.get(sessionId);
@@ -857,7 +677,6 @@ class BaileysWhatsAppManager {
     this.qrQueue = [];
     this.isGeneratingQR = false;
   }
-  
   
   // Update database status
   async updateDatabaseStatus(sessionId, status, phoneNumber = null) {
