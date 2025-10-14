@@ -18,7 +18,10 @@ if (process.env.DATABASE_URL) {
         // Check if this is a Supabase database
         let user = url.username;
         
-        if (host.includes('supabase.co') && !host.includes('pooler')) {
+        // Check if we should use Supabase Pooler via environment variable
+        const usePooler = process.env.USE_SUPABASE_POOLER === 'true';
+        
+        if (usePooler && host.includes('supabase.co') && !host.includes('pooler')) {
             // Extract project reference from hostname like: db.flvbcxokjmyffggdkxqy.supabase.co
             const projectRef = host.split('.')[1];
             
@@ -37,9 +40,9 @@ if (process.env.DATABASE_URL) {
             }
             
             console.log(`✅ Pooler connection: ${host}:${port} (Region: ${region})`);
-            console.log(`💡 To specify region, set SUPABASE_REGION env variable`);
         } else {
-            console.log(`📊 Database connection: ${host}:${port}`);
+            console.log(`📊 Direct database connection: ${host}:${port}`);
+            console.log(`💡 To enable pooler, set USE_SUPABASE_POOLER=true`);
         }
         
         // Use individual config parameters instead of connection string
