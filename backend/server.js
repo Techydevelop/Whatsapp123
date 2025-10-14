@@ -326,6 +326,7 @@ app.use(cors({
       'https://whatsapp123-dhn1.onrender.com',
       'https://whatsapp-saas-backend.onrender.com',
       'https://whatsapp123-frontend.vercel.app',
+      'https://whatsapp123-website.vercel.app',
       'https://app.gohighlevel.com'
     ];
 
