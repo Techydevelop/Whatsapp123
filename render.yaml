@@ -1,4 +1,4 @@
-# render.yaml - Force npm instead of yarn
+# render.yaml - Optimized for Baileys v7+ and Node 18+
 services:
   - type: web
     name: whatsapp-ghl-backend
@@ -6,9 +6,11 @@ services:
     region: oregon
     plan: free
     buildCommand: |
-      # Install Node dependencies (yarn will be used automatically)
+      # Install Node dependencies with latest Baileys
       cd backend && yarn install --production
     startCommand: cd backend && npm start
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "18"

@@ -21,6 +21,71 @@ class BaileysWhatsAppManager {
     }
   }
 
+  // Custom auth state implementation for production use
+  async createCustomAuthState(authDir) {
+    try {
+      // Ensure auth directory exists
+      if (!fs.existsSync(authDir)) {
+        fs.mkdirSync(authDir, { recursive: true });
+      }
+
+      // Load existing credentials
+      const credsFile = path.join(authDir, 'creds.json');
+      const sessionFile = path.join(authDir, 'session.json');
+      
+      let creds = {};
+      let session = {};
+      
+      try {
+        if (fs.existsSync(credsFile)) {
+          creds = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
+        }
+        if (fs.existsSync(sessionFile)) {
+          session = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+        }
+      } catch (err) {
+        console.warn(`⚠️ Error loading auth files for ${authDir}:`, err.message);
+        // Start fresh if files are corrupted
+        creds = {};
+        session = {};
+      }
+
+      const saveCreds = async () => {
+        try {
+          fs.writeFileSync(credsFile, JSON.stringify(creds, null, 2));
+          fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2));
+        } catch (err) {
+          console.error(`❌ Error saving credentials for ${authDir}:`, err);
+        }
+      };
+
+      return {
+        state: {
+          creds,
+          keys: {
+            get: (type, ids) => {
+              const key = `${type}-${ids.join(',')}`;
+              return session[key] || null;
+            },
+            set: (data) => {
+              for (const category in data) {
+                for (const jid in data[category]) {
+                  const key = `${category}-${jid}`;
+                  session[key] = data[category][jid];
+                }
+              }
+            }
+          }
+        },
+        saveCreds
+      };
+    } catch (error) {
+      console.error(`❌ Error creating custom auth state:`, error);
+      // Fallback to useMultiFileAuthState if custom implementation fails
+      return await useMultiFileAuthState(authDir);
+    }
+  }
+
   getClientsMap() {
     return this.clients;
   }
@@ -70,8 +135,14 @@ class BaileysWhatsAppManager {
         }
       }
 
+      // CRITICAL: Use custom auth state instead of useMultiFileAuthState for production
+      // As per Baileys docs: "DO NOT rely on it in prod! It is very inefficient"
       const authDir = path.join(this.dataDir, sessionId);
       
+      // Create custom auth state for better performance
+      const authState = await this.createCustomAuthState(authDir);
+      const { state, saveCreds } = authState;
+
       // Fetch latest Baileys version for better compatibility
       let version;
       try {
@@ -81,8 +152,6 @@ class BaileysWhatsAppManager {
       } catch (err) {
         console.warn('⚠️ Could not fetch latest version, using default');
       }
-
-      const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
       const socket = makeWASocket({
         auth: state,
