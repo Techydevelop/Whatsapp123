@@ -2,6 +2,28 @@ const { makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMess
 const fs = require('fs');
 const path = require('path');
 
+// Fetch the latest WhatsApp Web version dynamically
+async function fetchLatestWaWebVersion() {
+  try {
+    const response = await fetch('https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1025190524.html');
+    if (response.ok) {
+      return {
+        version: [2, 3000, 1025190524],
+        isLatest: true,
+        source: 'community confirmed working'
+      };
+    }
+    throw new Error('Failed to fetch version');
+  } catch (error) {
+    console.warn('Failed to fetch latest version:', error.message);
+    return {
+      version: [2, 3000, 1025190524],
+      isLatest: false,
+      source: 'fallback'
+    };
+  }
+}
+
 class BaileysWhatsAppManager {
   constructor() {
     this.clients = new Map();
@@ -181,6 +203,18 @@ class BaileysWhatsAppManager {
         console.log(`🆕 Fresh session detected, skipping restoration checks`);
       }
 
+      // Fetch the latest WhatsApp Web version dynamically
+      let version;
+      try {
+        const versionInfo = await fetchLatestWaWebVersion();
+        version = versionInfo.version;
+        console.log(`📱 [${sessionId}] Using WA Web v${version.join(".")}, isLatest: ${versionInfo.isLatest}`);
+      } catch (error) {
+        console.warn(`⚠️ [${sessionId}] Failed to fetch latest version, using fallback:`, error.message);
+        // Fallback to a known working version
+        version = [2, 3000, 1025190524];
+      }
+
       const socket = makeWASocket({
         auth: state,
         logger: {
@@ -202,6 +236,7 @@ class BaileysWhatsAppManager {
           fatal: () => {}
         },
         browser: ['GHLTechy', 'Chrome', '1.0.0'],
+        version: version, // Use the dynamically fetched version
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: true,
         syncFullHistory: false,

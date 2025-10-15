@@ -170,9 +170,9 @@ async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
   }
 }
 
-// WhatsApp Manager (whatsapp-web.js)
-const WhatsAppWebJSManager = require('./lib/whatsapp-web-js');
-const waManager = new WhatsAppWebJSManager();
+// WhatsApp Manager (Baileys)
+const BaileysWhatsAppManager = require('./lib/baileys-wa');
+const waManager = new BaileysWhatsAppManager();
 
 // Scheduled token refresh (every 6 hours - more frequent for 24-hour tokens)
 setInterval(async () => {
@@ -672,7 +672,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client using WhatsApp Web.js - use subaccount_id from session
+    // Get WhatsApp client using Baileys - use subaccount_id from session
     const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
@@ -746,7 +746,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
-    // Send message using WhatsApp Web.js
+    // Send message using Baileys
     try {
       let sendResult;
       
@@ -813,9 +813,9 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         });
       }
       
-      console.log('✅ Message sent successfully via WhatsApp Web.js');
+      console.log('✅ Message sent successfully via Baileys');
     } catch (sendError) {
-      console.error('❌ Error sending message via WhatsApp Web.js:', sendError.message);
+      console.error('❌ Error sending message via Baileys:', sendError.message);
       
       // Send error notification to GHL conversation
       try {
@@ -1065,7 +1065,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
             
             // Check if this is encrypted media that needs decryption
             if (mediaUrl === 'ENCRYPTED_MEDIA' && mediaMessage) {
-              console.log(`🔓 Decrypting encrypted media with WhatsApp Web.js...`);
+              console.log(`🔓 Decrypting encrypted media with Baileys...`);
               
               // Get the WhatsApp client for this session
               const client = waManager.getClient(sessionId);
@@ -1073,7 +1073,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
                 throw new Error('WhatsApp client not available for decryption');
               }
               
-              // Decrypt the media using WhatsApp Web.js
+              // Decrypt the media using Baileys
               try {
                 // Try downloadContentFromMessage first (newer method)
                 console.log(`🔄 Trying downloadContentFromMessage...`);
@@ -2241,12 +2241,12 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       }
     }, 300000); // 300 seconds timeout (5 minutes for WhatsApp connection)
 
-    console.log(`Creating WhatsApp Web.js client with sessionName: ${sessionName}`);
+    console.log(`Creating Baileys client with sessionName: ${sessionName}`);
     
-    // Create WhatsApp Web.js client
+    // Create Baileys client
     try {
       const client = await waManager.createClient(sessionName);
-      console.log(`✅ WhatsApp Web.js client created for session: ${sessionName}`);
+      console.log(`✅ Baileys client created for session: ${sessionName}`);
       
       // Wait a moment for QR to be generated
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -2263,7 +2263,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
         console.log(`✅ QR updated in database immediately`);
       }
         } catch (error) {
-        console.error(`❌ Failed to create WhatsApp Web.js client:`, error);
+        console.error(`❌ Failed to create Baileys client:`, error);
       return res.status(500).json({ error: 'Failed to create WhatsApp client' });
     }
     
@@ -2660,7 +2660,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
       return res.status(404).json({ error: 'No active WhatsApp session found' });
     }
 
-    // Send message via WhatsApp using WhatsApp Web.js
+    // Send message via WhatsApp using Baileys
     const sessionId = session[0].id;
     const clientStatus = waManager.getClientStatus(sessionId);
     if (!clientStatus || clientStatus.status !== 'connected') {
@@ -2680,7 +2680,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
       .select()
       .single();
 
-    // Send via WhatsApp using WhatsApp Web.js
+    // Send via WhatsApp using Baileys
     await waManager.sendMessage(sessionId, contactId, message);
 
     res.json({
@@ -2695,7 +2695,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
 });
 
 
-// Debug endpoint to check WhatsApp clients (WhatsApp Web.js)
+// Debug endpoint to check WhatsApp clients (Baileys)
 app.get('/debug/whatsapp-clients', (req, res) => {
   try {
     const clients = waManager.getAllClients();

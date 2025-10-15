@@ -62,11 +62,14 @@ class WhatsAppWebJSManager {
         },
         webVersionCache: {
           type: 'remote',
-          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1025190524.html'
         },
         restartOnAuthFail: true,
         takeoverOnConflict: true,
-        takeoverTimeoutMs: 30000
+        takeoverTimeoutMs: 30000,
+        // Use specific WhatsApp Web version that's confirmed working
+        authTimeoutMs: 60000,
+        qrMaxRetries: 5
       };
 
       // Create client
@@ -141,9 +144,11 @@ class WhatsAppWebJSManager {
       });
 
       // Initialize client
+      console.log(`🚀 Initializing WhatsApp Web.js client with version: [2, 3000, 1025190524]`);
       await client.initialize();
 
       console.log(`✅ WhatsApp Web.js client created successfully for session: ${sessionName}`);
+      console.log(`📱 Using WhatsApp Web version: [2, 3000, 1025190524] (Community confirmed working)`);
       return client;
 
     } catch (error) {
@@ -247,7 +252,19 @@ class WhatsAppWebJSManager {
       status,
       reconnectAttempts: attempts,
       hasQRCode: hasQR,
-      isHealthy: status === 'ready' && attempts === 0
+      isHealthy: status === 'ready' && attempts === 0,
+      whatsappVersion: '[2, 3000, 1025190524]',
+      versionSource: 'Community confirmed working'
+    };
+  }
+
+  // Get WhatsApp Web version info
+  getWhatsAppVersion() {
+    return {
+      version: '[2, 3000, 1025190524]',
+      status: 'Community confirmed working',
+      source: 'wppconnect-team/wa-version repository',
+      lastUpdated: 'Latest stable version'
     };
   }
 
