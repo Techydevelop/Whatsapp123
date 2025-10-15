@@ -311,12 +311,12 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'https://whatsapp123-dhn1.onrender.com',
-    'https://whatsapp123-dhn1.onrender.com',
     'https://whatsapp123-frontend.vercel.app',
     'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
     'https://whatsappghl.vercel.app',
     'https://*.vercel.app',
-    'https://app.gohighlevel.com'
+    'https://app.gohighlevel.com',
+    'https://*.onrender.com'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
