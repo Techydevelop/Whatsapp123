@@ -311,7 +311,7 @@ app.use(helmet({
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'https://whatsapp123-dhn1.onrender.com',
+    'https://whatsapp123-1.onrender.com',
     'https://whatsapp-saas-backend.onrender.com',
     'https://whatsapp123-frontend.vercel.app',
     'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
@@ -586,7 +586,7 @@ app.get('/ghl/provider/config', (req, res) => {
       name: "WhatsApp SMS",
       description: "Send and receive SMS via WhatsApp",
       capabilities: ["send", "receive", "status"],
-      webhook_url: `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/ghl/provider/webhook`
+      webhook_url: `${process.env.BACKEND_URL || 'https://whatsapp123-1.onrender.com'}/ghl/provider/webhook`
     },
     settings: {
       webhook_url: {
@@ -594,7 +594,7 @@ app.get('/ghl/provider/config', (req, res) => {
         label: "Webhook URL",
         description: "URL for receiving incoming messages",
         required: true,
-        default: `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/ghl/provider/webhook`
+        default: `${process.env.BACKEND_URL || 'https://whatsapp123-1.onrender.com'}/ghl/provider/webhook`
       }
     }
   });
@@ -1572,7 +1572,7 @@ app.get('/ghl/provider', async (req, res) => {
             <h2>⚠️ Setup Required</h2>
             <p>Please add your Location ID to the custom menu link:</p>
             <code style="background: #f0f0f0; padding: 10px; border-radius: 5px;">
-              ${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/ghl/provider?locationId=YOUR_LOCATION_ID
+              ${process.env.BACKEND_URL || 'https://whatsapp123-1.onrender.com'}/ghl/provider?locationId=YOUR_LOCATION_ID
             </code>
             <p>Find your Location ID in GHL Settings → General → Location ID</p>
           </body>
@@ -2917,7 +2917,7 @@ app.post('/debug/test-incoming', async (req, res) => {
     console.log('🧪 Testing webhook with data:', webhookData);
     
     // Call the webhook internally
-    const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/whatsapp/webhook`, {
+    const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-1.onrender.com'}/whatsapp/webhook`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -3030,7 +3030,7 @@ app.post('/debug/test-outbound', async (req, res) => {
     console.log('🧪 Testing outbound webhook with data:', webhookData);
     
     // Call the webhook internally
-    const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/webhooks/ghl/provider-outbound`, {
+    const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-1.onrender.com'}/webhooks/ghl/provider-outbound`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -3192,7 +3192,7 @@ app.post('/api/test-team-notification', async (req, res) => {
     };
     
     // Call the team notification endpoint internally
-    const notificationResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/api/team-notification`, {
+    const notificationResponse = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-1.onrender.com'}/api/team-notification`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
