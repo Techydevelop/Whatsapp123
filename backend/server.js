@@ -2157,15 +2157,29 @@ app.get('/ghl/provider', async (req, res) => {
               pairingResult.style.display = 'none';
 
               try {
-                // Get session ID from current session
+                // Create a new session if none exists, or get existing one
+                let sessionId;
+                
+                // First try to get existing session
                 const sessionResponse = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session');
                 const sessionData = await sessionResponse.json().catch(() => ({}));
                 
-                if (!sessionData.id) {
-                  throw new Error('No active session found');
+                if (sessionData.id) {
+                  sessionId = sessionData.id;
+                } else {
+                  // Create new session if none exists
+                  const createResponse = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session' + (companyId ? ('?companyId=' + encodeURIComponent(companyId)) : ''), { 
+                    method: 'POST' 
+                  });
+                  const createData = await createResponse.json().catch(() => ({}));
+                  sessionId = createData.id;
+                }
+                
+                if (!sessionId) {
+                  throw new Error('Failed to get or create session');
                 }
 
-                const response = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session/' + sessionData.id + '/pairing-code', {
+                const response = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session/' + sessionId + '/pairing-code', {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
