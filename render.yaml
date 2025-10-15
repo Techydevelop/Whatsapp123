@@ -1,4 +1,4 @@
-# render.yaml - Optimized for Baileys v5+ and Node 18+
+# render.yaml - Simple stable Baileys setup
 services:
   - type: web
     name: whatsapp-ghl-backend
