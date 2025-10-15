@@ -2255,15 +2255,23 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
 
         console.log(`Creating Baileys WhatsApp client with sessionName: ${sessionName}`);
     
-    // Create Baileys client
+    // Create Baileys client with proper error handling and timing
     try {
+      console.log(`🚀 Starting Baileys client creation for session: ${sessionName}`);
+      
+      // Create client and wait for initialization
       const client = await waManager.createClient(sessionName);
       console.log(`✅ Baileys client created for session: ${sessionName}`);
       
-      // Wait a moment for QR to be generated
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Wait longer for connection to establish and QR to be generated
+      console.log(`⏳ Waiting for connection establishment and QR generation...`);
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Increased to 5 seconds
       
-      // Check if QR is already available
+      // Check client status after waiting
+      const clientStatus = waManager.getClientStatus(sessionName);
+      console.log(`📊 Client status after wait:`, clientStatus);
+      
+      // Check if QR is available
       const qrCode = await waManager.getQRCode(sessionName);
       if (qrCode) {
         console.log(`📱 QR already available, updating database immediately...`);
@@ -2273,10 +2281,29 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
           .update({ qr: qrDataUrl, status: 'qr' })
           .eq('id', session.id);
         console.log(`✅ QR updated in database immediately`);
+      } else {
+        console.log(`⏳ QR not yet available, will poll for it...`);
       }
-        } catch (error) {
+      
+    } catch (error) {
       console.error(`❌ Failed to create Baileys client:`, error);
-      return res.status(500).json({ error: 'Failed to create WhatsApp client' });
+      console.error(`❌ Error details:`, error.message);
+      console.error(`❌ Error stack:`, error.stack);
+      
+      // Update database with error status
+      await supabaseAdmin
+        .from('sessions')
+        .update({ 
+          status: 'error', 
+          error_message: error.message,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', session.id);
+      
+      return res.status(500).json({ 
+        error: 'Failed to create WhatsApp client', 
+        details: error.message 
+      });
     }
     
     // Set up QR code polling
