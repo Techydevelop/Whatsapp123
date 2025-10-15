@@ -172,8 +172,9 @@ async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
   }
 }
 
-// WhatsApp Manager (Baileys)
-const waManager = new BaileysWhatsAppManager();
+// WhatsApp Manager (WPPConnect)
+const WPPConnectManager = require('./lib/wppconnect-wa');
+const waManager = new WPPConnectManager();
 
 // Scheduled token refresh (every 6 hours - more frequent for 24-hour tokens)
 setInterval(async () => {
@@ -685,8 +686,8 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       
       // If client is in qr_ready status, provide helpful message
       if (clientStatus && clientStatus.status === 'qr_ready') {
-        return res.json({ 
-          status: 'error', 
+      return res.json({ 
+        status: 'error', 
           message: 'WhatsApp client QR code ready - please scan to connect',
           clientStatus: clientStatus.status,
           suggestion: 'Please scan the QR code in the dashboard to connect WhatsApp'
@@ -918,7 +919,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
       console.log(`🔍 Looking for session: ${sessionId}`);
       
       const { data: session } = await supabaseAdmin
-            .from('sessions')
+        .from('sessions')
         .select('*, ghl_accounts(*)')
         .eq('id', sessionId)
         .maybeSingle();
@@ -961,8 +962,8 @@ app.post('/whatsapp/webhook', async (req, res) => {
       console.log(`🔄 Final fallback to any available GHL account`);
       
       const { data: anyAccount } = await supabaseAdmin
-      .from('ghl_accounts')
-      .select('*')
+        .from('ghl_accounts')
+        .select('*')
         .limit(1)
         .maybeSingle();
       
@@ -1167,27 +1168,27 @@ app.post('/whatsapp/webhook', async (req, res) => {
               if (mediaUrl && !mediaUrl.includes('ENCRYPTED')) {
                 console.log(`🔄 Sending media URL as attachment instead...`);
                 
-                const payload = {
-                  type: "WhatsApp",
-                  contactId: contactId,
+      const payload = {
+        type: "WhatsApp",
+        contactId: contactId,
                   message: `${getMediaMessageText(messageType)}\n\nMedia URL: ${mediaUrl}`,
-                  direction: "inbound",
-                  status: "delivered",
+        direction: "inbound",
+        status: "delivered",
                   altId: whatsappMsgId,
                   attachments: [mediaUrl]  // Send URL directly as attachment
-                };
-                
-                const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${validToken}`,
-                    Version: "2021-07-28",
-                    "Content-Type": "application/json"
-                  },
-                  body: JSON.stringify(payload)
-                }, ghlAccount);
-                
-                if (inboundRes.ok) {
+      };
+      
+      const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${validToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      }, ghlAccount);
+      
+      if (inboundRes.ok) {
                   console.log(`✅ Media URL sent as attachment to GHL`);
                   return res.json({ 
                     status: 'success', 
@@ -2241,12 +2242,12 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       }
     }, 300000); // 300 seconds timeout (5 minutes for WhatsApp connection)
 
-    console.log(`Creating Baileys WhatsApp client with sessionName: ${sessionName}`);
+    console.log(`Creating WPPConnect WhatsApp client with sessionName: ${sessionName}`);
     
-    // Create Baileys client
+    // Create WPPConnect client
     try {
       const client = await waManager.createClient(sessionName);
-      console.log(`✅ Baileys client created for session: ${sessionName}`);
+      console.log(`✅ WPPConnect client created for session: ${sessionName}`);
       
       // Wait a moment for QR to be generated
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -2263,7 +2264,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
         console.log(`✅ QR updated in database immediately`);
       }
         } catch (error) {
-      console.error(`❌ Failed to create Baileys client:`, error);
+        console.error(`❌ Failed to create WPPConnect client:`, error);
       return res.status(500).json({ error: 'Failed to create WhatsApp client' });
     }
     
