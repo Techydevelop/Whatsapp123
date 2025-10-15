@@ -2022,11 +2022,18 @@ app.get('/ghl/provider', async (req, res) => {
                   
                 case 'qr':
                   statusEl.innerHTML = '📱 <strong>Scan QR Code</strong><br><small>Open WhatsApp → Menu → Linked Devices → Link a Device</small>';
-                  qrEl.style.display = 'block';
-                  pairingCodeEl.style.display = 'none';
                   toggleButtons.style.display = 'flex';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
+                  
+                  // Show the appropriate view based on current mode
+                  if (currentViewMode === 'qr') {
+                    qrEl.style.display = 'block';
+                    pairingCodeEl.style.display = 'none';
+                  } else {
+                    qrEl.style.display = 'none';
+                    pairingCodeEl.style.display = 'block';
+                  }
                   break;
                   
                 case 'ready':
@@ -2098,6 +2105,9 @@ app.get('/ghl/provider', async (req, res) => {
               }
             }
 
+            // Track current view mode
+            let currentViewMode = 'qr'; // 'qr' or 'pairing'
+
             let pollInterval = setInterval(poll, 3000); // Poll every 3 seconds
 
             // Event listeners
@@ -2121,6 +2131,7 @@ app.get('/ghl/provider', async (req, res) => {
               pairingToggle.classList.remove('active');
               qrEl.style.display = 'block';
               pairingCodeEl.style.display = 'none';
+              currentViewMode = 'qr';
             });
 
             pairingToggle.addEventListener('click', () => {
@@ -2128,6 +2139,7 @@ app.get('/ghl/provider', async (req, res) => {
               qrToggle.classList.remove('active');
               qrEl.style.display = 'none';
               pairingCodeEl.style.display = 'block';
+              currentViewMode = 'pairing';
             });
 
             // Request pairing code
