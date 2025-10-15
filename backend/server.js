@@ -1694,6 +1694,102 @@ app.get('/ghl/provider', async (req, res) => {
               max-width: 256px;
               height: auto;
             }
+            .toggle-buttons {
+              display: flex;
+              justify-content: center;
+              margin-bottom: 20px;
+              gap: 8px;
+            }
+            .toggle-btn {
+              padding: 8px 16px;
+              border: 2px solid #e5e7eb;
+              background: white;
+              color: #6b7280;
+              border-radius: 8px;
+              cursor: pointer;
+              font-weight: 500;
+              transition: all 0.2s;
+            }
+            .toggle-btn.active {
+              background: #3b82f6;
+              color: white;
+              border-color: #3b82f6;
+            }
+            .toggle-btn:hover:not(.active) {
+              background: #f3f4f6;
+              border-color: #d1d5db;
+            }
+            .pairing-container {
+              text-align: center;
+              margin: 20px 0;
+            }
+            .pairing-form {
+              max-width: 400px;
+              margin: 0 auto;
+            }
+            .form-group {
+              margin-bottom: 20px;
+            }
+            .form-group label {
+              display: block;
+              font-weight: 600;
+              color: #374151;
+              margin-bottom: 8px;
+            }
+            .form-group input {
+              width: 100%;
+              padding: 12px;
+              border: 2px solid #e5e7eb;
+              border-radius: 8px;
+              font-size: 16px;
+              margin-bottom: 12px;
+              box-sizing: border-box;
+            }
+            .form-group input:focus {
+              outline: none;
+              border-color: #3b82f6;
+              box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            }
+            .pairing-result {
+              background: #d1fae5;
+              border: 2px solid #6ee7b7;
+              border-radius: 12px;
+              padding: 24px;
+              margin-top: 20px;
+            }
+            .pairing-code-display {
+              text-align: center;
+            }
+            .code-number {
+              font-size: 48px;
+              font-weight: 700;
+              color: #065f46;
+              margin-bottom: 16px;
+              letter-spacing: 4px;
+              font-family: monospace;
+            }
+            .code-instructions {
+              font-weight: 600;
+              color: #065f46;
+              margin-bottom: 16px;
+            }
+            .code-steps {
+              text-align: left;
+              color: #047857;
+              font-size: 14px;
+              line-height: 1.6;
+            }
+            .code-steps p {
+              margin: 8px 0;
+            }
+            .pairing-error {
+              background: #fee2e2;
+              border: 2px solid #fca5a5;
+              border-radius: 8px;
+              padding: 16px;
+              color: #991b1b;
+              margin-top: 16px;
+            }
             .status {
               margin: 16px 0;
               padding: 12px;
@@ -1821,9 +1917,41 @@ app.get('/ghl/provider', async (req, res) => {
               </div>
 
               <div class="qr-section">
+                <!-- Toggle Buttons -->
+                <div class="toggle-buttons" id="toggle-buttons" style="display: none;">
+                  <button id="qr-toggle" class="toggle-btn active">QR Code</button>
+                  <button id="pairing-toggle" class="toggle-btn">Pairing Code</button>
+                </div>
+
+                <!-- QR Code Section -->
                 <div id="qr" class="qr-container" style="display: none;">
                   <div id="qr-image"></div>
                 </div>
+
+                <!-- Pairing Code Section -->
+                <div id="pairing-code" class="pairing-container" style="display: none;">
+                  <div class="pairing-form">
+                    <div class="form-group">
+                      <label for="phone-input">📱 Enter your phone number:</label>
+                      <input type="tel" id="phone-input" placeholder="e.g., +1234567890 or 1234567890" />
+                      <button id="request-pairing" class="btn-primary">Get Pairing Code</button>
+                    </div>
+                    <div id="pairing-result" class="pairing-result" style="display: none;">
+                      <div class="pairing-code-display">
+                        <div class="code-number" id="code-number"></div>
+                        <p class="code-instructions">Enter this 8-digit code in your WhatsApp app</p>
+                        <div class="code-steps">
+                          <p>1. Open WhatsApp on your phone</p>
+                          <p>2. Go to Settings → Linked Devices</p>
+                          <p>3. Tap &quot;Link a Device&quot;</p>
+                          <p>4. Enter the code above</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div id="pairing-error" class="pairing-error" style="display: none;"></div>
+                  </div>
+                </div>
+
                 <div id="status" class="status initializing">
                   <div class="loading"></div> Preparing WhatsApp session...
                 </div>
@@ -1863,6 +1991,17 @@ app.get('/ghl/provider', async (req, res) => {
             const resetBtn = document.getElementById('reset');
             const refreshBtn = document.getElementById('refresh');
             const closeBtn = document.getElementById('close');
+            
+            // Pairing code elements
+            const toggleButtons = document.getElementById('toggle-buttons');
+            const qrToggle = document.getElementById('qr-toggle');
+            const pairingToggle = document.getElementById('pairing-toggle');
+            const pairingCodeEl = document.getElementById('pairing-code');
+            const phoneInput = document.getElementById('phone-input');
+            const requestPairingBtn = document.getElementById('request-pairing');
+            const pairingResult = document.getElementById('pairing-result');
+            const codeNumber = document.getElementById('code-number');
+            const pairingError = document.getElementById('pairing-error');
 
             function updateStatus(status, phoneNumber = null) {
               // Update status text
@@ -1875,6 +2014,8 @@ app.get('/ghl/provider', async (req, res) => {
                 case 'initializing':
                   statusEl.innerHTML = '<div class="loading"></div> Preparing WhatsApp session...';
                   qrEl.style.display = 'none';
+                  pairingCodeEl.style.display = 'none';
+                  toggleButtons.style.display = 'none';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
                   break;
@@ -1882,6 +2023,8 @@ app.get('/ghl/provider', async (req, res) => {
                 case 'qr':
                   statusEl.innerHTML = '📱 <strong>Scan QR Code</strong><br><small>Open WhatsApp → Menu → Linked Devices → Link a Device</small>';
                   qrEl.style.display = 'block';
+                  pairingCodeEl.style.display = 'none';
+                  toggleButtons.style.display = 'flex';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
                   break;
@@ -1889,6 +2032,8 @@ app.get('/ghl/provider', async (req, res) => {
                 case 'ready':
                   statusEl.innerHTML = '✅ <strong>Connected Successfully!</strong><br><small>WhatsApp is now linked to this location</small>';
                   qrEl.style.display = 'none';
+                  pairingCodeEl.style.display = 'none';
+                  toggleButtons.style.display = 'none';
                   phoneRowEl.style.display = 'flex';
                   phoneNumberEl.textContent = phoneNumber || 'Unknown';
                   closeBtn.style.display = 'inline-block';
@@ -1897,6 +2042,8 @@ app.get('/ghl/provider', async (req, res) => {
                 case 'disconnected':
                   statusEl.innerHTML = '❌ <strong>Disconnected</strong><br><small>WhatsApp session ended</small>';
                   qrEl.style.display = 'none';
+                  pairingCodeEl.style.display = 'none';
+                  toggleButtons.style.display = 'none';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
                   break;
@@ -1904,6 +2051,8 @@ app.get('/ghl/provider', async (req, res) => {
                 default:
                   statusEl.innerHTML = '❓ <strong>Unknown Status</strong><br><small>Status: ' + status + '</small>';
                   qrEl.style.display = 'none';
+                  pairingCodeEl.style.display = 'none';
+                  toggleButtons.style.display = 'none';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
               }
@@ -1963,8 +2112,76 @@ app.get('/ghl/provider', async (req, res) => {
             });
 
             closeBtn.addEventListener('click', () => {
-            window.close();
+              window.close();
             });
+
+            // Toggle between QR and Pairing Code
+            qrToggle.addEventListener('click', () => {
+              qrToggle.classList.add('active');
+              pairingToggle.classList.remove('active');
+              qrEl.style.display = 'block';
+              pairingCodeEl.style.display = 'none';
+            });
+
+            pairingToggle.addEventListener('click', () => {
+              pairingToggle.classList.add('active');
+              qrToggle.classList.remove('active');
+              qrEl.style.display = 'none';
+              pairingCodeEl.style.display = 'block';
+            });
+
+            // Request pairing code
+            requestPairingBtn.addEventListener('click', async () => {
+              const phoneNumber = phoneInput.value.trim();
+              
+              if (!phoneNumber) {
+                showPairingError('Please enter your phone number');
+                return;
+              }
+
+              requestPairingBtn.disabled = true;
+              requestPairingBtn.textContent = 'Getting Code...';
+              pairingError.style.display = 'none';
+              pairingResult.style.display = 'none';
+
+              try {
+                // Get session ID from current session
+                const sessionResponse = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session');
+                const sessionData = await sessionResponse.json().catch(() => ({}));
+                
+                if (!sessionData.id) {
+                  throw new Error('No active session found');
+                }
+
+                const response = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session/' + sessionData.id + '/pairing-code', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ phoneNumber: phoneNumber })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                  codeNumber.textContent = result.pairingCode;
+                  pairingResult.style.display = 'block';
+                } else {
+                  showPairingError(result.error || 'Failed to get pairing code');
+                }
+              } catch (error) {
+                console.error('Pairing code request error:', error);
+                showPairingError('Failed to get pairing code. Please try again.');
+              } finally {
+                requestPairingBtn.disabled = false;
+                requestPairingBtn.textContent = 'Get Pairing Code';
+              }
+            });
+
+            function showPairingError(message) {
+              pairingError.textContent = message;
+              pairingError.style.display = 'block';
+            }
 
             // Initialize
             (async () => {
