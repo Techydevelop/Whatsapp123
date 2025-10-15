@@ -6,7 +6,8 @@ services:
     region: singapore
     rootDir: backend
     buildCommand: |
-      # Install Node dependencies for WhatsApp Web.js
+      # Remove old package-lock.json and install fresh
+      rm -f package-lock.json
       npm install --production
     startCommand: node server.js
     autoDeploy: true
