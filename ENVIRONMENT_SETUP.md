@@ -12,7 +12,7 @@ NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 # Backend API Configuration
-NEXT_PUBLIC_API_BASE_URL=https://whatsapp123-dhn1.onrender.com
+NEXT_PUBLIC_API_BASE_URL=https://whatsapp123-1.onrender.com
 
 # GHL OAuth Configuration (Frontend) - Use the same CLIENT_ID as backend
 NEXT_PUBLIC_GHL_CLIENT_ID=your_ghl_client_id
@@ -23,14 +23,14 @@ NEXT_PUBLIC_GHL_CLIENT_ID=your_ghl_client_id
 **In your GHL Marketplace App settings, make sure you have added this exact redirect URI:**
 
 ```
-https://whatsapp123-dhn1.onrender.com/oauth/callback
+https://whatsapp123-1.onrender.com/oauth/callback
 ```
 
 **Steps to add redirect URI in GHL:**
 1. Go to GHL Marketplace → My Apps
 2. Select your app
 3. Go to Advanced Settings → Auth
-4. In "Redirect URL" field, add: `https://whatsapp123-dhn1.onrender.com/oauth/callback`
+4. In "Redirect URL" field, add: `https://whatsapp123-1.onrender.com/oauth/callback`
 5. Click "Add" button
 6. Save changes
 
@@ -48,7 +48,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 # GHL OAuth Configuration
 GHL_CLIENT_ID=your_ghl_client_id
 GHL_CLIENT_SECRET=your_ghl_client_secret
-GHL_REDIRECT_URI=https://whatsapp123-dhn1.onrender.com/oauth/callback
+GHL_REDIRECT_URI=https://whatsapp123-1.onrender.com/oauth/callback
 GHL_SCOPES=locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly users.readonly
 
 # WhatsApp Configuration
