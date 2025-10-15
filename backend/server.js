@@ -3,10 +3,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { createClient } = require('@supabase/supabase-js');
 const GHLClient = require('./lib/ghl');
-const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
-const { downloadContentFromMessage, downloadMediaMessage } = require('baileys');
 const axios = require('axios');
 
 const app = express();
@@ -673,7 +671,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client using Baileys - use subaccount_id from session
+    // Get WhatsApp client using WhatsApp Web.js - use subaccount_id from session
     const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
@@ -747,7 +745,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
-    // Send message using Baileys
+    // Send message using WhatsApp Web.js
     try {
       let sendResult;
       
@@ -814,9 +812,9 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         });
       }
       
-      console.log('✅ Message sent successfully via Baileys');
+      console.log('✅ Message sent successfully via WhatsApp Web.js');
     } catch (sendError) {
-      console.error('❌ Error sending message via Baileys:', sendError.message);
+      console.error('❌ Error sending message via WhatsApp Web.js:', sendError.message);
       
       // Send error notification to GHL conversation
       try {
@@ -1066,7 +1064,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
             
             // Check if this is encrypted media that needs decryption
             if (mediaUrl === 'ENCRYPTED_MEDIA' && mediaMessage) {
-              console.log(`🔓 Decrypting encrypted media with Baileys...`);
+              console.log(`🔓 Decrypting encrypted media with WhatsApp Web.js...`);
               
               // Get the WhatsApp client for this session
               const client = waManager.getClient(sessionId);
@@ -1074,7 +1072,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
                 throw new Error('WhatsApp client not available for decryption');
               }
               
-              // Decrypt the media using Baileys
+              // Decrypt the media using WhatsApp Web.js
               try {
                 // Try downloadContentFromMessage first (newer method)
                 console.log(`🔄 Trying downloadContentFromMessage...`);
@@ -2661,7 +2659,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
       return res.status(404).json({ error: 'No active WhatsApp session found' });
     }
 
-    // Send message via WhatsApp using Baileys
+    // Send message via WhatsApp using WhatsApp Web.js
     const sessionId = session[0].id;
     const clientStatus = waManager.getClientStatus(sessionId);
     if (!clientStatus || clientStatus.status !== 'connected') {
@@ -2681,7 +2679,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
       .select()
       .single();
 
-    // Send via WhatsApp using Baileys
+    // Send via WhatsApp using WhatsApp Web.js
     await waManager.sendMessage(sessionId, contactId, message);
 
     res.json({
@@ -2696,7 +2694,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
 });
 
 
-// Debug endpoint to check WhatsApp clients (Baileys)
+// Debug endpoint to check WhatsApp clients (WhatsApp Web.js)
 app.get('/debug/whatsapp-clients', (req, res) => {
   try {
     const clients = waManager.getAllClients();
