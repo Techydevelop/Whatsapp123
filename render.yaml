@@ -6,9 +6,8 @@ services:
     region: singapore
     rootDir: backend
     buildCommand: |
-      # Remove old package-lock.json and install fresh
-      rm -f package-lock.json
-      npm install --production
+      # Use Yarn for faster and more reliable builds
+      yarn install --production
     startCommand: node server.js
     autoDeploy: true
     envVars:
