@@ -4,18 +4,18 @@
   "version": "1.0.0",
   "author": "WhatsApp SaaS",
   "category": "Communication",
-  "icon": "https://whatsapp123-1.onrender.com/ghl/provider/icon",
+  "icon": "https://whatsapp123-dhn1.onrender.com/ghl/provider/icon",
   "screenshots": [
-    "https://whatsapp123-1.onrender.com/ghl/provider/screenshot1",
-    "https://whatsapp123-1.onrender.com/ghl/provider/screenshot2"
+    "https://whatsapp123-dhn1.onrender.com/ghl/provider/screenshot1",
+    "https://whatsapp123-dhn1.onrender.com/ghl/provider/screenshot2"
   ],
   "provider": {
     "type": "sms",
     "name": "WhatsApp SMS",
     "description": "Send and receive SMS via WhatsApp",
     "capabilities": ["send", "receive", "status"],
-    "webhook_url": "https://whatsapp123-1.onrender.com/ghl/provider/webhook",
-    "config_url": "https://whatsapp123-1.onrender.com/ghl/provider/config"
+    "webhook_url": "https://whatsapp123-dhn1.onrender.com/ghl/provider/webhook",
+    "config_url": "https://whatsapp123-dhn1.onrender.com/ghl/provider/config"
   },
   "settings": {
     "webhook_url": {
@@ -23,7 +23,7 @@
       "label": "Webhook URL",
       "description": "URL for receiving incoming messages",
       "required": true,
-      "default": "https://whatsapp123-1.onrender.com/ghl/provider/webhook"
+      "default": "https://whatsapp123-dhn1.onrender.com/ghl/provider/webhook"
     },
     "location_id": {
       "type": "text",
@@ -33,9 +33,9 @@
     }
   },
   "endpoints": {
-    "send": "https://whatsapp123-1.onrender.com/ghl/provider/send",
-    "receive": "https://whatsapp123-1.onrender.com/ghl/provider/webhook",
-    "status": "https://whatsapp123-1.onrender.com/ghl/provider/status"
+    "send": "https://whatsapp123-dhn1.onrender.com/ghl/provider/send",
+    "receive": "https://whatsapp123-dhn1.onrender.com/ghl/provider/webhook",
+    "status": "https://whatsapp123-dhn1.onrender.com/ghl/provider/status"
   },
   "permissions": [
     "conversations.write",
