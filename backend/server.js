@@ -3,7 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { createClient } = require('@supabase/supabase-js');
 const GHLClient = require('./lib/ghl');
-const WhatsAppManagerFactory = require('./lib/wa-manager');
+const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
 const { downloadContentFromMessage, downloadMediaMessage } = require('baileys');
@@ -172,8 +172,8 @@ async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
   }
 }
 
-// WhatsApp Manager (WhatsApp Web)
-const waManager = WhatsAppManagerFactory.create();
+// WhatsApp Manager (Baileys)
+const waManager = new BaileysWhatsAppManager();
 
 // Scheduled token refresh (every 6 hours - more frequent for 24-hour tokens)
 setInterval(async () => {
