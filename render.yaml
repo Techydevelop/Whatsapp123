@@ -1,4 +1,4 @@
-# render.yaml - Optimized for Baileys v7+ and Node 18+
+# render.yaml - Optimized for Baileys v5+ and Node 18+
 services:
   - type: web
     name: whatsapp-ghl-backend
@@ -13,4 +13,4 @@ services:
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION
-        value: "18"
+        value: 18
