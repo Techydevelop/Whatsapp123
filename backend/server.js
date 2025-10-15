@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const { createClient } = require('@supabase/supabase-js');
@@ -312,7 +312,7 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'https://whatsapp123-1.onrender.com',
-    'https://whatsapp-saas-backend.onrender.com',
+    'https://whatsapp123-1.onrender.com',
     'https://whatsapp123-frontend.vercel.app',
     'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
     'https://whatsappghl.vercel.app',
