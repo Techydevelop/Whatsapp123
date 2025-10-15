@@ -57,7 +57,7 @@ class BaileysWhatsAppManager {
       const attempts = this.reconnectAttempts.get(sessionId) || 0;
       if (attempts > 5) {
         console.error(`❌ Max reconnection attempts reached for ${sessionId}`);
-        await this.updateDatabaseStatus(sessionId, 'failed');
+        await this.updateDatabaseStatus(sessionId, 'error');
         this.reconnectAttempts.delete(sessionId);
         return null;
       }
@@ -115,6 +115,12 @@ class BaileysWhatsAppManager {
         // Enhanced logger for better debugging
         logger: {
           level: 'error',
+          child: () => ({
+            error: (msg) => console.error('🔴 Baileys Error:', msg),
+            warn: (msg) => console.warn('🟡 Baileys Warning:', msg),
+            info: (msg) => console.log('🔵 Baileys Info:', msg),
+            debug: () => {}
+          }),
           error: (msg) => {
             console.error('🔴 Baileys Error:', msg);
             // Track connection errors
@@ -124,7 +130,7 @@ class BaileysWhatsAppManager {
           },
           warn: (msg) => console.warn('🟡 Baileys Warning:', msg),
           info: (msg) => console.log('🔵 Baileys Info:', msg),
-          debug: () => {}, // Disable debug in production
+          debug: () => {} // Disable debug in production
         }
       });
 
@@ -285,7 +291,7 @@ class BaileysWhatsAppManager {
       console.error(`❌ Error creating Baileys client for session ${sessionId}:`, error);
       
       // Update database on failure
-      await this.updateDatabaseStatus(sessionId, 'failed');
+      await this.updateDatabaseStatus(sessionId, 'error');
       
       throw error;
     }
