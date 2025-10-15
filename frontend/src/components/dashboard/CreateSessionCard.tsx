@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
+import { API_BASE_URL } from '@/lib/config';
 
 interface CreateSessionCardProps {
   subaccountId: string;
@@ -21,6 +22,7 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
   const [isCreating, setIsCreating] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showPairingCode, setShowPairingCode] = useState(false);
 
   const createSession = async () => {
     try {
@@ -170,21 +172,52 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
 
           {session.status === 'qr' && session.qr && (
             <div className="text-center">
-              <p className="text-sm text-gray-600 mb-3">
-                Scan this QR code with your WhatsApp mobile app:
-              </p>
-              <div className="inline-block p-4 bg-white border-2 border-gray-200 rounded-lg">
-                <Image 
-                  src={session.qr} 
-                  alt="WhatsApp QR Code" 
-                  width={192}
-                  height={192}
-                  className="w-48 h-48"
-                />
+              <div className="mb-4">
+                <div className="flex justify-center space-x-4">
+                  <button
+                    onClick={() => setShowPairingCode(false)}
+                    className={`px-4 py-2 rounded-md text-sm font-medium ${
+                      !showPairingCode
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    QR Code
+                  </button>
+                  <button
+                    onClick={() => setShowPairingCode(true)}
+                    className={`px-4 py-2 rounded-md text-sm font-medium ${
+                      showPairingCode
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    Pairing Code
+                  </button>
+                </div>
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Open WhatsApp → Menu → Linked Devices → Link a Device
-              </p>
+
+              {!showPairingCode ? (
+                <div>
+                  <p className="text-sm text-gray-600 mb-3">
+                    Scan this QR code with your WhatsApp mobile app:
+                  </p>
+                  <div className="inline-block p-4 bg-white border-2 border-gray-200 rounded-lg">
+                    <Image 
+                      src={session.qr} 
+                      alt="WhatsApp QR Code" 
+                      width={192}
+                      height={192}
+                      className="w-48 h-48"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Open WhatsApp → Menu → Linked Devices → Link a Device
+                  </p>
+                </div>
+              ) : (
+                <PairingCodeForm session={session} />
+              )}
             </div>
           )}
 
@@ -215,6 +248,109 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
               </button>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Pairing Code Form Component
+function PairingCodeForm({ session }: { session: Session }) {
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleRequestPairingCode = async () => {
+    if (!phoneNumber.trim()) {
+      setError('Please enter a phone number');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setPairingCode(null);
+
+    try {
+      // Extract location ID from session (assuming format: location_<locationId>_<sessionId>)
+      const sessionParts = session.id.split('_');
+      const locationId = sessionParts[1];
+      const sessionId = sessionParts.slice(2).join('_');
+
+      const response = await fetch(`${API_BASE_URL}/ghl/location/${locationId}/session/${sessionId}/pairing-code`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ phoneNumber: phoneNumber.trim() })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setPairingCode(data.pairingCode);
+        setError(null);
+      } else {
+        setError(data.error || 'Failed to request pairing code');
+      }
+    } catch (err) {
+      setError('Failed to request pairing code. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="text-left">
+        <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-2">
+          Phone Number
+        </label>
+        <div className="flex space-x-2">
+          <input
+            type="tel"
+            id="phoneNumber"
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            placeholder="e.g., 1234567890 or +1234567890"
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            disabled={isLoading || !!pairingCode}
+          />
+          <button
+            onClick={handleRequestPairingCode}
+            disabled={isLoading || !!pairingCode || !phoneNumber.trim()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? 'Getting...' : 'Get Code'}
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mt-1">
+          Enter your phone number with country code (e.g., +1234567890)
+        </p>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-3">
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
+
+      {pairingCode && (
+        <div className="bg-green-50 border border-green-200 rounded-md p-4">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-green-800 mb-2">
+              {pairingCode}
+            </div>
+            <p className="text-sm text-green-700 mb-3">
+              Enter this 8-digit code in your WhatsApp app
+            </p>
+            <div className="text-xs text-green-600 space-y-1">
+              <p>1. Open WhatsApp on your phone</p>
+              <p>2. Go to Settings → Linked Devices</p>
+              <p>3. Tap "Link a Device"</p>
+              <p>4. Enter the code above</p>
+            </div>
+          </div>
         </div>
       )}
     </div>
