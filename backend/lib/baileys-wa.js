@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode');
 const { createClient } = require('@supabase/supabase-js');
+const pino = require('pino');
 
 class BaileysWhatsAppManager {
   constructor() {
@@ -112,28 +113,8 @@ class BaileysWhatsAppManager {
         // Use more generic browser info for better compatibility
         browser: ['Chrome (Linux)', '', ''],
         
-        // Enhanced logger for better debugging
-        logger: {
-          level: 'error',
-          child: () => ({
-            error: (msg) => console.error('🔴 Baileys Error:', msg),
-            warn: (msg) => console.warn('🟡 Baileys Warning:', msg),
-            info: (msg) => console.log('🔵 Baileys Info:', msg),
-            debug: () => {},
-            trace: () => {}
-          }),
-          error: (msg) => {
-            console.error('🔴 Baileys Error:', msg);
-            // Track connection errors
-            if (msg.includes('Connection Failure') || msg.includes('timeout')) {
-              console.error(`🚨 Critical connection error for ${sessionId}:`, msg);
-            }
-          },
-          warn: (msg) => console.warn('🟡 Baileys Warning:', msg),
-          info: (msg) => console.log('🔵 Baileys Info:', msg),
-          debug: () => {}, // Disable debug in production
-          trace: () => {} // Disable trace in production
-        }
+        // Use Pino logger for proper Baileys compatibility
+        logger: pino({ level: 'error' })
       });
 
       // CRITICAL: Add connection timeout handler

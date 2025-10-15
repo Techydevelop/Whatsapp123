@@ -27,8 +27,8 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.9",
     "pg": "^8.16.3",
-    "qrcode": "^1.5.3",
-    "sharp": "^0.33.5"
+    "pino": "^8.16.2",
+    "sharp": "^0.32.6"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
