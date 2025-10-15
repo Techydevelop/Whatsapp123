@@ -405,13 +405,39 @@ class BaileysWhatsAppManager {
       socket.ev.on('messages.upsert', async (m) => {
         try {
           const msg = m.messages[0];
+          console.log(`📨 Message received from ${msg.key.remoteJid}, timestamp: ${msg.messageTimestamp}, type: ${m.type}`);
+          
           if (!msg.key.fromMe && m.type === 'notify') {
             // Only process messages received after connection is established
             const connectionTime = this.clients.get(sessionId)?.connectedAt;
-            if (connectionTime && msg.messageTimestamp < connectionTime) {
-              console.log(`🚫 Ignoring old message received before connection: ${msg.messageTimestamp} < ${connectionTime}`);
-              return;
+            if (connectionTime) {
+              // Handle timestamp comparison - WhatsApp timestamps can be in different formats
+              let messageTimeMs;
+              
+              if (typeof msg.messageTimestamp === 'number') {
+                // If timestamp is already in milliseconds (large number)
+                if (msg.messageTimestamp > 1000000000000) {
+                  messageTimeMs = msg.messageTimestamp;
+                } else {
+                  // If timestamp is in seconds (smaller number)
+                  messageTimeMs = msg.messageTimestamp * 1000;
+                }
+              } else {
+                // Handle Long object format
+                messageTimeMs = msg.messageTimestamp.low * 1000;
+              }
+              
+              const connectionTimeMs = connectionTime;
+              
+              console.log(`⏰ Message time: ${messageTimeMs}, Connection time: ${connectionTimeMs}`);
+              
+              if (messageTimeMs < connectionTimeMs) {
+                console.log(`🚫 Ignoring old message received before connection: ${messageTimeMs} < ${connectionTimeMs}`);
+                return;
+              }
             }
+            
+            console.log(`✅ Processing message from ${msg.key.remoteJid}`);
             const from = msg.key.remoteJid;
             // Detect message type and content
             let messageText = '';
