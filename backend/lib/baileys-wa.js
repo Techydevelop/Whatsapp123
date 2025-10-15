@@ -81,18 +81,14 @@ class BaileysWhatsAppManager {
             conversation: 'Hello from Baileys!'
           };
         },
-        browser: ['WhatsApp123', 'Chrome', '1.0.0'],
-        qr: {
-          store: 'file',
-          options: {
-            delay: 0
-          }
-        }
+        browser: ['WhatsApp123', 'Chrome', '1.0.0']
       });
 
       // QR Code generation
       socket.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
+        
+        console.log(`🔄 Connection update for ${sessionId}:`, { connection, qr: !!qr });
         
         if (qr) {
           console.log(`📱 QR Code generated for session: ${sessionId}`);

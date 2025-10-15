@@ -2253,12 +2253,12 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       }
     }, 300000); // 300 seconds timeout (5 minutes for WhatsApp connection)
 
-    console.log(`Creating WPPConnect WhatsApp client with sessionName: ${sessionName}`);
+        console.log(`Creating Baileys WhatsApp client with sessionName: ${sessionName}`);
     
-    // Create WPPConnect client
+    // Create Baileys client
     try {
       const client = await waManager.createClient(sessionName);
-      console.log(`✅ WPPConnect client created for session: ${sessionName}`);
+      console.log(`✅ Baileys client created for session: ${sessionName}`);
       
       // Wait a moment for QR to be generated
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -2275,7 +2275,7 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
         console.log(`✅ QR updated in database immediately`);
       }
         } catch (error) {
-      console.error(`❌ Failed to create WPPConnect client:`, error);
+      console.error(`❌ Failed to create Baileys client:`, error);
       return res.status(500).json({ error: 'Failed to create WhatsApp client' });
     }
     
