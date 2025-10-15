@@ -314,6 +314,7 @@ app.use(cors({
     'https://whatsapp123-frontend.vercel.app',
     'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
     'https://whatsappghl.vercel.app',
+    'https://whatsapghl.vercel.app',
     'https://*.vercel.app',
     'https://app.gohighlevel.com',
     'https://*.onrender.com'
