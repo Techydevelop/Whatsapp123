@@ -7,6 +7,7 @@ class WhatsAppWebJSManager {
     this.qrCodes = new Map();
     this.connectionStatus = new Map();
     this.reconnectAttempts = new Map();
+    this.startTimes = new Map();
     this.maxReconnectAttempts = 5;
     
     console.log('🚀 WhatsApp Web.js Manager initialized');
@@ -21,7 +22,7 @@ class WhatsAppWebJSManager {
         await this.disconnectClient(sessionName);
       }
 
-      // WhatsApp Web.js options
+      // WhatsApp Web.js options - Optimized for Render
       const options = {
         authStrategy: new LocalAuth({
           clientId: sessionName,
@@ -36,9 +37,36 @@ class WhatsAppWebJSManager {
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu'
-          ]
-        }
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding',
+            '--disable-background-networking',
+            '--disable-default-apps',
+            '--disable-extensions',
+            '--disable-plugins',
+            '--disable-sync',
+            '--disable-translate',
+            '--hide-scrollbars',
+            '--mute-audio',
+            '--no-default-browser-check',
+            '--no-pings',
+            '--use-mock-keychain',
+            '--memory-pressure-off',
+            '--max_old_space_size=4096'
+          ],
+          timeout: 60000, // 60 seconds timeout
+          protocolTimeout: 60000
+        },
+        webVersionCache: {
+          type: 'remote',
+          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+        },
+        restartOnAuthFail: true,
+        takeoverOnConflict: true,
+        takeoverTimeoutMs: 30000
       };
 
       // Create client
@@ -46,14 +74,23 @@ class WhatsAppWebJSManager {
       
       // Store client
       this.clients.set(sessionName, client);
+      this.startTimes.set(sessionName, Date.now());
       this.updateConnectionStatus(sessionName, 'initializing');
       this.reconnectAttempts.set(sessionName, 0);
 
-      // QR Code handler
+      // QR Code handler with timeout
       client.on('qr', async (qr) => {
         console.log(`📱 QR Code generated for session: ${sessionName}`);
         this.qrCodes.set(sessionName, qr);
         this.updateConnectionStatus(sessionName, 'qr');
+        
+        // Set QR timeout (5 minutes)
+        setTimeout(() => {
+          if (this.connectionStatus.get(sessionName) === 'qr') {
+            console.log(`⏰ QR timeout reached for session: ${sessionName}`);
+            this.updateConnectionStatus(sessionName, 'qr_expired');
+          }
+        }, 300000);
       });
 
       // Ready handler
@@ -61,6 +98,7 @@ class WhatsAppWebJSManager {
         console.log(`✅ WhatsApp Web.js client ready for session: ${sessionName}`);
         this.updateConnectionStatus(sessionName, 'ready');
         this.qrCodes.delete(sessionName);
+        this.reconnectAttempts.set(sessionName, 0);
       });
 
       // Authenticated handler
@@ -83,7 +121,23 @@ class WhatsAppWebJSManager {
       client.on('disconnected', (reason) => {
         console.log(`🔌 Client disconnected for session: ${sessionName}, reason: ${reason}`);
         this.updateConnectionStatus(sessionName, 'disconnected');
-        this.handleReconnect(sessionName);
+        
+        // Only reconnect for certain reasons
+        if (reason !== 'LOGOUT' && reason !== 'NAVIGATION') {
+          this.handleReconnect(sessionName);
+        }
+      });
+
+      // Loading screen handler
+      client.on('loading_screen', (percent, message) => {
+        console.log(`🔄 Loading ${percent}%: ${message} for session: ${sessionName}`);
+        this.updateConnectionStatus(sessionName, `loading_${percent}`);
+      });
+
+      // Change state handler
+      client.on('change_state', (state) => {
+        console.log(`🔄 State changed to: ${state} for session: ${sessionName}`);
+        this.updateConnectionStatus(sessionName, state);
       });
 
       // Initialize client
@@ -172,6 +226,29 @@ class WhatsAppWebJSManager {
   updateConnectionStatus(sessionName, status) {
     this.connectionStatus.set(sessionName, status);
     console.log(`📊 Connection status updated for ${sessionName}: ${status}`);
+    
+    // Log performance metrics
+    if (status === 'ready') {
+      const startTime = this.startTimes?.get(sessionName);
+      if (startTime) {
+        const duration = Date.now() - startTime;
+        console.log(`⚡ Session ${sessionName} ready in ${duration}ms`);
+      }
+    }
+  }
+
+  // Performance monitoring
+  getPerformanceMetrics(sessionName) {
+    const status = this.connectionStatus.get(sessionName);
+    const attempts = this.reconnectAttempts.get(sessionName) || 0;
+    const hasQR = this.qrCodes.has(sessionName);
+    
+    return {
+      status,
+      reconnectAttempts: attempts,
+      hasQRCode: hasQR,
+      isHealthy: status === 'ready' && attempts === 0
+    };
   }
 
   async handleReconnect(sessionName) {
@@ -185,15 +262,18 @@ class WhatsAppWebJSManager {
 
     console.log(`🔄 Attempting to reconnect session: ${sessionName} (attempt ${attempts + 1})`);
     this.reconnectAttempts.set(sessionName, attempts + 1);
-
-    // Wait before reconnecting
+    
+    // Progressive backoff: 5s, 10s, 20s, 30s, 60s
+    const delay = Math.min(5000 * Math.pow(2, attempts), 60000);
+    console.log(`⏳ Waiting ${delay/1000}s before reconnect...`);
+    
     setTimeout(async () => {
       try {
         await this.createClient(sessionName);
       } catch (error) {
-        console.error(`❌ Reconnect failed for session: ${sessionName}`, error);
+        console.error(`❌ Reconnect failed for session ${sessionName}:`, error);
       }
-    }, 30000); // 30 seconds delay
+    }, delay);
   }
 
   async processIncomingMessage(sessionName, message) {
