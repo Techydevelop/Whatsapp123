@@ -293,7 +293,8 @@ function PairingCodeForm({ session }: { session: Session }) {
       } else {
         setError(data.error || 'Failed to request pairing code');
       }
-    } catch (err) {
+    } catch (error) {
+      console.error('Pairing code request error:', error);
       setError('Failed to request pairing code. Please try again.');
     } finally {
       setIsLoading(false);
@@ -347,7 +348,7 @@ function PairingCodeForm({ session }: { session: Session }) {
             <div className="text-xs text-green-600 space-y-1">
               <p>1. Open WhatsApp on your phone</p>
               <p>2. Go to Settings → Linked Devices</p>
-              <p>3. Tap "Link a Device"</p>
+              <p>3. Tap &quot;Link a Device&quot;</p>
               <p>4. Enter the code above</p>
             </div>
           </div>
