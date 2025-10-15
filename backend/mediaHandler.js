@@ -1,151 +1,183 @@
-const FormData = require('form-data');
 const axios = require('axios');
+const FormData = require('form-data');
+const mime = require('mime-types');
+
+// Helper function for media message text
+function getMediaMessageText(messageType) {
+  const messages = {
+    'image': '🖼️ Image received',
+    'voice': '🎵 Voice note received',
+    'audio': '🎵 Audio file received',
+    'video': '🎥 Video received',
+    'document': '📄 Document received'
+  };
+  return messages[messageType] || '📎 Media received';
+}
 
 /**
- * Upload media to GHL Media Library
- * @param {Buffer} mediaBuffer - The media file buffer
- * @param {string} messageType - Type of media (image, video, audio, etc.)
- * @param {string} contactId - GHL contact ID
- * @param {string} accessToken - GHL access token
- * @param {string} locationId - GHL location ID
- * @returns {Promise<Object>} - GHL upload response
+ * Downloads media from WhatsApp encrypted URL
+ * @param {string} mediaUrl - WhatsApp encrypted media URL
+ * @returns {Promise<Buffer>} - Media file buffer
  */
-async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken, locationId) {
+async function downloadWhatsAppMedia(mediaUrl) {
   try {
-    console.log(`📤 Uploading ${messageType} to GHL Media Library...`);
-    console.log(`📊 Buffer size: ${mediaBuffer.length} bytes`);
-    console.log(`📍 Location ID: ${locationId}`);
-    console.log(`👤 Contact ID: ${contactId}`);
-
-    // Determine file extension and mime type based on message type
-    let fileExtension = 'bin';
-    let mimeType = 'application/octet-stream';
+    console.log('📥 Downloading media from WhatsApp...');
     
-    switch (messageType) {
-      case 'image':
-        fileExtension = 'jpg';
-        mimeType = 'image/jpeg';
-        break;
-      case 'video':
-        fileExtension = 'mp4';
-        mimeType = 'video/mp4';
-        break;
-      case 'voice':
-      case 'audio':
-        fileExtension = 'ogg';
-        mimeType = 'audio/ogg';
-        break;
-      case 'document':
-        fileExtension = 'pdf';
-        mimeType = 'application/pdf';
-        break;
-      case 'sticker':
-        fileExtension = 'webp';
-        mimeType = 'image/webp';
-        break;
-    }
-
-    const fileName = `whatsapp_${messageType}_${Date.now()}.${fileExtension}`;
-
-    // Create FormData
-    const formData = new FormData();
-    formData.append('file', mediaBuffer, {
-      filename: fileName,
-      contentType: mimeType
-    });
-    formData.append('name', fileName);
-    formData.append('hosted', 'false'); // Upload to GHL, not external hosting
-
-    // Upload to GHL Media Library
-    const uploadUrl = `https://services.leadconnectorhq.com/medias/upload-file`;
-    
-    console.log(`🔗 Upload URL: ${uploadUrl}`);
-    console.log(`📄 File name: ${fileName}`);
-    console.log(`📝 MIME type: ${mimeType}`);
-
-    const response = await axios.post(uploadUrl, formData, {
+    const response = await axios.get(mediaUrl, {
+      responseType: 'arraybuffer',
       headers: {
-        ...formData.getHeaders(),
-        'Authorization': `Bearer ${accessToken}`,
-        'Version': '2021-07-28'
+        'User-Agent': 'WhatsApp/2.0',
+        'Accept': '*/*'
       },
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity
+      timeout: 30000 // 30 second timeout
     });
-
-    console.log(`✅ Media uploaded successfully to GHL`);
-    console.log(`📊 Response:`, response.data);
-
-    return {
-      success: true,
-      mediaUrl: response.data.fileUrl || response.data.url,
-      mediaId: response.data.id,
-      fileName: fileName,
-      data: response.data
-    };
-
-  } catch (error) {
-    console.error(`❌ Error uploading media to GHL:`, error.message);
     
-    if (error.response) {
-      console.error(`📊 GHL Error Response:`, {
-        status: error.response.status,
-        data: error.response.data
-      });
-    }
-
-    throw new Error(`Failed to upload media to GHL: ${error.message}`);
+    console.log(`✅ Downloaded ${response.data.byteLength} bytes`);
+    return Buffer.from(response.data);
+    
+  } catch (error) {
+    console.error('❌ Failed to download WhatsApp media:', error.message);
+    throw new Error(`WhatsApp media download failed: ${error.message}`);
   }
 }
 
 /**
- * Process WhatsApp media message
- * This function can be used for additional media processing if needed
- * @param {Object} message - WhatsApp message object
- * @returns {Promise<Object>} - Processed media info
+ * Uploads media to GHL
+ * @param {Buffer} mediaBuffer - Media file buffer
+ * @param {string} messageType - Type: 'image', 'voice', 'video', 'document'
+ * @param {string} contactId - GHL contact ID
+ * @param {string} accessToken - GHL access token
+ * @param {string} locationId - GHL location ID
+ * @returns {Promise<string>} - GHL media URL
  */
-async function processWhatsAppMedia(message) {
+async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken, locationId) {
   try {
-    console.log(`🔄 Processing WhatsApp media...`);
+    console.log(`📤 Uploading ${messageType} to GHL for location: ${locationId}...`);
     
-    // Extract media info from message
-    const mediaInfo = {
-      type: null,
-      url: null,
-      caption: null
+    // Determine file extension and content type
+    const fileMap = {
+      'image': { ext: 'jpg', mime: 'image/jpeg' },
+      'voice': { ext: 'ogg', mime: 'audio/ogg; codecs=opus' },
+      'audio': { ext: 'mp3', mime: 'audio/mpeg' },
+      'video': { ext: 'mp4', mime: 'video/mp4' },
+      'document': { ext: 'pdf', mime: 'application/pdf' }
     };
-
-    if (message.imageMessage) {
-      mediaInfo.type = 'image';
-      mediaInfo.url = message.imageMessage.url || message.imageMessage.directPath;
-      mediaInfo.caption = message.imageMessage.caption;
-    } else if (message.videoMessage) {
-      mediaInfo.type = 'video';
-      mediaInfo.url = message.videoMessage.url || message.videoMessage.directPath;
-      mediaInfo.caption = message.videoMessage.caption;
-    } else if (message.audioMessage) {
-      mediaInfo.type = 'audio';
-      mediaInfo.url = message.audioMessage.url || message.audioMessage.directPath;
-    } else if (message.documentMessage) {
-      mediaInfo.type = 'document';
-      mediaInfo.url = message.documentMessage.url || message.documentMessage.directPath;
-      mediaInfo.caption = message.documentMessage.fileName;
-    } else if (message.stickerMessage) {
-      mediaInfo.type = 'sticker';
-      mediaInfo.url = message.stickerMessage.url || message.stickerMessage.directPath;
+    
+    const fileInfo = fileMap[messageType] || { ext: 'bin', mime: 'application/octet-stream' };
+    const filename = `whatsapp_${messageType}_${Date.now()}.${fileInfo.ext}`;
+    
+    // Upload media to GHL media library with correct endpoint
+    const mediaFormData = new FormData();
+    mediaFormData.append('file', mediaBuffer, {
+      filename: filename,
+      contentType: fileInfo.mime
+    });
+    mediaFormData.append('fileType', messageType);
+    
+    console.log('📤 Uploading media to GHL media library...');
+    
+    // Try media upload endpoint (requires medias.write scope)
+    // If fails, will use direct URL method as fallback
+    const mediaResponse = await axios.post(
+      `https://services.leadconnectorhq.com/medias/upload-file`,
+      mediaFormData,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Version': '2021-07-28',
+          'locationId': locationId,
+          ...mediaFormData.getHeaders()
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+        timeout: 60000
+      }
+    ).catch(err => {
+      console.warn('⚠️ Media upload endpoint failed, using conversations API fallback');
+      throw err; // Will trigger fallback in server.js
+    });
+    
+    console.log('✅ Media uploaded to library:', mediaResponse.data);
+    
+    // Get the uploaded file URL
+    const uploadedFileUrl = mediaResponse.data?.fileUrl || mediaResponse.data?.url;
+    
+    if (!uploadedFileUrl) {
+      throw new Error('No file URL returned from GHL media upload');
     }
-
-    console.log(`✅ Media processed:`, mediaInfo);
-    return mediaInfo;
-
+    
+    // Now create conversation message with media attachment
+    const messagePayload = {
+      type: "WhatsApp",
+      contactId: contactId,
+      message: getMediaMessageText(messageType),
+      direction: "inbound",
+      status: "delivered",
+      altId: `wa_${Date.now()}`,
+      attachments: [uploadedFileUrl] // GHL expects array of URLs
+    };
+    
+    console.log('📤 Creating conversation message with media...');
+    const response = await axios.post(
+      'https://services.leadconnectorhq.com/conversations/messages',
+      messagePayload,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Version': '2021-07-28',
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    console.log('📊 Media upload response:', response.status, response.data);
+    
+    console.log('✅ Media uploaded to GHL:', response.data);
+    return response.data;
+    
   } catch (error) {
-    console.error(`❌ Error processing WhatsApp media:`, error);
+    console.error('❌ GHL media upload failed:');
+    console.error('Status:', error.response?.status);
+    console.error('Data:', error.response?.data);
+    console.error('Headers:', error.response?.headers);
+    console.error('Message:', error.message);
+    throw new Error(`GHL upload failed: ${error.response?.data?.message || error.message}`);
+  }
+}
+
+/**
+ * Process WhatsApp media and upload to GHL
+ * @param {string} mediaUrl - WhatsApp media URL
+ * @param {string} messageType - Message type
+ * @param {string} contactId - GHL contact ID
+ * @param {string} accessToken - GHL access token
+ * @param {string} locationId - GHL location ID
+ * @returns {Promise<string>} - GHL media URL
+ */
+async function processWhatsAppMedia(mediaUrl, messageType, contactId, accessToken, locationId) {
+  try {
+    // Step 1: Download from WhatsApp
+    const mediaBuffer = await downloadWhatsAppMedia(mediaUrl);
+    
+    // Step 2: Upload to GHL
+    const ghlMediaUrl = await uploadMediaToGHL(
+      mediaBuffer, 
+      messageType, 
+      contactId, 
+      accessToken,
+      locationId
+    );
+    
+    return ghlMediaUrl;
+    
+  } catch (error) {
+    console.error('❌ Media processing failed:', error.message);
     throw error;
   }
 }
 
 module.exports = {
+  downloadWhatsAppMedia,
   uploadMediaToGHL,
   processWhatsAppMedia
 };
-

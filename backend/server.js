@@ -1,12 +1,12 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const { createClient } = require('@supabase/supabase-js');
 const GHLClient = require('./lib/ghl');
-const WhatsAppManagerFactory = require('./lib/wa-manager');
+const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
-// const { downloadContentFromMessage, downloadMediaMessage } = require('baileys'); // Not needed with WPPConnect
+const { downloadContentFromMessage, downloadMediaMessage } = require('baileys');
 const axios = require('axios');
 
 const app = express();
@@ -172,8 +172,8 @@ async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
   }
 }
 
-// WhatsApp Manager (Auto-select: Baileys or WPPConnect based on WA_PROVIDER env var)
-const waManager = WhatsAppManagerFactory.create();
+// WhatsApp Manager (Baileys)
+const waManager = new BaileysWhatsAppManager();
 
 // Scheduled token refresh (every 6 hours - more frequent for 24-hour tokens)
 setInterval(async () => {
@@ -672,7 +672,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client using WPPConnect - use subaccount_id from session
+    // Get WhatsApp client using Baileys - use subaccount_id from session
     const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
@@ -746,7 +746,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
-    // Send message using WPPConnect
+    // Send message using Baileys
     try {
       let sendResult;
       
@@ -813,9 +813,9 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         });
       }
       
-      console.log('✅ Message sent successfully via WPPConnect');
+      console.log('✅ Message sent successfully via Baileys');
     } catch (sendError) {
-      console.error('❌ Error sending message via WPPConnect:', sendError.message);
+      console.error('❌ Error sending message via Baileys:', sendError.message);
       
       // Send error notification to GHL conversation
       try {
@@ -2162,40 +2162,28 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
     if (existing && existing.length > 0 && existing[0].status !== 'disconnected') {
       console.log(`📋 Found existing session: ${existing[0].id}, status: ${existing[0].status}`);
       
-      // If session exists and is already connected/ready, return it
-      if (existing[0].status === 'ready') {
+      // If session exists but not connected, try to restore the client
+      if (existing[0].status === 'ready' || existing[0].status === 'qr') {
         const cleanSubaccountId = existing[0].subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
         const sessionName = `location_${cleanSubaccountId}_${existing[0].id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
         
-        console.log(`✅ Session already ready: ${sessionName}`);
+        console.log(`🔄 Attempting to restore client for existing session: ${sessionName}`);
         
-        return res.json({ 
-          status: existing[0].status, 
-          qr: existing[0].qr, 
-          phone_number: existing[0].phone_number,
-          session_id: existing[0].id
-        });
+        // Try to restore the client
+        try {
+          await waManager.createClient(sessionName);
+          console.log(`✅ Client restored for existing session: ${sessionName}`);
+        } catch (error) {
+          console.error(`❌ Failed to restore client for existing session:`, error);
+        }
       }
       
-      // If session exists but is in 'qr' or other state, clear it and create fresh
-      if (existing[0].status === 'qr' || existing[0].status === 'connecting' || existing[0].status === 'initializing') {
-        const cleanSubaccountId = existing[0].subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const sessionName = `location_${cleanSubaccountId}_${existing[0].id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-        
-        console.log(`🗑️ Clearing stale session data for: ${sessionName}`);
-        
-        // Clear old session data to force fresh QR generation
-        waManager.clearSessionData(sessionName);
-        
-        // Update status to disconnected
-        await supabaseAdmin
-          .from('sessions')
-          .update({ status: 'disconnected', qr: null })
-          .eq('id', existing[0].id);
-        
-        console.log(`✅ Stale session cleared, will create new one`);
-        // Continue to create new session below
-      }
+      return res.json({ 
+        status: existing[0].status, 
+        qr: existing[0].qr, 
+        phone_number: existing[0].phone_number,
+        session_id: existing[0].id
+      });
     }
 
     // Create new session - let database generate UUID automatically
@@ -2253,57 +2241,30 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       }
     }, 300000); // 300 seconds timeout (5 minutes for WhatsApp connection)
 
-        console.log(`Creating Baileys WhatsApp client with sessionName: ${sessionName}`);
+    console.log(`Creating Baileys WhatsApp client with sessionName: ${sessionName}`);
     
-    // Create Baileys client with proper error handling and timing
+    // Create Baileys client
     try {
-      console.log(`🚀 Starting Baileys client creation for session: ${sessionName}`);
-      
-      // Create client and wait for initialization
       const client = await waManager.createClient(sessionName);
       console.log(`✅ Baileys client created for session: ${sessionName}`);
       
-      // Wait longer for connection to establish and QR to be generated
-      console.log(`⏳ Waiting for connection establishment and QR generation...`);
-      await new Promise(resolve => setTimeout(resolve, 5000)); // Increased to 5 seconds
+      // Wait a moment for QR to be generated
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Check client status after waiting
-      const clientStatus = waManager.getClientStatus(sessionName);
-      console.log(`📊 Client status after wait:`, clientStatus);
-      
-      // Check if QR is available
+      // Check if QR is already available
       const qrCode = await waManager.getQRCode(sessionName);
       if (qrCode) {
         console.log(`📱 QR already available, updating database immediately...`);
         const qrDataUrl = await qrcode.toDataURL(qrCode);
-        await supabaseAdmin
-          .from('sessions')
+          await supabaseAdmin
+            .from('sessions')
           .update({ qr: qrDataUrl, status: 'qr' })
-          .eq('id', session.id);
+            .eq('id', session.id);
         console.log(`✅ QR updated in database immediately`);
-      } else {
-        console.log(`⏳ QR not yet available, will poll for it...`);
       }
-      
-    } catch (error) {
+        } catch (error) {
       console.error(`❌ Failed to create Baileys client:`, error);
-      console.error(`❌ Error details:`, error.message);
-      console.error(`❌ Error stack:`, error.stack);
-      
-      // Update database with error status
-      await supabaseAdmin
-        .from('sessions')
-        .update({ 
-          status: 'error', 
-          error_message: error.message,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', session.id);
-      
-      return res.status(500).json({ 
-        error: 'Failed to create WhatsApp client', 
-        details: error.message 
-      });
+      return res.status(500).json({ error: 'Failed to create WhatsApp client' });
     }
     
     // Set up QR code polling
@@ -2477,20 +2438,17 @@ app.post('/ghl/location/:locationId/session/logout', async (req, res) => {
     }
 
     // Disconnect WhatsApp client
-    const sessionName = `location_${locationId}_${session.id}`;
+    const cleanSubaccountId = ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sessionName = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     await waManager.disconnectClient(sessionName);
     
-    // Clear session data
+    // Clear session data (removes auth files)
     waManager.clearSessionData(sessionName);
     
-    // Update session status in database
+    // Delete session from database completely
     await supabaseAdmin
       .from('sessions')
-      .update({ 
-        status: 'disconnected',
-        phone_number: null,
-        qr: null
-      })
+      .delete()
       .eq('id', session.id);
 
     console.log(`✅ Session logged out for location: ${locationId}`);
@@ -2702,7 +2660,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
       return res.status(404).json({ error: 'No active WhatsApp session found' });
     }
 
-    // Send message via WhatsApp using WPPConnect
+    // Send message via WhatsApp using Baileys
     const sessionId = session[0].id;
     const clientStatus = waManager.getClientStatus(sessionId);
     if (!clientStatus || clientStatus.status !== 'connected') {
@@ -2722,7 +2680,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
       .select()
       .single();
 
-    // Send via WhatsApp using WPPConnect
+    // Send via WhatsApp using Baileys
     await waManager.sendMessage(sessionId, contactId, message);
 
     res.json({
@@ -2737,7 +2695,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
 });
 
 
-// Debug endpoint to check WhatsApp clients (WPPConnect)
+// Debug endpoint to check WhatsApp clients (Baileys)
 app.get('/debug/whatsapp-clients', (req, res) => {
   try {
     const clients = waManager.getAllClients();

@@ -1,20 +1,43 @@
-const { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } = require('baileys');
+const { makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMessage } = require('baileys');
 const fs = require('fs');
 const path = require('path');
-const qrcode = require('qrcode');
-const { createClient } = require('@supabase/supabase-js');
-const pino = require('pino');
 
 class BaileysWhatsAppManager {
   constructor() {
     this.clients = new Map();
     this.dataDir = path.join(__dirname, '../data');
     this.ensureDataDir();
-    this.qrQueue = [];
+    this.qrQueue = []; // Queue for sequential QR generation
     this.isGeneratingQR = false;
-    this.reconnectAttempts = new Map(); // Track reconnection attempts
+    
+    // Start connection health monitor
     this.startHealthMonitor();
   }
+
+  // Make clients accessible for phone number retrieval
+  getClientsMap() {
+    return this.clients;
+  }
+
+  // Get client by session ID (for media decryption)
+  getClient(sessionId) {
+    return this.clients.get(sessionId);
+  }
+
+  // Clear session data to force fresh connection
+  clearSessionData(sessionId) {
+    try {
+      const authDir = path.join(this.dataDir, `baileys_${sessionId}`);
+      if (fs.existsSync(authDir)) {
+        fs.rmSync(authDir, { recursive: true, force: true });
+        console.log(`🗑️ Cleared session data for: ${sessionId}`);
+      }
+      this.clients.delete(sessionId);
+    } catch (error) {
+      console.error(`❌ Error clearing session data for ${sessionId}:`, error);
+    }
+  }
+
 
   ensureDataDir() {
     if (!fs.existsSync(this.dataDir)) {
@@ -22,275 +45,459 @@ class BaileysWhatsAppManager {
     }
   }
 
-
-  getClientsMap() {
-    return this.clients;
-  }
-
-  getClient(sessionId) {
-    return this.clients.get(sessionId);
-  }
-
-  clearSessionData(sessionId) {
-    try {
-      const authDir = path.join(this.dataDir, sessionId);
-      if (fs.existsSync(authDir)) {
-        fs.rmSync(authDir, { recursive: true, force: true });
-        console.log(`🗑️ Cleared session data for: ${sessionId}`);
-      }
-      this.clients.delete(sessionId);
-      this.reconnectAttempts.delete(sessionId);
-    } catch (error) {
-      console.error(`❌ Error clearing session data for ${sessionId}:`, error);
-    }
+  // Connection health monitor
+  startHealthMonitor() {
+    setInterval(() => {
+      this.clients.forEach((client, sessionId) => {
+        if (client.status === 'connected') {
+          const timeSinceLastUpdate = Date.now() - client.lastUpdate;
+          
+          // If no update for more than 2 minutes, check connection
+          if (timeSinceLastUpdate > 120000) {
+            console.log(`🔍 Health check for ${sessionId}: Last update ${Math.round(timeSinceLastUpdate/1000)}s ago`);
+            
+            // Try to send a ping to check if connection is alive
+            try {
+              if (client.socket && client.socket.user) {
+                // Connection seems alive, update timestamp
+                client.lastUpdate = Date.now();
+                console.log(`✅ Connection healthy for ${sessionId}`);
+              } else {
+                console.log(`⚠️ Connection lost for ${sessionId}, marking as disconnected`);
+                client.status = 'disconnected';
+                client.lastUpdate = Date.now();
+              }
+            } catch (error) {
+              console.log(`❌ Health check failed for ${sessionId}:`, error.message);
+              client.status = 'disconnected';
+              client.lastUpdate = Date.now();
+            }
+          }
+        }
+      });
+    }, 30000); // Check every 30 seconds
   }
 
   hasExistingCredentials(sessionId) {
-    const authDir = path.join(this.dataDir, sessionId);
-    return fs.existsSync(authDir) && fs.readdirSync(authDir).length > 0;
+    const authDir = path.join(this.dataDir, `baileys_${sessionId}`);
+    const credsFile = path.join(authDir, 'creds.json');
+    return fs.existsSync(credsFile);
   }
 
   async createClient(sessionId) {
     try {
       console.log(`🚀 Creating Baileys client for session: ${sessionId}`);
       
-      // Check reconnection attempts
-      const attempts = this.reconnectAttempts.get(sessionId) || 0;
-      if (attempts > 5) {
-        console.error(`❌ Max reconnection attempts reached for ${sessionId}`);
-        await this.updateDatabaseStatus(sessionId, 'error');
-        this.reconnectAttempts.delete(sessionId);
-        return null;
+      // Extract subaccount ID from sessionId to prevent multiple connections
+      const sessionIdParts = sessionId.split('_');
+      const subaccountId = sessionIdParts.length >= 2 ? sessionIdParts[1] : null;
+      
+      if (subaccountId) {
+        // Check if there's already a connected client for this subaccount
+        for (const [key, client] of this.clients) {
+          if (key.includes(subaccountId) && (client.status === 'connected' || client.status === 'ready')) {
+            console.log(`⚠️ Subaccount ${subaccountId} already has a connected client: ${key}`);
+            console.log(`🔄 Reusing existing connected client instead of creating new one`);
+            return client.socket;
+          }
+        }
       }
-
-      // Check if client already exists and is connected
+      
+      // Check if client already exists and is still valid
       if (this.clients.has(sessionId)) {
         const existingClient = this.clients.get(sessionId);
-        if (existingClient.status === 'connected') {
+        const timeSinceLastUpdate = Date.now() - existingClient.lastUpdate;
+        
+        // If client is connected and recently updated, return it
+        if (existingClient.status === 'connected' && timeSinceLastUpdate < 300000) { // 5 minutes
           console.log(`✅ Using existing connected client for session: ${sessionId}`);
           return existingClient.socket;
         }
+        
+        // If client is disconnected for too long, remove it
+        if (existingClient.status === 'disconnected' && timeSinceLastUpdate > 60000) { // 1 minute
+          console.log(`🗑️ Removing stale disconnected client for session: ${sessionId}`);
+          this.clients.delete(sessionId);
+        } else if (existingClient.status === 'disconnected') {
+          console.log(`⚠️ Client exists but disconnected for session: ${sessionId}, recreating...`);
+          this.clients.delete(sessionId);
+        }
       }
-
-      const authDir = path.join(this.dataDir, sessionId);
       
-      // Use simple stable auth state
+      // Check again if there's already a connected client for this subaccount
+      if (subaccountId) {
+        for (const [clientKey, client] of this.clients.entries()) {
+          if (clientKey.includes(subaccountId) && client.status === 'connected') {
+            console.log(`⚠️ Subaccount ${subaccountId} already has connected client: ${clientKey}`);
+            console.log(`🚫 Skipping creation of duplicate client: ${sessionId}`);
+            return null; // Don't create duplicate client
+          }
+        }
+      }
+      
+      // Add to QR queue to prevent conflicts
+      return new Promise((resolve, reject) => {
+        this.qrQueue.push({ sessionId, resolve, reject });
+        this.processQRQueue();
+      });
+    } catch (error) {
+      console.error(`❌ Error creating client for session ${sessionId}:`, error);
+      throw error;
+    }
+  }
+  
+  async processQRQueue() {
+    if (this.isGeneratingQR || this.qrQueue.length === 0) {
+      return;
+    }
+    
+    this.isGeneratingQR = true;
+    const { sessionId, resolve, reject } = this.qrQueue.shift();
+    
+    try {
+      console.log(`🔄 Processing QR queue for session: ${sessionId}`);
+      const socket = await this.createClientInternal(sessionId);
+      resolve(socket);
+    } catch (error) {
+      reject(error);
+    } finally {
+      this.isGeneratingQR = false;
+      // Process next in queue after a delay
+      setTimeout(() => this.processQRQueue(), 3000); // 3 second delay between QR generations
+    }
+  }
+  
+  async createClientInternal(sessionId) {
+    try {
+      const authDir = path.join(this.dataDir, `baileys_${sessionId}`);
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
-
-      // Fetch latest Baileys version for better compatibility
-      let version;
-      try {
-        const { version: waVersion } = await fetchLatestBaileysVersion();
-        version = waVersion;
-        console.log(`📱 Using WhatsApp Web version: ${version.join('.')}`);
-      } catch (err) {
-        console.warn('⚠️ Could not fetch latest version, using default');
+      
+      // Check if we have existing credentials
+      const hasCredentials = this.hasExistingCredentials(sessionId);
+      console.log(`📋 Session ${sessionId} has existing credentials: ${hasCredentials}`);
+      
+      // If this is a fresh session (no credentials), skip restoration
+      if (!hasCredentials) {
+        console.log(`🆕 Fresh session detected, skipping restoration checks`);
       }
 
       const socket = makeWASocket({
         auth: state,
-        version,
-        printQRInTerminal: false,
-        
-        // CRITICAL: Optimized timeouts for Render environment
-        connectTimeoutMs: 30000, // 30 seconds (reduced from 60s)
-        defaultQueryTimeoutMs: 30000,
-        keepAliveIntervalMs: 20000, // 20 seconds
-        
-        // Better retry configuration for cloud environment
-        retryRequestDelayMs: 2000, // 2 seconds between retries
-        maxMsgRetryCount: 2, // Reduced retry count
-        
-        markOnlineOnConnect: true,
+        logger: {
+          level: 'silent',
+          child: () => ({ 
+            level: 'silent',
+            trace: () => {},
+            debug: () => {},
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            fatal: () => {}
+          }),
+          trace: () => {},
+          debug: () => {},
+          info: () => {},
+          warn: () => {},
+          error: () => {},
+          fatal: () => {}
+        },
+        browser: ['GHLTechy', 'Chrome', '1.0.0'],
         generateHighQualityLinkPreview: true,
-        
+        markOnlineOnConnect: true,
+        syncFullHistory: false,
+        defaultQueryTimeoutMs: 120000,
+        keepAliveIntervalMs: 10000, // More frequent keep-alive
+        connectTimeoutMs: 120000,
+        retryRequestDelayMs: 2000, // Longer delay between retries
+        maxMsgRetryCount: 3,
+        heartbeatIntervalMs: 5000, // More frequent heartbeat
+        defaultQueryTimeoutMs: 60000, // Shorter query timeout
+        msgRetryCounterCache: new Map(),
         getMessage: async (key) => {
           return {
-            conversation: 'Hello from Baileys!'
+            conversation: 'Hello from GHLTechy!'
           };
         },
-        
-        // Use more generic browser info for better compatibility
-        browser: ['Chrome (Linux)', '', ''],
-        
-        // Use Pino logger for proper Baileys compatibility
-        logger: pino({ level: 'error' })
+        shouldSyncHistoryMessage: () => false,
+        shouldIgnoreJid: () => false,
+        fireInitQueries: true,
+        emitOwnEvents: false
       });
 
-      // CRITICAL: Add connection timeout handler
-      let connectionTimeout;
-      const CONNECTION_TIMEOUT = 35000; // 35 seconds
+      // Handle connection updates with stability check
+      let connectionStable = false;
+      let stabilityTimer = null;
+      let connectionOpenTime = null;
       
-      connectionTimeout = setTimeout(() => {
-        if (socket && !socket.user) {
-          console.error(`⏰ Connection timeout for ${sessionId} - no user after ${CONNECTION_TIMEOUT/1000}s`);
-          socket.end();
+      socket.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr, isNewLogin, isOnline } = update;
+        
+        console.log(`🔄 Connection update for ${sessionId}:`, { 
+          connection, 
+          hasQR: !!qr, 
+          isNewLogin, 
+          isOnline,
+          lastDisconnect: lastDisconnect?.error?.message,
+          stable: connectionStable
+        });
+        
+      if (qr) {
+        console.log(`📱 QR Code generated for session: ${sessionId}`);
+        // Only set qr_ready if not already connected AND connection is not stable
+        if (!connectionStable && (!this.clients.has(sessionId) || this.clients.get(sessionId).status !== 'connected')) {
+          this.clients.set(sessionId, {
+            socket,
+            qr,
+            status: 'qr_ready',
+            lastUpdate: Date.now()
+          });
+          console.log(`📱 Status set to 'qr_ready' for session: ${sessionId}`);
+        } else if (connectionStable) {
+          console.log(`🚫 Ignoring QR generation - connection is stable for session: ${sessionId}`);
+        } else {
+          console.log(`🚫 Ignoring QR generation - client already connected for session: ${sessionId}`);
         }
-      }, CONNECTION_TIMEOUT);
+      }
 
-      // CRITICAL: Wrap connection.update in try-catch
-      socket.ev.on('connection.update', async (update) => {
-        try {
-          const { connection, lastDisconnect, qr, isNewLogin } = update;
+        if (connection === 'close') {
+          // Clear stability timer if connection closes
+          if (stabilityTimer) {
+            clearTimeout(stabilityTimer);
+            stabilityTimer = null;
+          }
+          connectionStable = false;
+          connectionOpenTime = null;
           
-          // Clear timeout on successful connection
-          if (connection === 'open' || connection === 'close') {
-            if (connectionTimeout) {
-              clearTimeout(connectionTimeout);
-            }
+          const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+          console.log(`🔌 Connection closed for session: ${sessionId}, should reconnect: ${shouldReconnect}`);
+          console.log(`🔌 Disconnect reason:`, lastDisconnect?.error?.message);
+          
+          // Update status to disconnected but keep client for potential reconnection
+          if (this.clients.has(sessionId)) {
+            const client = this.clients.get(sessionId);
+            client.status = 'disconnected';
+            client.lastUpdate = Date.now();
           }
           
-          console.log(`🔄 Connection update for ${sessionId}:`, { 
-            connection, 
-            qr: !!qr,
-            isNewLogin,
-            statusCode: lastDisconnect?.error?.output?.statusCode,
-            errorMessage: lastDisconnect?.error?.message
+          if (shouldReconnect) {
+            console.log(`🔄 Reconnecting session: ${sessionId} in 30 seconds...`);
+            // Longer delay to prevent false reconnections and reduce server load
+            setTimeout(() => {
+              // Check if client is still disconnected before reconnecting
+              const currentClient = this.clients.get(sessionId);
+              if (currentClient && currentClient.status === 'disconnected') {
+                console.log(`🔄 Attempting reconnection for: ${sessionId}`);
+                this.createClient(sessionId).catch(err => {
+                  console.error(`❌ Reconnection failed for ${sessionId}:`, err);
+                });
+              } else {
+                console.log(`✅ Client ${sessionId} already reconnected, skipping reconnection`);
+              }
+            }, 30000); // Increased to 30 seconds to reduce unnecessary checks
+          } else {
+            // Only delete if logged out
+            this.clients.delete(sessionId);
+          }
+        } else if (connection === 'open') {
+          connectionOpenTime = Date.now();
+          console.log(`✅ WhatsApp connected for session: ${sessionId}`);
+          console.log(`📱 Phone number: ${socket.user?.id?.split(':')[0] || 'Unknown'}`);
+          
+          // Set temporary status as 'connecting' until stable
+          this.clients.set(sessionId, {
+            socket,
+            qr: null,
+            status: 'connecting',
+            phoneNumber: socket.user?.id?.split(':')[0],
+            lastUpdate: Date.now(),
+            connectedAt: Date.now()
           });
           
-          // QR Code generation
-          if (qr) {
-            console.log(`📱 QR Code generated for session: ${sessionId}`);
-            
-            // Reset reconnection attempts on QR generation
-            this.reconnectAttempts.delete(sessionId);
-            
-            this.clients.set(sessionId, {
-              socket: socket,
-              qr: qr,
-              status: 'qr',
-              lastUpdate: Date.now()
-            });
-
-            // Update database immediately
-            await this.updateDatabaseStatus(sessionId, 'qr');
-          }
-
-          // Handle connection close
-          if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            
-            console.log(`🔌 Connection closed for ${sessionId}`);
-            console.log(`🔌 Status Code: ${statusCode}`);
-            console.log(`🔌 Error Message: ${errorMessage}`);
-            console.log(`🔌 Should Reconnect: ${shouldReconnect}`);
-            
-            // Increment reconnection attempts
-            this.reconnectAttempts.set(sessionId, attempts + 1);
-            
-            if (shouldReconnect && attempts < 5) {
-              // Exponential backoff: 10s, 20s, 40s, 80s, 160s
-              const delay = Math.min(10000 * Math.pow(2, attempts), 160000);
-              console.log(`🔄 Reconnecting session: ${sessionId} in ${delay/1000}s (attempt ${attempts + 1}/5)`);
-              
-              setTimeout(() => {
-                this.createClient(sessionId);
-              }, delay);
-            } else {
-              console.log(`❌ Session ended for: ${sessionId} (max attempts reached or logged out)`);
-              this.clients.delete(sessionId);
-              this.reconnectAttempts.delete(sessionId);
-              await this.updateDatabaseStatus(sessionId, statusCode === DisconnectReason.loggedOut ? 'logged_out' : 'disconnected');
-            }
-          } 
-          // Handle successful connection
-          else if (connection === 'open') {
-            console.log(`✅ Connected successfully for session: ${sessionId}`);
-            
-            // Reset reconnection attempts
-            this.reconnectAttempts.delete(sessionId);
-            
-            // Get phone number with error handling
-            let phoneNumber = null;
-            try {
-              phoneNumber = socket.user?.id?.split(':')[0];
-              console.log(`📱 Connected phone number: ${phoneNumber}`);
-            } catch (err) {
-              console.error('❌ Error getting phone number:', err);
-            }
-            
-            // Store client
-            this.clients.set(sessionId, {
-              socket: socket,
-              qr: null,
-              status: 'connected',
-              lastUpdate: Date.now(),
-              phoneNumber: phoneNumber
-            });
-
-            // Update database
-            await this.updateDatabaseStatus(sessionId, 'connected', phoneNumber);
-            
-            // Update to ready after delay
-            setTimeout(async () => {
-              await this.updateDatabaseStatus(sessionId, 'ready', phoneNumber);
-              console.log(`🎉 Session ready for: ${sessionId}`);
-            }, 2000);
-          }
-          // Handle connecting state
-          else if (connection === 'connecting') {
-            console.log(`⏳ Connecting session: ${sessionId}`);
-            this.clients.set(sessionId, {
-              socket: socket,
-              qr: null,
-              status: 'connecting',
-              lastUpdate: Date.now()
-            });
-          }
+          // Immediate connection - no stability delay
+          connectionStable = true;
+          this.clients.set(sessionId, {
+            socket,
+            qr: null,
+            status: 'connected',
+            phoneNumber: socket.user?.id?.split(':')[0],
+            lastUpdate: Date.now(),
+            connectedAt: Date.now()
+          });
           
-        } catch (error) {
-          console.error(`❌ Error in connection.update handler for ${sessionId}:`, error);
-          // Don't rethrow - let the connection continue
+          console.log(`✅ WhatsApp immediately connected for session: ${sessionId}`);
+          console.log(`🔒 Status set to 'connected' for session: ${sessionId}`);
+          
+          // Update database status immediately
+          this.updateDatabaseStatus(sessionId, 'ready', socket.user?.id?.split(':')[0]);
+          
+          // Update lastUpdate periodically to keep connection alive
+          setInterval(() => {
+            if (this.clients.has(sessionId)) {
+              const client = this.clients.get(sessionId);
+              if (client.status === 'connected') {
+                client.lastUpdate = Date.now();
+              }
+            }
+          }, 30000); // Update every 30 seconds
+        } else if (connection === 'connecting') {
+          console.log(`🔄 Connecting session: ${sessionId}`);
+          this.clients.set(sessionId, {
+            socket,
+            qr: null,
+            status: 'connecting',
+            lastUpdate: Date.now()
+          });
         }
       });
 
-      // Save credentials with error handling
-      socket.ev.on('creds.update', async () => {
-        try {
-          await saveCreds();
-        } catch (error) {
-          console.error(`❌ Error saving credentials for ${sessionId}:`, error);
-        }
-      });
+      // If we have existing credentials, set status to connecting immediately
+      if (hasCredentials) {
+        this.clients.set(sessionId, {
+          socket,
+          qr: null,
+          status: 'connecting',
+          lastUpdate: Date.now()
+        });
+        console.log(`🔄 Restoring existing session: ${sessionId}`);
+      } else {
+        console.log(`🆕 Fresh session - no restoration needed: ${sessionId}`);
+      }
 
-      // Listen for messages
+      // Handle credentials update
+      socket.ev.on('creds.update', saveCreds);
+
+      // Handle messages
       socket.ev.on('messages.upsert', async (m) => {
         try {
           const msg = m.messages[0];
           if (!msg.key.fromMe && m.type === 'notify') {
-            await this.handleIncomingMessage(sessionId, msg);
+            // Only process messages received after connection is established
+            const connectionTime = this.clients.get(sessionId)?.connectedAt;
+            if (connectionTime && msg.messageTimestamp < connectionTime) {
+              console.log(`🚫 Ignoring old message received before connection: ${msg.messageTimestamp} < ${connectionTime}`);
+              return;
+            }
+            const from = msg.key.remoteJid;
+            // Detect message type and content
+            let messageText = '';
+            let messageType = 'text';
+            let mediaUrl = null;
+            let mediaMessage = null;
+            
+            if (msg.message?.conversation) {
+              messageText = msg.message.conversation;
+              messageType = 'text';
+            } else if (msg.message?.extendedTextMessage?.text) {
+              messageText = msg.message.extendedTextMessage.text;
+              messageType = 'text';
+            } else if (msg.message?.imageMessage) {
+              messageText = msg.message.imageMessage.caption || '🖼️ Image';
+              messageType = 'image';
+              mediaUrl = msg.message.imageMessage.url || msg.message.imageMessage.directPath;
+            } else if (msg.message?.videoMessage) {
+              messageText = msg.message.videoMessage.caption || '🎥 Video';
+              messageType = 'video';
+              mediaUrl = msg.message.videoMessage.url || msg.message.videoMessage.directPath;
+            } else if (msg.message?.audioMessage) {
+              messageText = '🎵 Voice Note';
+              messageType = 'voice';
+              // Store the message object for decryption in webhook
+              mediaUrl = 'ENCRYPTED_MEDIA'; // Flag for encrypted media
+              mediaMessage = msg; // Store full message for decryption
+            } else if (msg.message?.documentMessage) {
+              messageText = msg.message.documentMessage.fileName || '📄 Document';
+              messageType = 'document';
+              mediaUrl = msg.message.documentMessage.url || msg.message.documentMessage.directPath;
+            } else if (msg.message?.stickerMessage) {
+              messageText = '😊 Sticker';
+              messageType = 'sticker';
+              mediaUrl = msg.message.stickerMessage.url || msg.message.stickerMessage.directPath;
+            } else {
+              messageText = '📎 Media/Other';
+              messageType = 'other';
+            }
+            
+            // Filter out broadcast messages and status messages
+            if (from.includes('@broadcast') || from.includes('status@') || from.includes('@newsletter')) {
+              console.log(`🚫 Ignoring broadcast/status message from: ${from}`);
+              return;
+            }
+            
+            console.log(`📨 Received message from ${from}: ${messageText}`);
+            console.log(`📨 Message details:`, {
+              from,
+              messageText,
+              messageType,
+              mediaUrl,
+              sessionId,
+              timestamp: msg.messageTimestamp
+            });
+            
+            // Forward to GHL webhook
+            try {
+              const webhookUrl = `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/whatsapp/webhook`;
+              console.log(`🔗 Calling webhook: ${webhookUrl}`);
+              
+              const webhookResponse = await fetch(webhookUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  from,
+                  message: messageText,
+                  messageType,
+                  mediaUrl,
+                  mediaMessage: mediaMessage, // Include full message for decryption
+                  timestamp: msg.messageTimestamp,
+                  sessionId,
+                  whatsappMsgId: msg.key.id // For idempotency
+                })
+              });
+              
+              if (webhookResponse.ok) {
+                const responseText = await webhookResponse.text();
+                console.log(`✅ Message forwarded to GHL webhook for session: ${sessionId}`);
+                console.log(`📊 Webhook response:`, responseText);
+              } else {
+                const errorText = await webhookResponse.text();
+                console.error(`❌ Failed to forward message to GHL webhook (${webhookResponse.status}):`, errorText);
+              }
+            } catch (webhookError) {
+              console.error(`❌ Error forwarding message to GHL webhook:`, webhookError);
+            }
           }
         } catch (error) {
-          console.error(`❌ Error handling message for ${sessionId}:`, error);
+          console.error(`❌ Error processing incoming message:`, error);
         }
       });
 
-      console.log(`✅ Baileys client created for session: ${sessionId}`);
       return socket;
 
     } catch (error) {
       console.error(`❌ Error creating Baileys client for session ${sessionId}:`, error);
-      
-      // Update database on failure
-      await this.updateDatabaseStatus(sessionId, 'error');
-      
       throw error;
     }
   }
 
   async getQRCode(sessionId) {
     try {
-      console.log(`🔍 Checking for QR code for session: ${sessionId}`);
-      const client = this.clients.get(sessionId);
+      let client = this.clients.get(sessionId);
       
+      if (!client) {
+        console.log(`🔄 No client found for ${sessionId}, creating new one...`);
+        await this.createClient(sessionId);
+        // Wait a bit for client to initialize
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Quick wait
+        client = this.clients.get(sessionId);
+      }
+
       if (client && client.qr) {
         console.log(`📱 Returning QR code for session: ${sessionId}`);
         return client.qr;
       }
 
-      console.log(`⏳ No QR code available yet for session: ${sessionId}`);
+      console.log(`⏳ No QR code available yet for session: ${sessionId}, status: ${client?.status}, hasQR: ${!!client?.qr}`);
       return null;
     } catch (error) {
       console.error(`❌ Error getting QR code for session ${sessionId}:`, error);
@@ -298,50 +505,110 @@ class BaileysWhatsAppManager {
     }
   }
 
-  async sendMessage(sessionId, phoneNumber, message, messageType = 'text', mediaUrl = null) {
+  async checkWhatsAppNumber(sessionId, phoneNumber) {
     try {
-      const clientData = this.clients.get(sessionId);
+      const client = this.clients.get(sessionId);
       
-      if (!clientData || !clientData.socket) {
-        throw new Error(`Client not ready for session: ${sessionId}`);
+      if (!client || !client.socket) {
+        return { exists: false, error: 'Client not available' };
       }
 
-      const socket = clientData.socket;
-      const formattedNumber = phoneNumber.replace(/\D/g, '') + '@s.whatsapp.net';
+      const formattedNumber = phoneNumber.replace(/\D/g, '');
+      const jid = `${formattedNumber}@s.whatsapp.net`;
 
-      console.log(`📤 Sending ${messageType} to ${formattedNumber}: ${message}`);
+      // Check if number has WhatsApp
+      const [result] = await client.socket.onWhatsApp(jid);
+      
+      if (result && result.exists) {
+        console.log(`✅ WhatsApp exists for: ${phoneNumber}`);
+        return { exists: true, jid: result.jid };
+      } else {
+        console.log(`❌ WhatsApp NOT found for: ${phoneNumber}`);
+        return { exists: false, error: 'Number does not have WhatsApp' };
+      }
+      
+    } catch (error) {
+      console.error(`❌ Error checking WhatsApp for ${phoneNumber}:`, error.message);
+      return { exists: false, error: error.message };
+    }
+  }
 
-      let result;
+  async sendMessage(sessionId, phoneNumber, message, messageType = 'text', mediaUrl = null) {
+    try {
+      const client = this.clients.get(sessionId);
+      
+      if (!client || (client.status !== 'connected' && client.status !== 'ready')) {
+        throw new Error(`Client not ready for session: ${sessionId}, status: ${client?.status || 'not found'}`);
+      }
+      
+      // Check if socket is properly initialized
+      if (!client.socket || !client.socket.user) {
+        throw new Error(`Socket not properly initialized for session: ${sessionId}`);
+      }
+
+      // Format phone number
+      const formattedNumber = phoneNumber.replace(/\D/g, '');
+      const jid = `${formattedNumber}@s.whatsapp.net`;
+
+      // Check if number has WhatsApp
+      const checkResult = await this.checkWhatsAppNumber(sessionId, phoneNumber);
+      if (!checkResult.exists) {
+        console.warn(`⚠️ Skipping message to ${phoneNumber}: ${checkResult.error}`);
+        return {
+          status: 'skipped',
+          reason: 'Number does not have WhatsApp',
+          phoneNumber: phoneNumber
+        };
+      }
+
+      console.log(`📤 Sending ${messageType} to ${jid}: ${message}`);
+
+      let messageContent = {};
 
       if (messageType === 'image' && mediaUrl) {
-        result = await socket.sendMessage(formattedNumber, {
+        // Send image
+        messageContent = {
           image: { url: mediaUrl },
           caption: message || ''
-        });
+        };
+        console.log(`🖼️ Sending image: ${mediaUrl}`);
       } else if (messageType === 'video' && mediaUrl) {
-        result = await socket.sendMessage(formattedNumber, {
+        // Send video
+        messageContent = {
           video: { url: mediaUrl },
           caption: message || ''
-        });
+        };
+        console.log(`🎥 Sending video: ${mediaUrl}`);
       } else if (messageType === 'voice' && mediaUrl) {
-        result = await socket.sendMessage(formattedNumber, {
+        // Send voice note
+        messageContent = {
           audio: { url: mediaUrl },
-          mimetype: 'audio/ogg; codecs=opus',
-          ptt: true
-        });
+          ptt: true, // Push to talk (voice note)
+          mimetype: 'audio/ogg; codecs=opus'
+        };
+        console.log(`🎵 Sending voice note: ${mediaUrl}`);
       } else if (messageType === 'document' && mediaUrl) {
-        result = await socket.sendMessage(formattedNumber, {
+        // Send document
+        messageContent = {
           document: { url: mediaUrl },
           mimetype: 'application/pdf',
           fileName: 'document.pdf'
-        });
+        };
+        console.log(`📄 Sending document: ${mediaUrl}`);
+      } else if (messageType === 'sticker' && mediaUrl) {
+        // Send sticker
+        messageContent = {
+          sticker: { url: mediaUrl }
+        };
+        console.log(`😊 Sending sticker: ${mediaUrl}`);
       } else {
-        result = await socket.sendMessage(formattedNumber, {
-          text: message
-        });
+        // Send text message
+        messageContent = { text: message };
       }
 
-      console.log(`✅ ${messageType} sent successfully`);
+      const result = await client.socket.sendMessage(jid, messageContent);
+
+      console.log(`✅ ${messageType} sent successfully:`, result);
       return result;
 
     } catch (error) {
@@ -352,13 +619,10 @@ class BaileysWhatsAppManager {
 
   getClientStatus(sessionId) {
     const client = this.clients.get(sessionId);
-    const attempts = this.reconnectAttempts.get(sessionId) || 0;
-    
     return client ? {
       status: client.status,
       lastUpdate: client.lastUpdate,
-      hasQR: !!client.qr,
-      reconnectAttempts: attempts
+      hasQR: !!client.qr
     } : null;
   }
 
@@ -367,78 +631,40 @@ class BaileysWhatsAppManager {
       sessionId,
       status: client.status,
       lastUpdate: client.lastUpdate,
-      hasQR: !!client.qr,
-      reconnectAttempts: this.reconnectAttempts.get(sessionId) || 0
+      hasQR: !!client.qr
     }));
   }
 
   async disconnectClient(sessionId) {
     try {
-      const clientData = this.clients.get(sessionId);
-      if (clientData && clientData.socket) {
-        await clientData.socket.logout();
+      const client = this.clients.get(sessionId);
+      if (client && client.socket) {
+        await client.socket.logout();
         this.clients.delete(sessionId);
-        this.reconnectAttempts.delete(sessionId);
         console.log(`🔌 Disconnected client for session: ${sessionId}`);
       }
     } catch (error) {
       console.error(`❌ Error disconnecting client for session ${sessionId}:`, error);
     }
   }
-
-  async handleIncomingMessage(sessionId, message) {
-    try {
-      const from = message.key.remoteJid;
-      const messageText = message.message?.conversation || 
-                         message.message?.extendedTextMessage?.text || 
-                         message.message?.imageMessage?.caption || 
-                         message.message?.videoMessage?.caption || '';
-
-      console.log(`📨 Received message from ${from}: ${messageText}`);
-
-      // Forward to GHL webhook
-      const webhookUrl = `${process.env.BACKEND_URL || 'http://localhost:3001'}/whatsapp/webhook`;
-      
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          from: from.replace('@s.whatsapp.net', ''),
-          message: messageText,
-          messageType: 'chat',
-          timestamp: message.messageTimestamp,
-          sessionId: sessionId,
-          whatsappMsgId: message.key.id
-        })
-      });
-
-      if (response.ok) {
-        console.log(`✅ Message forwarded to GHL webhook for session: ${sessionId}`);
-      } else {
-        console.error(`❌ Failed to forward message to GHL webhook: ${response.status}`);
-      }
-    } catch (error) {
-      console.error(`❌ Error processing incoming message:`, error);
-    }
+  
+  clearQRQueue() {
+    console.log(`🗑️ Clearing QR queue (${this.qrQueue.length} items)`);
+    this.qrQueue = [];
+    this.isGeneratingQR = false;
   }
-
+  
+  // Update database status
   async updateDatabaseStatus(sessionId, status, phoneNumber = null) {
     try {
+      const { createClient } = require('@supabase/supabase-js');
       const supabaseUrl = process.env.SUPABASE_URL;
       const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      
-      if (!supabaseUrl || !supabaseKey) {
-        console.error('❌ Missing Supabase credentials');
-        return;
-      }
-      
       const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
       
-      // Extract session ID
+      // Extract session ID from sessionId (format: location_subaccountId_sessionId)
       const sessionIdParts = sessionId.split('_');
-      const actualSessionId = sessionIdParts.slice(2).join('_');
+      const actualSessionId = sessionIdParts.slice(2).join('_'); // Get everything after location_subaccountId_
       
       console.log(`📊 Updating database status for session ${actualSessionId}: ${status}`);
       
@@ -456,27 +682,57 @@ class BaileysWhatsAppManager {
         console.error('❌ Database update error:', error);
       } else {
         console.log(`✅ Database status updated to: ${status}`);
+        
+        // If this session is now ready (connected), mark other sessions for same subaccount as disconnected
+        if (status === 'ready') {
+          await this.cleanupOldSessions(actualSessionId, sessionIdParts);
+        }
       }
     } catch (error) {
       console.error('❌ Error updating database status:', error);
     }
   }
-
-  startHealthMonitor() {
-    setInterval(() => {
-      const now = Date.now();
-      this.clients.forEach((client, sessionId) => {
-        // Check for stale clients (no update in 10 minutes)
-        if (now - client.lastUpdate > 600000) {
-          console.log(`⚠️ Client ${sessionId} seems stale (no update in 10 min), cleaning up...`);
-          this.clients.delete(sessionId);
-          this.reconnectAttempts.delete(sessionId);
+  
+  // Cleanup old sessions for same subaccount
+  async cleanupOldSessions(currentSessionId, sessionIdParts) {
+    try {
+      const { createClient } = require('@supabase/supabase-js');
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
+      
+      // Extract subaccount ID from sessionIdParts
+      const subaccountId = sessionIdParts[1]; // location_subaccountId_sessionId
+      
+      console.log(`🧹 Cleaning up old sessions for subaccount: ${subaccountId}`);
+      
+      // Mark other sessions for same subaccount as disconnected
+      const { error } = await supabaseAdmin
+        .from('sessions')
+        .update({ status: 'disconnected' })
+        .eq('subaccount_id', subaccountId)
+        .neq('id', currentSessionId)
+        .neq('status', 'disconnected');
+      
+      if (error) {
+        console.error('❌ Cleanup error:', error);
+      } else {
+        console.log(`✅ Old sessions marked as disconnected for subaccount: ${subaccountId}`);
+      }
+      
+      // Also cleanup disconnected clients from memory
+      this.clients.forEach((client, sessionKey) => {
+        if (sessionKey.includes(subaccountId) && sessionKey !== `location_${subaccountId}_${currentSessionId}`) {
+          if (client.status === 'disconnected' || client.status === 'qr_ready' || client.status === 'connecting') {
+            console.log(`🗑️ Removing old client from memory: ${sessionKey} (status: ${client.status})`);
+            this.clients.delete(sessionKey);
+          }
         }
       });
       
-      // Log active clients
-      console.log(`💚 Health Check: ${this.clients.size} active clients`);
-    }, 60000); // Check every minute
+    } catch (error) {
+      console.error('❌ Error cleaning up old sessions:', error);
+    }
   }
 }
 
