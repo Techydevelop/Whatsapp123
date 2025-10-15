@@ -119,7 +119,8 @@ class BaileysWhatsAppManager {
             error: (msg) => console.error('🔴 Baileys Error:', msg),
             warn: (msg) => console.warn('🟡 Baileys Warning:', msg),
             info: (msg) => console.log('🔵 Baileys Info:', msg),
-            debug: () => {}
+            debug: () => {},
+            trace: () => {}
           }),
           error: (msg) => {
             console.error('🔴 Baileys Error:', msg);
@@ -130,7 +131,8 @@ class BaileysWhatsAppManager {
           },
           warn: (msg) => console.warn('🟡 Baileys Warning:', msg),
           info: (msg) => console.log('🔵 Baileys Info:', msg),
-          debug: () => {} // Disable debug in production
+          debug: () => {}, // Disable debug in production
+          trace: () => {} // Disable trace in production
         }
       });
 
