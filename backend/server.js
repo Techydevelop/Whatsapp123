@@ -2268,10 +2268,10 @@ app.post('/ghl/location/:locationId/session', async (req, res) => {
       if (qrCode) {
         console.log(`📱 QR already available, updating database immediately...`);
         const qrDataUrl = await qrcode.toDataURL(qrCode);
-          await supabaseAdmin
-            .from('sessions')
+        await supabaseAdmin
+          .from('sessions')
           .update({ qr: qrDataUrl, status: 'qr' })
-            .eq('id', session.id);
+          .eq('id', session.id);
         console.log(`✅ QR updated in database immediately`);
       }
         } catch (error) {

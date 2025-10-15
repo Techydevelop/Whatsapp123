@@ -99,12 +99,12 @@ class BaileysWhatsAppManager {
           this.clients.set(sessionId, {
             socket: socket,
             qr: qr,
-            status: 'qr_ready',
+            status: 'qr',
             lastUpdate: Date.now()
           });
 
-          // Update database
-          await this.updateDatabaseStatus(sessionId, 'qr_ready');
+          // Update database immediately
+          await this.updateDatabaseStatus(sessionId, 'qr');
         }
 
         if (connection === 'close') {
@@ -137,8 +137,14 @@ class BaileysWhatsAppManager {
             phoneNumber: phoneNumber
           });
 
-          // Update database
-          await this.updateDatabaseStatus(sessionId, 'ready', phoneNumber);
+          // Update database - first to connected, then to ready
+          await this.updateDatabaseStatus(sessionId, 'connected', phoneNumber);
+          
+          // Wait a moment then update to ready
+          setTimeout(async () => {
+            await this.updateDatabaseStatus(sessionId, 'ready', phoneNumber);
+            console.log(`🎉 Session ready for: ${sessionId}`);
+          }, 2000);
         }
       });
 
