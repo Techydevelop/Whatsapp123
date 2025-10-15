@@ -24,6 +24,7 @@ class WhatsAppWebManager {
       // Launch browser
       const browser = await puppeteer.launch({
         headless: true,
+        executablePath: process.env.CHROME_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -31,7 +32,9 @@ class WhatsAppWebManager {
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
           '--no-zygote',
-          '--disable-gpu'
+          '--disable-gpu',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor'
         ]
       });
 

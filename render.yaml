@@ -5,7 +5,14 @@ services:
     plan: free
     region: singapore
     rootDir: backend
-    buildCommand: npm ci
+    buildCommand: |
+      # Install Chrome for Puppeteer
+      apt-get update && apt-get install -y wget gnupg
+      wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add -
+      echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list
+      apt-get update && apt-get install -y google-chrome-stable
+      # Install Node dependencies
+      npm ci
     startCommand: node server.js
     autoDeploy: true
     envVars:
@@ -13,6 +20,8 @@ services:
         value: production
       - key: PORT
         value: 3000
+      - key: CHROME_EXECUTABLE_PATH
+        value: /usr/bin/google-chrome-stable
       # Backend URL used by the frontend (set this in Vercel as NEXT_PUBLIC_API_URL)
       # Example after deploy: https://whatsapp123-1.onrender.com
       - key: FRONTEND_URL
