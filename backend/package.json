@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "build": "cd frontend && npm run build"
+    "build": "echo 'No build needed for backend'",
+    "install": "npm ci"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
