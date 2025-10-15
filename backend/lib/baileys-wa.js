@@ -769,6 +769,74 @@ class BaileysWhatsAppManager {
       console.error('❌ Error cleaning up old sessions:', error);
     }
   }
+
+  // Request pairing code for phone number (E.164 format without +)
+  async requestPairingCode(sessionId, phoneNumber) {
+    try {
+      console.log(`📱 Requesting pairing code for ${phoneNumber} in session: ${sessionId}`);
+      
+      const client = this.clients.get(sessionId);
+      if (!client || !client.socket) {
+        throw new Error('Client not found or not connected');
+      }
+
+      // Ensure phone number is in E.164 format without +
+      const cleanPhoneNumber = phoneNumber.replace(/[^\d]/g, '');
+      let formattedPhoneNumber = cleanPhoneNumber;
+      
+      // Handle different phone number formats
+      if (cleanPhoneNumber.length === 10) {
+        // Assume US number if 10 digits
+        formattedPhoneNumber = '1' + cleanPhoneNumber;
+      } else if (cleanPhoneNumber.startsWith('+')) {
+        // Remove + if present
+        formattedPhoneNumber = cleanPhoneNumber.substring(1);
+      } else if (cleanPhoneNumber.length < 10) {
+        throw new Error('Invalid phone number format');
+      }
+
+      console.log(`📞 Requesting pairing code for: ${formattedPhoneNumber}`);
+      
+      // Wait for connection to be in connecting state or QR available
+      const connectionStatus = this.getClientStatus(sessionId);
+      if (connectionStatus && connectionStatus.status !== 'connecting' && !this.qrCodes.has(sessionId)) {
+        console.log(`⏳ Waiting for connection state...`);
+        // Wait a bit for connection to stabilize
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      const pairingCode = await client.socket.requestPairingCode(formattedPhoneNumber);
+      console.log(`✅ Pairing code generated: ${pairingCode}`);
+      
+      return {
+        success: true,
+        pairingCode: pairingCode,
+        phoneNumber: formattedPhoneNumber,
+        message: `Pairing code ${pairingCode} has been sent to ${formattedPhoneNumber}. Enter this code in WhatsApp > Linked Devices > Link a Device`
+      };
+      
+    } catch (error) {
+      console.error(`❌ Error requesting pairing code:`, error);
+      throw error;
+    }
+  }
+
+  // Check if client supports pairing code
+  isPairingCodeSupported(sessionId) {
+    const client = this.clients.get(sessionId);
+    return client && client.socket && typeof client.socket.requestPairingCode === 'function';
+  }
+
+  // Get WhatsApp Web version info
+  getWhatsAppVersion() {
+    return {
+      version: '[2, 3000, 1025190524]',
+      status: 'Community confirmed working',
+      source: 'wppconnect-team/wa-version repository',
+      lastUpdated: 'Latest stable version',
+      pairingCodeSupported: true
+    };
+  }
 }
 
 module.exports = BaileysWhatsAppManager;

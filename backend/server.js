@@ -2694,6 +2694,45 @@ app.post('/ghl/provider/messages', async (req, res) => {
   }
 });
 
+// Request pairing code endpoint
+app.post('/ghl/location/:locationId/session/:sessionId/pairing-code', async (req, res) => {
+  try {
+    const { locationId, sessionId } = req.params;
+    const { phoneNumber } = req.body;
+
+    if (!phoneNumber) {
+      return res.status(400).json({ error: 'Phone number is required' });
+    }
+
+    console.log(`📱 Requesting pairing code for session: ${sessionId}, phone: ${phoneNumber}`);
+
+    // Check if client exists and supports pairing code
+    const clientKey = `location_${locationId}_${sessionId}`;
+    const isSupported = waManager.isPairingCodeSupported(clientKey);
+    
+    if (!isSupported) {
+      return res.status(400).json({ 
+        error: 'Pairing code not supported for this client or client not ready' 
+      });
+    }
+
+    // Request pairing code
+    const result = await waManager.requestPairingCode(clientKey, phoneNumber);
+    
+    res.json({
+      success: true,
+      pairingCode: result.pairingCode,
+      phoneNumber: result.phoneNumber,
+      message: result.message
+    });
+
+  } catch (error) {
+    console.error('❌ Error requesting pairing code:', error);
+    res.status(500).json({ 
+      error: error.message || 'Failed to request pairing code' 
+    });
+  }
+});
 
 // Debug endpoint to check WhatsApp clients (Baileys)
 app.get('/debug/whatsapp-clients', (req, res) => {
@@ -2704,13 +2743,15 @@ app.get('/debug/whatsapp-clients', (req, res) => {
       status: client.status,
       lastUpdate: client.lastUpdate,
       hasQR: client.hasQR,
-      isConnected: client.status === 'connected'
+      isConnected: client.status === 'connected',
+      pairingCodeSupported: waManager.isPairingCodeSupported(client.sessionId)
     }));
     
     res.json({
       totalClients: clients.length,
       clients: clientInfo,
-      availableSessions: clients.map(client => client.sessionId)
+      availableSessions: clients.map(client => client.sessionId),
+      versionInfo: waManager.getWhatsAppVersion()
     });
   } catch (error) {
     console.error('Debug error:', error);
