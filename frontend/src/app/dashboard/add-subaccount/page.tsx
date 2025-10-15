@@ -18,7 +18,7 @@ export default function AddSubAccount() {
       // Direct GHL OAuth flow - let user choose location in GHL
       const scopes = 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write businesses.readonly users.readonly'
       const clientId = process.env.NEXT_PUBLIC_GHL_CLIENT_ID
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://whatsapp123-1.onrender.com'
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://whatsappghl-backend.vercel.app'
       const redirectUri = `${apiBaseUrl}/oauth/callback`
       
       console.log('OAuth Config:', {
