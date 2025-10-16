@@ -33,41 +33,32 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
       const { data: { session: authSession } } = await supabase.auth.getSession();
       if (!authSession) throw new Error('Not authenticated');
 
-      // Create session with mode parameter
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/create-session`, {
-        method: 'POST',
+      // Get GHL location ID for the subaccount
+      const ghlResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/subaccounts`, {
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${authSession.access_token}`,
         },
-        body: JSON.stringify({ 
-          subaccountId,
-          mode: mode // Add mode parameter
-        }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create session');
+      if (!ghlResponse.ok) {
+        throw new Error('Failed to fetch GHL locations');
       }
 
-      const { sessionId } = await response.json();
+      const { subaccounts } = await ghlResponse.json();
+      const subaccount = subaccounts.find((acc: any) => acc.id === subaccountId);
       
-      // Set session with mode information
-      setSession({ 
-        id: sessionId, 
-        status: 'initializing', 
-        qr: null, 
-        phone_number: null, 
-        created_at: new Date().toISOString(),
-        mode: mode // Store the mode for later use
-      });
+      if (!subaccount) {
+        throw new Error('GHL location not found');
+      }
+
+      // Open backend provider page with mode parameter
+      const providerUrl = `${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}/ghl/provider?locationId=${subaccount.ghl_location_id}&mode=${mode}`;
+      window.open(providerUrl, '_blank', 'width=600,height=800');
       
-      onSessionCreated?.(sessionId);
+      setIsCreating(false);
     } catch (error) {
       console.error('Error creating session:', error);
       setError(error instanceof Error ? error.message : 'Failed to create session');
-    } finally {
       setIsCreating(false);
     }
   };

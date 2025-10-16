@@ -1655,7 +1655,7 @@ app.get('/ghl/provider', async (req, res) => {
     res.setHeader('X-Frame-Options', 'ALLOWALL');
     res.setHeader('Access-Control-Allow-Origin', '*');
     
-    let { locationId, companyId } = req.query;
+    let { locationId, companyId, mode } = req.query;
     
     // If no locationId provided, try to detect from GHL context or company
     if (!locationId && companyId) {
@@ -2026,7 +2026,7 @@ app.get('/ghl/provider', async (req, res) => {
               </div>
 
               <div class="qr-section">
-                <!-- Toggle Buttons -->
+                <!-- Toggle Buttons (only show if no mode specified) -->
                 <div class="toggle-buttons" id="toggle-buttons" style="display: none;">
                   <button id="qr-toggle" class="toggle-btn active">QR Code</button>
                   <button id="pairing-toggle" class="toggle-btn">Pairing Code</button>
@@ -2089,6 +2089,7 @@ app.get('/ghl/provider', async (req, res) => {
             const qs = new URLSearchParams(window.location.search);
             const locId = qs.get('locationId');
             const companyId = qs.get('companyId');
+            const mode = qs.get('mode'); // Get mode parameter
             
             // Get DOM elements
             const statusEl = document.getElementById('status');
@@ -2131,17 +2132,34 @@ app.get('/ghl/provider', async (req, res) => {
                   
                 case 'qr':
                   statusEl.innerHTML = '📱 <strong>Scan QR Code</strong><br><small>Open WhatsApp → Menu → Linked Devices → Link a Device</small>';
-                  toggleButtons.style.display = 'flex';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
                   
-                  // Show the appropriate view based on current mode
-                  if (currentViewMode === 'qr') {
+                  // Handle mode-specific display
+                  if (mode === 'qr') {
+                    // QR mode: show only QR code
+                    toggleButtons.style.display = 'none';
                     qrEl.style.display = 'block';
                     pairingCodeEl.style.display = 'none';
-                  } else {
+                    currentViewMode = 'qr';
+                  } else if (mode === 'pairing') {
+                    // Pairing mode: show only pairing code
+                    toggleButtons.style.display = 'none';
                     qrEl.style.display = 'none';
                     pairingCodeEl.style.display = 'block';
+                    currentViewMode = 'pairing';
+                  } else {
+                    // No mode specified: show toggle buttons
+                    toggleButtons.style.display = 'flex';
+                    
+                    // Show the appropriate view based on current mode
+                    if (currentViewMode === 'qr') {
+                      qrEl.style.display = 'block';
+                      pairingCodeEl.style.display = 'none';
+                    } else {
+                      qrEl.style.display = 'none';
+                      pairingCodeEl.style.display = 'block';
+                    }
                   }
                   break;
                   
