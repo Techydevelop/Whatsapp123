@@ -16,6 +16,7 @@ interface Session {
   qr: string | null;
   phone_number: string | null;
   created_at: string;
+  mode?: 'qr' | 'pairing'; // Session mode
 }
 
 export default function CreateSessionCard({ subaccountId, onSessionCreated }: CreateSessionCardProps) {
@@ -24,7 +25,7 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
   const [error, setError] = useState<string | null>(null);
   const [showPairingCode, setShowPairingCode] = useState(false);
 
-  const createSession = async () => {
+  const createSession = async (mode: 'qr' | 'pairing' = 'qr') => {
     try {
       setIsCreating(true);
       setError(null);
@@ -32,13 +33,17 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
       const { data: { session: authSession } } = await supabase.auth.getSession();
       if (!authSession) throw new Error('Not authenticated');
 
+      // Create session with mode parameter
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/create-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authSession.access_token}`,
         },
-        body: JSON.stringify({ subaccountId }),
+        body: JSON.stringify({ 
+          subaccountId,
+          mode: mode // Add mode parameter
+        }),
       });
 
       if (!response.ok) {
@@ -47,7 +52,17 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
       }
 
       const { sessionId } = await response.json();
-      setSession({ id: sessionId, status: 'initializing', qr: null, phone_number: null, created_at: new Date().toISOString() });
+      
+      // Set session with mode information
+      setSession({ 
+        id: sessionId, 
+        status: 'initializing', 
+        qr: null, 
+        phone_number: null, 
+        created_at: new Date().toISOString(),
+        mode: mode // Store the mode for later use
+      });
+      
       onSessionCreated?.(sessionId);
     } catch (error) {
       console.error('Error creating session:', error);
@@ -129,23 +144,54 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
             </div>
           )}
           
-          <button
-            onClick={createSession}
-            disabled={isCreating}
-            className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isCreating ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Creating Session...
-              </>
-            ) : (
-              'Create WhatsApp Session'
-            )}
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              onClick={() => createSession('qr')}
+              disabled={isCreating}
+              className="inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isCreating ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                  </svg>
+                  Open QR Code
+                </>
+              )}
+            </button>
+            
+            <button
+              onClick={() => createSession('pairing')}
+              disabled={isCreating}
+              className="inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isCreating ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M2 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 002 2H4a2 2 0 01-2-2V5zm3 1h6v4H5V6zm6 6H5v2h6v-2z" clipRule="evenodd" />
+                    <path d="M15 8h1v1h-1V8zm0 2h1v1h-1v-1z" />
+                  </svg>
+                  Open Pairing Code
+                </>
+              )}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
@@ -154,6 +200,11 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(session.status)}`}>
                 {getStatusText(session.status)}
               </span>
+              {session.mode && (
+                <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                  {session.mode === 'qr' ? '📱 QR Code' : '🔢 Pairing Code'}
+                </span>
+              )}
               {session.phone_number && (
                 <span className="ml-2 text-sm text-gray-600">
                   {session.phone_number}
@@ -172,32 +223,8 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
 
           {session.status === 'qr' && session.qr && (
             <div className="text-center">
-              <div className="mb-4">
-                <div className="flex justify-center space-x-4">
-                  <button
-                    onClick={() => setShowPairingCode(false)}
-                    className={`px-4 py-2 rounded-md text-sm font-medium ${
-                      !showPairingCode
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    QR Code
-                  </button>
-                  <button
-                    onClick={() => setShowPairingCode(true)}
-                    className={`px-4 py-2 rounded-md text-sm font-medium ${
-                      showPairingCode
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    Pairing Code
-                  </button>
-                </div>
-              </div>
-
-              {!showPairingCode ? (
+              {/* Show QR Code UI for QR mode sessions */}
+              {session.mode === 'qr' && (
                 <div>
                   <p className="text-sm text-gray-600 mb-3">
                     Scan this QR code with your WhatsApp mobile app:
@@ -215,8 +242,63 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
                     Open WhatsApp → Menu → Linked Devices → Link a Device
                   </p>
                 </div>
-              ) : (
+              )}
+
+              {/* Show Pairing Code UI for pairing mode sessions */}
+              {session.mode === 'pairing' && (
                 <PairingCodeForm session={session} />
+              )}
+
+              {/* For sessions without mode (backward compatibility), show toggle */}
+              {!session.mode && (
+                <>
+                  <div className="mb-4">
+                    <div className="flex justify-center space-x-4">
+                      <button
+                        onClick={() => setShowPairingCode(false)}
+                        className={`px-4 py-2 rounded-md text-sm font-medium ${
+                          !showPairingCode
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        QR Code
+                      </button>
+                      <button
+                        onClick={() => setShowPairingCode(true)}
+                        className={`px-4 py-2 rounded-md text-sm font-medium ${
+                          showPairingCode
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        Pairing Code
+                      </button>
+                    </div>
+                  </div>
+
+                  {!showPairingCode ? (
+                    <div>
+                      <p className="text-sm text-gray-600 mb-3">
+                        Scan this QR code with your WhatsApp mobile app:
+                      </p>
+                      <div className="inline-block p-4 bg-white border-2 border-gray-200 rounded-lg">
+                        <Image 
+                          src={session.qr} 
+                          alt="WhatsApp QR Code" 
+                          width={192}
+                          height={192}
+                          className="w-48 h-48"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Open WhatsApp → Menu → Linked Devices → Link a Device
+                      </p>
+                    </div>
+                  ) : (
+                    <PairingCodeForm session={session} />
+                  )}
+                </>
               )}
             </div>
           )}

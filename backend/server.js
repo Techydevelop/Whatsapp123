@@ -515,6 +515,115 @@ app.get('/admin/ghl/subaccounts', requireAuth, async (req, res) => {
   }
 });
 
+// Admin Create Session Endpoint
+app.post('/admin/create-session', requireAuth, async (req, res) => {
+  try {
+    const { subaccountId, mode = 'qr' } = req.body;
+    
+    if (!subaccountId) {
+      return res.status(400).json({ error: 'Subaccount ID is required' });
+    }
+
+    console.log(`🚀 Creating ${mode} session for subaccount: ${subaccountId}`);
+
+    // Create session in database
+    const { data: session, error: sessionError } = await supabaseAdmin
+      .from('sessions')
+      .insert({
+        user_id: req.user?.id,
+        subaccount_id: subaccountId,
+        status: 'initializing',
+        qr: null,
+        phone_number: null,
+        mode: mode // Store the mode
+      })
+      .select()
+      .single();
+
+    if (sessionError) {
+      console.error('❌ Database error creating session:', sessionError);
+      return res.status(500).json({ error: 'Failed to create session' });
+    }
+
+    console.log(`✅ Session created with ID: ${session.id}, mode: ${mode}`);
+
+    // Start WhatsApp client creation based on mode
+    if (mode === 'qr') {
+      // For QR mode, create client and generate QR
+      const sessionName = `subaccount_${subaccountId}_${session.id}`;
+      
+      try {
+        await waManager.createClient(sessionName);
+        console.log(`📱 QR session client created: ${sessionName}`);
+      } catch (error) {
+        console.error('❌ Error creating QR client:', error);
+        // Update session status to error
+        await supabaseAdmin
+          .from('sessions')
+          .update({ status: 'disconnected' })
+          .eq('id', session.id);
+      }
+    } else if (mode === 'pairing') {
+      // For pairing mode, create client ready for pairing code
+      const sessionName = `subaccount_${subaccountId}_${session.id}`;
+      
+      try {
+        await waManager.createClient(sessionName);
+        console.log(`🔢 Pairing session client created: ${sessionName}`);
+      } catch (error) {
+        console.error('❌ Error creating pairing client:', error);
+        // Update session status to error
+        await supabaseAdmin
+          .from('sessions')
+          .update({ status: 'disconnected' })
+          .eq('id', session.id);
+      }
+    }
+
+    res.json({ 
+      success: true,
+      sessionId: session.id,
+      mode: mode,
+      message: `${mode === 'qr' ? 'QR' : 'Pairing'} session created successfully`
+    });
+  } catch (error) {
+    console.error('❌ Error creating session:', error);
+    res.status(500).json({ error: 'Failed to create session' });
+  }
+});
+
+// Admin Get Session Status
+app.get('/admin/session/:sessionId', requireAuth, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    const { data: session, error } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('id', sessionId)
+      .eq('user_id', req.user?.id)
+      .single();
+
+    if (error || !session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    res.json({ 
+      session: {
+        id: session.id,
+        status: session.status,
+        qr: session.qr,
+        phone_number: session.phone_number,
+        created_at: session.created_at,
+        mode: session.mode
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching session:', error);
+    res.status(500).json({ error: 'Failed to fetch session' });
+  }
+});
+
 // Connect new subaccount
 app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
   try {
