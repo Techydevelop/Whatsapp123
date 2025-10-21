@@ -460,9 +460,16 @@ app.get('/oauth/callback', async (req, res) => {
         targetUserId = decodeURIComponent(state);
         console.log('Using target user ID from state:', targetUserId);
         
-        // Check if user exists, if not create them
+        // Validate UUID format
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(targetUserId)) {
+          console.error('❌ Invalid UUID format:', targetUserId);
+          return res.status(400).json({ error: 'Invalid user ID format' });
+        }
+        
+        // Check if user exists in auth.users (Supabase Auth table)
         const { data: existingUser, error: userCheckError } = await supabaseAdmin
-          .from('users')
+          .from('auth.users')
           .select('id')
           .eq('id', targetUserId)
           .maybeSingle();
@@ -473,17 +480,17 @@ app.get('/oauth/callback', async (req, res) => {
         }
         
         if (!existingUser) {
-          console.log('User not found, creating new user...');
-          // Create user with minimal info (will be updated later)
-          const { error: createUserError } = await supabaseAdmin
-            .from('users')
-            .insert({
-              id: targetUserId,
-              name: 'GHL User', // Temporary name
-              email: `user-${targetUserId}@temp.com`, // Temporary email
-              password: 'temp-password', // Will be updated on first login
-              is_verified: true
-            });
+          console.log('User not found in auth.users, creating...');
+          // Create user in auth.users (Supabase Auth table)
+          const { error: createUserError } = await supabaseAdmin.auth.admin.createUser({
+            email: `user-${targetUserId}@temp.com`,
+            password: 'temp-password',
+            email_confirm: true,
+            user_metadata: {
+              name: 'GHL User',
+              ghl_user_id: targetUserId
+            }
+          });
             
           if (createUserError) {
             console.error('Error creating user:', createUserError);
@@ -507,29 +514,47 @@ app.get('/oauth/callback', async (req, res) => {
     
     const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
     
-    // Final check - ensure user exists before storing GHL account
-    const { data: finalUserCheck } = await supabaseAdmin
-      .from('users')
+    // Final check - ensure user exists in auth.users before storing GHL account
+    console.log('🔍 Final check: Looking for user ID in auth.users:', targetUserId);
+    const { data: finalUserCheck, error: finalCheckError } = await supabaseAdmin
+      .from('auth.users')
       .select('id')
       .eq('id', targetUserId)
       .maybeSingle();
       
+    if (finalCheckError) {
+      console.error('❌ Final check error:', finalCheckError);
+      return res.status(500).json({ error: 'Database error checking user' });
+    }
+      
+    console.log('🔍 Final check result:', finalUserCheck);
+      
     if (!finalUserCheck) {
-      console.log('Final check: User still not found, creating...');
-      const { error: finalCreateError } = await supabaseAdmin
-        .from('users')
-        .insert({
-          id: targetUserId,
+      console.log('⚠️ Final check: User still not found in auth.users, creating...');
+      const { data: newUser, error: finalCreateError } = await supabaseAdmin.auth.admin.createUser({
+        email: `user-${targetUserId}@temp.com`,
+        password: 'temp-password',
+        email_confirm: true,
+        user_metadata: {
           name: 'GHL User',
-          email: `user-${targetUserId}@temp.com`,
-          password: 'temp-password',
-          is_verified: true
-        });
+          ghl_user_id: targetUserId
+        }
+      });
         
       if (finalCreateError) {
-        console.error('Final user creation failed:', finalCreateError);
+        console.error('❌ Final user creation failed:', finalCreateError);
+        console.error('❌ Create error details:', {
+          message: finalCreateError.message,
+          code: finalCreateError.code,
+          details: finalCreateError.details,
+          hint: finalCreateError.hint
+        });
         return res.status(500).json({ error: 'Failed to create user account' });
       }
+      
+      console.log('✅ Final user created successfully:', newUser);
+    } else {
+      console.log('✅ Final check: User already exists');
     }
     
     const { error: ghlError } = await supabaseAdmin
