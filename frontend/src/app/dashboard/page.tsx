@@ -34,9 +34,17 @@ export default function Dashboard() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
+      console.log('🔍 DEBUG GHL ACCOUNTS:')
+      console.log('User ID from localStorage:', user.id)
       console.log('GHL accounts query result:', { ghlAccounts, ghlError, userId: user.id })
       console.log('GHL accounts details:', ghlAccounts)
       console.log('GHL error details:', ghlError)
+      
+      // Additional debug - check all GHL accounts
+      const { data: allGhlAccounts } = await supabase
+        .from('ghl_accounts')
+        .select('*')
+      console.log('🔍 ALL GHL ACCOUNTS IN DATABASE:', allGhlAccounts)
       if (ghlError) {
         console.error('Database error:', ghlError.message, ghlError.code)
       }
