@@ -40,11 +40,29 @@ export default function Dashboard() {
       console.log('GHL accounts details:', ghlAccounts)
       console.log('GHL error details:', ghlError)
       
-      // Additional debug - check all GHL accounts
+      // Additional debug - check all GHL accounts with user_ids
       const { data: allGhlAccounts } = await supabase
         .from('ghl_accounts')
-        .select('*')
+        .select('user_id, id, company_id, location_id')
       console.log('🔍 ALL GHL ACCOUNTS IN DATABASE:', allGhlAccounts)
+      
+      // Check if any accounts exist for current user
+      const { data: userAccounts } = await supabase
+        .from('ghl_accounts')
+        .select('*')
+        .eq('user_id', user.id)
+      console.log('🔍 ACCOUNTS FOR CURRENT USER:', userAccounts)
+      
+      // Quick fix: If no accounts for current user but accounts exist, try to match
+      if ((!ghlAccounts || ghlAccounts.length === 0) && allGhlAccounts && allGhlAccounts.length > 0) {
+        console.log('⚠️ No accounts for current user, but accounts exist in database')
+        console.log('💡 Try updating localStorage with correct user_id:', allGhlAccounts[0].user_id)
+        
+        // Show fix suggestion in console
+        console.log('🔧 FIX: Run this in console:')
+        console.log(`localStorage.setItem('user', JSON.stringify({id: '${allGhlAccounts[0].user_id}', email: '${user.email}', name: '${user.name}'}))`)
+      }
+      
       if (ghlError) {
         console.error('Database error:', ghlError.message, ghlError.code)
       }

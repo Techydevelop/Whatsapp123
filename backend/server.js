@@ -525,17 +525,21 @@ app.get('/oauth/callback', async (req, res) => {
     console.log('GHL account stored successfully');
     const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
     
-    // Get user data for redirect
-    const { data: userData } = await supabaseAdmin
+    // Get user data for redirect - ensure we get the correct user
+    const { data: userData, error: userError } = await supabaseAdmin
       .from('users')
       .select('id, name, email')
       .eq('id', targetUserId)
       .single();
     
+    console.log('🔍 User data for redirect:', { userData, userError, targetUserId });
+    
     if (userData) {
       // Redirect with existing user data
+      console.log('✅ Redirecting with user data:', userData);
       res.redirect(`${frontendUrl}/auth/callback?ghl=connected&user=${encodeURIComponent(JSON.stringify(userData))}`);
     } else {
+      console.error('❌ User not found for redirect:', userError);
       // Fallback redirect
       res.redirect(`${frontendUrl}/dashboard?ghl=connected`);
     }
