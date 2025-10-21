@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Database, supabase } from '@/lib/supabase'
+import { Database } from '@/lib/supabase'
 import Image from 'next/image'
 
 type Session = Database['public']['Tables']['sessions']['Row']

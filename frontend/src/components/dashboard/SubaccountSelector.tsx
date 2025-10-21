@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { Database } from '@/lib/supabase'
-import { supabase } from '@/lib/supabase'
 
 type Subaccount = Database['public']['Tables']['subaccounts']['Row']
 
