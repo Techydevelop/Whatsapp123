@@ -12,11 +12,26 @@ function CallbackContent() {
     const handleAuthCallback = async () => {
       try {
         const error = searchParams.get('error')
+        const ghlConnected = searchParams.get('ghl')
+        const userParam = searchParams.get('user')
 
         if (error) {
           setStatus('Authentication failed. Redirecting to login...')
           setTimeout(() => router.push('/login'), 2000)
           return
+        }
+
+        // If GHL OAuth callback with user data
+        if (ghlConnected && userParam) {
+          try {
+            const userData = JSON.parse(decodeURIComponent(userParam))
+            localStorage.setItem('user', JSON.stringify(userData))
+            setStatus('GHL account connected! Redirecting to dashboard...')
+            setTimeout(() => router.push('/dashboard'), 1000)
+            return
+          } catch (e) {
+            console.error('Error parsing user data:', e)
+          }
         }
 
         // Check if user is logged in (via cookie set by backend)

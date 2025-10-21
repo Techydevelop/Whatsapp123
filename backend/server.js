@@ -587,7 +587,15 @@ app.get('/oauth/callback', async (req, res) => {
 
     console.log('GHL account stored successfully');
     const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
-    res.redirect(`${frontendUrl}/dashboard?ghl=connected`);
+    
+    // Store user data in localStorage via URL params
+    const userData = {
+      id: targetUserId,
+      name: 'GHL User',
+      email: `user-${targetUserId}@temp.com`
+    };
+    
+    res.redirect(`${frontendUrl}/auth/callback?ghl=connected&user=${encodeURIComponent(JSON.stringify(userData))}`);
     
   } catch (error) {
     console.error('OAuth callback error:', error);
