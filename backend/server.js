@@ -1,6 +1,7 @@
 ﻿const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
 const { createClient } = require('@supabase/supabase-js');
 const GHLClient = require('./lib/ghl');
 const qrcode = require('qrcode');
@@ -336,6 +337,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+app.use(cookieParser()); // Parse cookies from requests
 
 // Handle preflight requests
 app.options('*', (req, res) => {
@@ -346,22 +348,33 @@ app.options('*', (req, res) => {
   res.sendStatus(200);
 });
 
-// Auth middleware
+// Auth middleware - JWT based
 const requireAuth = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No authorization token provided' });
+    // Get JWT from cookie
+    const token = req.cookies?.auth_token;
+    
+    if (!token) {
+      return res.status(401).json({ error: 'No authentication token provided' });
     }
 
-    const token = authHeader.split(' ')[1];
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+    // Verify JWT
+    const jwt = require('jsonwebtoken');
+    const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
     
-    if (error || !user) {
+    const decoded = jwt.verify(token, jwtSecret);
+    
+    if (!decoded || !decoded.userId) {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
-    req.user = user;
+    // Set user info in request (same format as before for compatibility)
+    req.user = {
+      id: decoded.userId,
+      email: decoded.email,
+      name: decoded.name
+    };
+    
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
@@ -500,13 +513,11 @@ app.get('/oauth/callback', async (req, res) => {
 // Admin routes
 app.get('/admin/ghl/subaccounts', requireAuth, async (req, res) => {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return res.status(401).json({ error: 'Not authenticated' });
-
+    // req.user already set by requireAuth middleware
     const { data: subaccounts } = await supabaseAdmin
       .from('subaccounts')
       .select('*')
-      .eq('user_id', user.id);
+      .eq('user_id', req.user.id);
 
     res.json({ subaccounts: subaccounts || [] });
   } catch (error) {
@@ -627,9 +638,7 @@ app.get('/admin/session/:sessionId', requireAuth, async (req, res) => {
 // Connect new subaccount
 app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return res.status(401).json({ error: 'Not authenticated' });
-
+    // req.user already set by requireAuth middleware
     const { ghl_location_id, name } = req.body;
 
     if (!ghl_location_id) {
@@ -641,7 +650,7 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
       .from('subaccounts')
       .select('*')
       .eq('ghl_location_id', ghl_location_id)
-      .eq('user_id', user.id)
+      .eq('user_id', req.user.id)
       .maybeSingle();
 
     if (existingSubaccount) {
@@ -656,7 +665,7 @@ app.post('/admin/ghl/connect-subaccount', requireAuth, async (req, res) => {
     const { data: newSubaccount, error: subaccountError } = await supabaseAdmin
         .from('subaccounts')
       .insert({
-        user_id: user.id,
+        user_id: req.user.id,
         ghl_location_id,
         name: name || `Location ${ghl_location_id}`,
         status: 'pending_oauth'
@@ -2356,22 +2365,23 @@ app.get('/ghl/provider', async (req, res) => {
 // Get GHL account status
 app.get('/admin/ghl/account-status', async (req, res) => {
   try {
-    // Get user from Authorization header
-    const authHeader = req.headers.authorization;
-    let userId = null;
+    // Get user from JWT cookie
+    const token = req.cookies?.auth_token;
     
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.split(' ')[1];
-        const { data: { user } } = await supabaseAdmin.auth.getUser(token);
-        userId = user?.id;
-      } catch (e) {
-        console.log('Auth token validation failed:', e.message);
-      }
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
     
-    if (!userId) {
-      return res.status(401).json({ error: 'Authentication required' });
+    const jwt = require('jsonwebtoken');
+    const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+    let userId = null;
+    
+    try {
+      const decoded = jwt.verify(token, jwtSecret);
+      userId = decoded.userId;
+    } catch (e) {
+      console.log('JWT validation failed:', e.message);
+      return res.status(401).json({ error: 'Invalid token' });
     }
     
     // Get GHL account for this user
@@ -2398,22 +2408,23 @@ app.get('/admin/ghl/account-status', async (req, res) => {
 // Get locations from GHL API
 app.get('/admin/ghl/locations', async (req, res) => {
   try {
-    // Get user from Authorization header (if available)
-    const authHeader = req.headers.authorization;
-    let userId = null;
+    // Get user from JWT cookie
+    const token = req.cookies?.auth_token;
     
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.split(' ')[1];
-        const { data: { user } } = await supabaseAdmin.auth.getUser(token);
-        userId = user?.id;
-      } catch (e) {
-        console.log('Auth token validation failed:', e.message);
-      }
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
     
-    if (!userId) {
-      return res.status(401).json({ error: 'Authentication required' });
+    const jwt = require('jsonwebtoken');
+    const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+    let userId = null;
+    
+    try {
+      const decoded = jwt.verify(token, jwtSecret);
+      userId = decoded.userId;
+    } catch (e) {
+      console.log('JWT validation failed:', e.message);
+      return res.status(401).json({ error: 'Invalid token' });
     }
     
     // Get GHL account for this user

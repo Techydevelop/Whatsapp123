@@ -27,8 +27,8 @@ export default function SubaccountSelector({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
         },
+        credentials: 'include', // Send auth cookie
         body: JSON.stringify({
           ghl_location_id: subaccount.ghl_location_id,
           name: subaccount.name

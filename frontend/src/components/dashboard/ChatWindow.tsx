@@ -115,15 +115,12 @@ export default function ChatWindow({ session, subaccount }: ChatWindowProps) {
 
     setSending(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
-
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/messages/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
         },
+        credentials: 'include', // Send auth cookie
         body: JSON.stringify({
           sessionId: session.id,
           to: recipientPhone.trim(),

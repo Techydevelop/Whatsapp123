@@ -1,61 +1,110 @@
 "use client"
 
-import LoginForm from '@/components/auth/LoginForm'
-import { Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
-function LoginContent() {
-  const searchParams = useSearchParams()
-  const error = searchParams.get('error')
+export default function DashboardLoginPage() {
+  const router = useRouter()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const renderError = () => {
-    if (!error) return null
-    const map: Record<string, string> = {
-      ghl_auth_failed: 'GoHighLevel authentication failed. Please try again.',
-      missing_code: 'GHL callback missing code. Please retry the connection.',
-      missing_location_id: 'No location selected. Please choose a location in GHL.',
-      no_locations_found: 'No GHL locations found on this account.',
-      invalid_token_response: 'Invalid token response from GHL. Please check your app settings.',
-      invalid_company_response: 'Invalid company response from GHL. Please try again.',
-      invalid_user_response: 'Invalid user response from GHL. Please try again.',
-      invalid_locations_response: 'Invalid locations response from GHL. Please try again.',
-      ghl_unauthorized: 'GHL authorization failed. Please check your app credentials.',
-      ghl_forbidden: 'GHL access forbidden. Please check your app permissions.',
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed')
+      }
+
+      // Store user in localStorage
+      localStorage.setItem('user', JSON.stringify(data.user))
+
+      // Redirect to dashboard
+      router.push('/dashboard')
+    } catch (err: any) {
+      setError(err.message || 'Login failed. Please try again.')
+    } finally {
+      setLoading(false)
     }
-    const message = map[error] || 'Authentication error. Please try again.'
-    return (
-      <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3">
-            <h3 className="text-sm font-medium text-red-800">Authentication Error</h3>
-            <div className="mt-2 text-sm text-red-700">
-              <p>{message}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
   }
 
   return (
-    <div className="max-w-md w-full">
-      {renderError()}
-      <LoginForm />
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-lg">
+        <div>
+          <h2 className="text-center text-3xl font-bold text-gray-900">
+            Dashboard Login
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Use credentials from your email
+          </p>
+        </div>
+
+        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+          <div className="rounded-md shadow-sm space-y-4">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email Address
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500 focus:z-10 sm:text-sm"
+                placeholder="you@example.com"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500 focus:z-10 sm:text-sm"
+                placeholder="Enter password from email"
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="rounded-md bg-red-50 p-4">
+              <p className="text-sm text-red-800">{error}</p>
+            </div>
+          )}
+
+          <div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-green-500 to-purple-600 hover:from-green-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+            >
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
 
-export default function LoginPage() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <Suspense fallback={<div className="max-w-md w-full" />}>
-        <LoginContent />
-      </Suspense>
-    </div>
-  )
-}

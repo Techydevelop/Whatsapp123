@@ -22,20 +22,16 @@ export const API_ENDPOINTS = {
 };
 
 // Helper function to make authenticated API calls
+// Note: Auth token is automatically sent via httpOnly cookie, no need to manually add Authorization header
 export const apiCall = async (url: string, options: RequestInit = {}) => {
-  const { data: { session } } = await import('./supabase').then(m => m.supabase.auth.getSession());
-  
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
-  if (session?.access_token) {
-    headers['Authorization'] = `Bearer ${session.access_token}`;
-  }
-
   return fetch(url, {
     ...options,
     headers,
+    credentials: 'include', // Include cookies in request
   });
 };

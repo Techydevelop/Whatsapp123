@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useAuth } from '@/hooks/useAuth'
 import { supabase, Database } from '@/lib/supabase'
 
 type Subaccount = Database['public']['Tables']['subaccounts']['Row']
@@ -12,28 +13,27 @@ interface GHLIntegrationProps {
 }
 
 export default function GHLIntegration({ }: GHLIntegrationProps) {
+  const { user } = useAuth()
   const [isConnecting, setIsConnecting] = useState(false)
   const [ghlAccount, setGhlAccount] = useState<GhlAccount | null>(null)
   const [isGhlUser, setIsGhlUser] = useState(false)
 
   useEffect(() => {
     const check = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Consider connected if either metadata exists OR an account row exists
-      const metaConnected = Boolean(user.user_metadata?.ghl_user_id)
+      // Check if GHL account exists
       const { data: acct } = await supabase
         .from('ghl_accounts')
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle()
 
-      setIsGhlUser(metaConnected || Boolean(acct))
+      setIsGhlUser(Boolean(acct))
       setGhlAccount(acct)
     }
     check()
-  }, [])
+  }, [user])
 
 
   const connectGHL = async () => {
@@ -77,8 +77,7 @@ export default function GHLIntegration({ }: GHLIntegrationProps) {
           
           <div className="flex space-x-4">
             <button
-              onClick={async () => {
-                const { data: { user } } = await supabase.auth.getUser()
+              onClick={() => {
                 const userId = user?.id || ''
                 window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/ghl/login${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`
               }}

@@ -1,9 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
-import { User } from '@supabase/supabase-js'
+import { usePathname } from 'next/navigation'
+import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
 
 export default function DashboardLayout({
@@ -11,36 +9,8 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
-  const router = useRouter()
+  const { user, loading, logout } = useAuth()
   const pathname = usePathname()
-
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
-      setLoading(false)
-      
-      if (!user) {
-        router.push('/login')
-      }
-    }
-
-    getUser()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (event === 'SIGNED_OUT' || !session) {
-          router.push('/login')
-        } else {
-          setUser(session?.user ?? null)
-        }
-      }
-    )
-
-    return () => subscription.unsubscribe()
-  }, [router])
 
   if (loading) {
     return (
@@ -81,16 +51,16 @@ export default function DashboardLayout({
               <div className="flex items-center space-x-3">
                 <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
                   <span className="text-sm font-medium text-gray-700">
-                    {user.email?.charAt(0).toUpperCase()}
+                    {user?.email?.charAt(0).toUpperCase()}
               </span>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-medium text-white">{user.email}</p>
+                  <p className="text-sm font-medium text-white">{user?.email}</p>
                   <p className="text-xs text-gray-300">Administrator</p>
                 </div>
               </div>
               <button
-                onClick={() => supabase.auth.signOut()}
+                onClick={logout}
                 className="text-sm text-gray-300 hover:text-white transition-colors px-3 py-1 rounded-md hover:bg-white/10"
               >
                 Sign out

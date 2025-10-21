@@ -7,6 +7,7 @@ import { API_BASE_URL } from '@/lib/config';
 
 interface CreateSessionCardProps {
   subaccountId: string;
+  onSessionCreated?: (sessionId: string) => void;
 }
 
 interface Session {
@@ -18,7 +19,7 @@ interface Session {
   mode?: 'qr' | 'pairing'; // Session mode
 }
 
-export default function CreateSessionCard({ subaccountId }: CreateSessionCardProps) {
+export default function CreateSessionCard({ subaccountId, onSessionCreated }: CreateSessionCardProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,14 +30,9 @@ export default function CreateSessionCard({ subaccountId }: CreateSessionCardPro
       setIsCreating(true);
       setError(null);
 
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession) throw new Error('Not authenticated');
-
       // Get GHL location ID for the subaccount
       const ghlResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/subaccounts`, {
-        headers: {
-          'Authorization': `Bearer ${authSession.access_token}`,
-        },
+        credentials: 'include', // Send auth cookie
       });
 
       if (!ghlResponse.ok) {
@@ -44,7 +40,7 @@ export default function CreateSessionCard({ subaccountId }: CreateSessionCardPro
       }
 
       const { subaccounts } = await ghlResponse.json();
-      const subaccount = subaccounts.find((acc: { id: string; ghl_location_id: string }) => acc.id === subaccountId);
+      const subaccount = subaccounts.find((acc: any) => acc.id === subaccountId);
       
       if (!subaccount) {
         throw new Error('GHL location not found');
@@ -64,13 +60,8 @@ export default function CreateSessionCard({ subaccountId }: CreateSessionCardPro
 
   const pollSessionStatus = useCallback(async (sessionId: string) => {
     try {
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession) return;
-
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/session/${sessionId}`, {
-        headers: {
-          'Authorization': `Bearer ${authSession.access_token}`,
-        },
+        credentials: 'include', // Send auth cookie
       });
 
       if (response.ok) {

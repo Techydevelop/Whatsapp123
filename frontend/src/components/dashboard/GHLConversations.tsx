@@ -28,13 +28,9 @@ export default function GHLConversations({ locationId }: GHLConversationsProps) 
   const fetchConversations = useCallback(async () => {
     try {
       setLoading(true);
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession) return;
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/conversations?locationId=${locationId}&limit=50`, {
-        headers: {
-          'Authorization': `Bearer ${authSession.access_token}`,
-        },
+        credentials: 'include', // Send auth cookie
       });
 
       if (response.ok) {
@@ -56,13 +52,8 @@ export default function GHLConversations({ locationId }: GHLConversationsProps) 
 
   const fetchConversationMessages = async (conversationId: string) => {
     try {
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession) return;
-
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/conversation/${conversationId}/messages?limit=50`, {
-        headers: {
-          'Authorization': `Bearer ${authSession.access_token}`,
-        },
+        credentials: 'include', // Send auth cookie
       });
 
       if (response.ok) {
@@ -82,13 +73,9 @@ export default function GHLConversations({ locationId }: GHLConversationsProps) 
 
     try {
       setLoading(true);
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession) return;
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/search-conversations?locationId=${locationId}&query=${encodeURIComponent(searchQuery)}`, {
-        headers: {
-          'Authorization': `Bearer ${authSession.access_token}`,
-        },
+        credentials: 'include', // Send auth cookie
       });
 
       if (response.ok) {

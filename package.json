@@ -4,5 +4,13 @@
   "description": "WhatsApp SaaS Platform with Supabase and React",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.76.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "jsonwebtoken": "^9.0.2"
   }
 }

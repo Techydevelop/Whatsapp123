@@ -2,7 +2,6 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
 
 function CallbackContent() {
   const router = useRouter()
@@ -12,8 +11,6 @@ function CallbackContent() {
   useEffect(() => {
     const handleAuthCallback = async () => {
       try {
-        const token = searchParams.get('token')
-        const type = searchParams.get('type')
         const error = searchParams.get('error')
 
         if (error) {
@@ -22,38 +19,16 @@ function CallbackContent() {
           return
         }
 
-        if (type === 'ghl' && token) {
-          // Handle GHL OAuth callback
-          setStatus('Completing GHL authentication...')
-          
-          // The backend has already created the user and session
-          // We just need to refresh the session
-          const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-          
-          if (sessionError) {
-            throw sessionError
-          }
-
-          if (session) {
-            setStatus('Login successful! Redirecting to dashboard...')
-            setTimeout(() => router.push('/dashboard'), 1000)
-          } else {
-            throw new Error('No session found')
-          }
+        // Check if user is logged in (via cookie set by backend)
+        const userData = localStorage.getItem('user')
+        
+        if (userData) {
+          setStatus('Login successful! Redirecting to dashboard...')
+          setTimeout(() => router.push('/dashboard'), 1000)
         } else {
-          // Handle regular Supabase auth callback
-          const { data, error } = await supabase.auth.getSession()
-          
-          if (error) {
-            throw error
-          }
-
-          if (data.session) {
-            setStatus('Login successful! Redirecting to dashboard...')
-            setTimeout(() => router.push('/dashboard'), 1000)
-          } else {
-            throw new Error('No session found')
-          }
+          // If no user data, redirect to login
+          setStatus('Authentication incomplete. Redirecting to login...')
+          setTimeout(() => router.push('/login'), 2000)
         }
       } catch (error) {
         console.error('Auth callback error:', error)

@@ -30,17 +30,9 @@ export default function GHLLocationSelector({ onLocationSelect }: GHLLocationSel
     try {
       setLoading(true);
       setError(null);
-      
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession) {
-        setError('Not authenticated');
-        return;
-      }
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ghl/locations`, {
-        headers: {
-          'Authorization': `Bearer ${authSession.access_token}`,
-        },
+        credentials: 'include', // Send auth cookie
       });
 
       if (!response.ok) {

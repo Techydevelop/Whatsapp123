@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import ConnectGHLButton from '@/components/integrations/ConnectGHLButton';
 
@@ -14,14 +15,18 @@ interface GHLAccount {
 
 export default function GHLIntegrationPage() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [ghlAccount, setGhlAccount] = useState<GHLAccount | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchGHLAccount = async () => {
+    if (!user) return;
+    
     try {
       const { data, error } = await supabase
         .from('ghl_accounts')
         .select('*')
+        .eq('user_id', user.id)
         .single();
 
       if (error && error.code !== 'PGRST116') {
@@ -36,8 +41,7 @@ export default function GHLIntegrationPage() {
 
   const checkAuthAndFetchAccount = useCallback(async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      if (!user) {
         router.push('/login');
         return;
       }
@@ -49,7 +53,7 @@ export default function GHLIntegrationPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, user]);
 
   useEffect(() => {
     checkAuthAndFetchAccount();

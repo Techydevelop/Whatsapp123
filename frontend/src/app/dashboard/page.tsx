@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
 import { API_ENDPOINTS, API_BASE_URL, apiCall } from '@/lib/config'
@@ -17,13 +18,13 @@ interface SubaccountStatus {
 }
 
 export default function Dashboard() {
+  const { user, loading: authLoading } = useAuth()
   const [loading, setLoading] = useState(true)
   const [ghlAccounts, setGhlAccounts] = useState<GhlAccount[]>([])
   const [subaccountStatuses, setSubaccountStatuses] = useState<SubaccountStatus[]>([])
 
   const fetchGHLLocations = useCallback(async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
       // Get ALL GHL accounts for this user
@@ -93,7 +94,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [user])
 
   // Handle OAuth success from URL parameter
   useEffect(() => {
@@ -268,7 +269,7 @@ export default function Dashboard() {
     }
   }
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>

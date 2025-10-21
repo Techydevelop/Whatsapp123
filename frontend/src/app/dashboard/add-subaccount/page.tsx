@@ -2,9 +2,10 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/hooks/useAuth'
 
 export default function AddSubAccount() {
+  const { user } = useAuth()
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
@@ -12,7 +13,6 @@ export default function AddSubAccount() {
     setLoading(true)
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
 
       // Direct GHL OAuth flow - let user choose location in GHL

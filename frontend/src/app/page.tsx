@@ -2,22 +2,18 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
 
 export default function HomePage() {
   const router = useRouter()
 
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session) {
-        router.push('/dashboard')
-      } else {
-        router.push('/login')
-      }
+    // Check if user is logged in via cookie/localStorage
+    const userData = localStorage.getItem('user')
+    if (userData) {
+      router.push('/dashboard')
+    } else {
+      router.push('/login')
     }
-
-    checkAuth()
   }, [router])
 
   return (

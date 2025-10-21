@@ -30,13 +30,8 @@ export default function SessionsList({
     const pollInterval = setInterval(async () => {
       for (const sessionId of pollingSessions) {
         try {
-          const { data: { session } } = await supabase.auth.getSession()
-          if (!session) return
-
           const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/session/${sessionId}`, {
-            headers: {
-              'Authorization': `Bearer ${session.access_token}`,
-            },
+            credentials: 'include', // Send auth cookie
           })
           
           if (response.ok) {
@@ -65,15 +60,12 @@ export default function SessionsList({
 
     setIsCreating(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
-
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/create-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
         },
+        credentials: 'include', // Send auth cookie
         body: JSON.stringify({
           subaccountId: subaccount.id,
         }),

@@ -35,13 +35,9 @@ export default function ChatPane({ sessionId }: ChatPaneProps) {
   const fetchMessages = useCallback(async () => {
     try {
       setIsLoading(true);
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession) return;
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/messages/session/${sessionId}?limit=50`, {
-        headers: {
-          'Authorization': `Bearer ${authSession.access_token}`,
-        },
+        credentials: 'include', // Send auth cookie
       });
 
       if (response.ok) {
@@ -92,14 +88,12 @@ export default function ChatPane({ sessionId }: ChatPaneProps) {
 
     try {
       setIsSending(true);
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession) throw new Error('Not authenticated');
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/messages/send`, {
         method: 'POST',
+        credentials: 'include', // Send auth cookie
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authSession.access_token}`,
         },
         body: JSON.stringify({
           sessionId,
