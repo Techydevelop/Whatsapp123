@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import jwt from 'jsonwebtoken'
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get('auth_token')?.value
 
   // Public routes that don't require authentication
-  const publicRoutes = ['/login', '/']
+  const publicRoutes = ['/login', '/', '/auth/callback']
   const isPublicRoute = publicRoutes.some(route => 
     request.nextUrl.pathname === route
   )
@@ -16,22 +15,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Verify token if it exists
-  if (token) {
-    try {
-      const jwtSecret = process.env.JWT_SECRET || 'your-secret-key'
-      jwt.verify(token, jwtSecret)
-      
-      // If on login page and authenticated, redirect to dashboard
-      if (request.nextUrl.pathname === '/login') {
-        return NextResponse.redirect(new URL('/dashboard', request.url))
-      }
-    } catch (error) {
-      // Invalid token, redirect to login for protected routes
-      if (!isPublicRoute) {
-        return NextResponse.redirect(new URL('/login', request.url))
-      }
-    }
+  // If has token and on login page, redirect to dashboard
+  if (token && request.nextUrl.pathname === '/login') {
+    return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
   return NextResponse.next()

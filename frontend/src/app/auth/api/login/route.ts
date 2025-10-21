@@ -3,6 +3,9 @@ import { supabase } from '@/lib/supabase'
 import { verifyPassword } from '@/lib/password'
 import jwt from 'jsonwebtoken'
 
+// Force Node.js runtime for bcryptjs and jsonwebtoken
+export const runtime = 'nodejs'
+
 export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json()
