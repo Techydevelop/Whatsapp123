@@ -2,12 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
-import { supabase } from '@/lib/supabase';
 import { API_BASE_URL } from '@/lib/config';
 
 interface CreateSessionCardProps {
   subaccountId: string;
-  onSessionCreated?: (sessionId: string) => void;
 }
 
 interface Session {
@@ -19,7 +17,13 @@ interface Session {
   mode?: 'qr' | 'pairing'; // Session mode
 }
 
-export default function CreateSessionCard({ subaccountId, onSessionCreated }: CreateSessionCardProps) {
+interface Subaccount {
+  id: string;
+  ghl_location_id: string;
+  name: string;
+}
+
+export default function CreateSessionCard({ subaccountId }: CreateSessionCardProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +44,7 @@ export default function CreateSessionCard({ subaccountId, onSessionCreated }: Cr
       }
 
       const { subaccounts } = await ghlResponse.json();
-      const subaccount = subaccounts.find((acc: any) => acc.id === subaccountId);
+      const subaccount = subaccounts.find((acc: Subaccount) => acc.id === subaccountId);
       
       if (!subaccount) {
         throw new Error('GHL location not found');

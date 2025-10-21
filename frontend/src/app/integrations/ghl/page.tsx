@@ -15,11 +15,11 @@ interface GHLAccount {
 
 export default function GHLIntegrationPage() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
   const [ghlAccount, setGhlAccount] = useState<GHLAccount | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchGHLAccount = async () => {
+  const fetchGHLAccount = useCallback(async () => {
     if (!user) return;
     
     try {
@@ -37,7 +37,7 @@ export default function GHLIntegrationPage() {
     } catch (error) {
       console.error('Error fetching GHL account:', error);
     }
-  };
+  }, [user]);
 
   const checkAuthAndFetchAccount = useCallback(async () => {
     try {
@@ -53,7 +53,7 @@ export default function GHLIntegrationPage() {
     } finally {
       setLoading(false);
     }
-  }, [router, user]);
+  }, [router, user, fetchGHLAccount]);
 
   useEffect(() => {
     checkAuthAndFetchAccount();
