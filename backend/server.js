@@ -507,6 +507,31 @@ app.get('/oauth/callback', async (req, res) => {
     
     const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
     
+    // Final check - ensure user exists before storing GHL account
+    const { data: finalUserCheck } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('id', targetUserId)
+      .maybeSingle();
+      
+    if (!finalUserCheck) {
+      console.log('Final check: User still not found, creating...');
+      const { error: finalCreateError } = await supabaseAdmin
+        .from('users')
+        .insert({
+          id: targetUserId,
+          name: 'GHL User',
+          email: `user-${targetUserId}@temp.com`,
+          password: 'temp-password',
+          is_verified: true
+        });
+        
+      if (finalCreateError) {
+        console.error('Final user creation failed:', finalCreateError);
+        return res.status(500).json({ error: 'Failed to create user account' });
+      }
+    }
+    
     const { error: ghlError } = await supabaseAdmin
       .from('ghl_accounts')
       .upsert({
