@@ -459,11 +459,45 @@ app.get('/oauth/callback', async (req, res) => {
       try {
         targetUserId = decodeURIComponent(state);
         console.log('Using target user ID from state:', targetUserId);
+        
+        // Check if user exists, if not create them
+        const { data: existingUser, error: userCheckError } = await supabaseAdmin
+          .from('users')
+          .select('id')
+          .eq('id', targetUserId)
+          .maybeSingle();
+          
+        if (userCheckError) {
+          console.error('Error checking user:', userCheckError);
+          return res.status(500).json({ error: 'Database error checking user' });
+        }
+        
+        if (!existingUser) {
+          console.log('User not found, creating new user...');
+          // Create user with minimal info (will be updated later)
+          const { error: createUserError } = await supabaseAdmin
+            .from('users')
+            .insert({
+              id: targetUserId,
+              name: 'GHL User', // Temporary name
+              email: `user-${targetUserId}@temp.com`, // Temporary email
+              password: 'temp-password', // Will be updated on first login
+              is_verified: true
+            });
+            
+          if (createUserError) {
+            console.error('Error creating user:', createUserError);
+            return res.status(500).json({ error: 'Failed to create user account' });
+          }
+          
+          console.log('User created successfully');
+        }
+        
       } catch (e) {
         console.error('Error decoding state:', e);
         return res.status(400).json({ error: 'Invalid state parameter' });
       }
-      } else {
+    } else {
       return res.status(400).json({ error: 'State parameter missing - user ID required' });
     }
 
