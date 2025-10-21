@@ -483,7 +483,7 @@ app.get('/oauth/callback', async (req, res) => {
         console.error('Error decoding state:', e);
         return res.status(400).json({ error: 'Invalid state parameter' });
       }
-    } else {
+      } else {
       return res.status(400).json({ error: 'State parameter missing - user ID required' });
     }
 
@@ -541,7 +541,7 @@ app.get('/oauth/callback', async (req, res) => {
     } else {
       console.error('❌ User not found for redirect:', userError);
       // Fallback redirect
-      res.redirect(`${frontendUrl}/dashboard?ghl=connected`);
+    res.redirect(`${frontendUrl}/dashboard?ghl=connected`);
     }
     
   } catch (error) {
@@ -2416,10 +2416,10 @@ app.get('/admin/ghl/account-status', async (req, res) => {
     const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
     let userId = null;
     
-    try {
+      try {
       const decoded = jwt.verify(token, jwtSecret);
       userId = decoded.userId;
-    } catch (e) {
+      } catch (e) {
       console.log('JWT validation failed:', e.message);
       return res.status(401).json({ error: 'Invalid token' });
     }
@@ -2459,10 +2459,10 @@ app.get('/admin/ghl/locations', async (req, res) => {
     const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
     let userId = null;
     
-    try {
+      try {
       const decoded = jwt.verify(token, jwtSecret);
       userId = decoded.userId;
-    } catch (e) {
+      } catch (e) {
       console.log('JWT validation failed:', e.message);
       return res.status(401).json({ error: 'Invalid token' });
     }
