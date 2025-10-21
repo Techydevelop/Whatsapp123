@@ -467,9 +467,9 @@ app.get('/oauth/callback', async (req, res) => {
           return res.status(400).json({ error: 'Invalid user ID format' });
         }
         
-        // Check if user exists in auth.users (Supabase Auth table)
+        // Check if user exists in users table
         const { data: existingUser, error: userCheckError } = await supabaseAdmin
-          .from('auth.users')
+          .from('users')
           .select('id')
           .eq('id', targetUserId)
           .maybeSingle();
@@ -480,17 +480,17 @@ app.get('/oauth/callback', async (req, res) => {
         }
         
         if (!existingUser) {
-          console.log('User not found in auth.users, creating...');
-          // Create user in auth.users (Supabase Auth table)
-          const { error: createUserError } = await supabaseAdmin.auth.admin.createUser({
-            email: `user-${targetUserId}@temp.com`,
-            password: 'temp-password',
-            email_confirm: true,
-            user_metadata: {
+          console.log('User not found, creating new user...');
+          // Create user in users table
+          const { error: createUserError } = await supabaseAdmin
+            .from('users')
+            .insert({
+              id: targetUserId,
               name: 'GHL User',
-              ghl_user_id: targetUserId
-            }
-          });
+              email: `user-${targetUserId}@temp.com`,
+              password: 'temp-password',
+              is_verified: true
+            });
             
           if (createUserError) {
             console.error('Error creating user:', createUserError);
@@ -514,10 +514,10 @@ app.get('/oauth/callback', async (req, res) => {
     
     const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
     
-    // Final check - ensure user exists in auth.users before storing GHL account
-    console.log('🔍 Final check: Looking for user ID in auth.users:', targetUserId);
+    // Final check - ensure user exists in users table before storing GHL account
+    console.log('🔍 Final check: Looking for user ID in users table:', targetUserId);
     const { data: finalUserCheck, error: finalCheckError } = await supabaseAdmin
-      .from('auth.users')
+      .from('users')
       .select('id')
       .eq('id', targetUserId)
       .maybeSingle();
@@ -530,16 +530,17 @@ app.get('/oauth/callback', async (req, res) => {
     console.log('🔍 Final check result:', finalUserCheck);
       
     if (!finalUserCheck) {
-      console.log('⚠️ Final check: User still not found in auth.users, creating...');
-      const { data: newUser, error: finalCreateError } = await supabaseAdmin.auth.admin.createUser({
-        email: `user-${targetUserId}@temp.com`,
-        password: 'temp-password',
-        email_confirm: true,
-        user_metadata: {
+      console.log('⚠️ Final check: User still not found in users table, creating...');
+      const { data: newUser, error: finalCreateError } = await supabaseAdmin
+        .from('users')
+        .insert({
+          id: targetUserId,
           name: 'GHL User',
-          ghl_user_id: targetUserId
-        }
-      });
+          email: `user-${targetUserId}@temp.com`,
+          password: 'temp-password',
+          is_verified: true
+        })
+        .select();
         
       if (finalCreateError) {
         console.error('❌ Final user creation failed:', finalCreateError);
