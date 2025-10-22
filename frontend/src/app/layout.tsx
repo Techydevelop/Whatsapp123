@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "WhatsApp GHL Dashboard",
-  description: "Beautiful WhatsApp to GoHighLevel Integration Dashboard",
+  title: "Octendr - WhatsApp GHL Integration",
+  description: "Professional WhatsApp to GoHighLevel Integration Platform by Octendr",
 };
 
 export default function RootLayout({

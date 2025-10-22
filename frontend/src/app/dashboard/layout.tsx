@@ -74,8 +74,8 @@ export default function DashboardLayout({
                   </svg>
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900">WhatsApp GHL</h1>
-                  <p className="text-xs text-gray-500">Integration Dashboard</p>
+                  <h1 className="text-xl font-bold text-gray-900">Octendr</h1>
+                  <p className="text-xs text-gray-500">WhatsApp GHL Integration</p>
                 </div>
               </div>
             </div>
