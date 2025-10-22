@@ -15,6 +15,7 @@ interface SubaccountStatus {
   status: 'initializing' | 'qr' | 'ready' | 'disconnected' | 'none'
   phone_number?: string
   qr?: string
+  created_at?: string
 }
 
 export default function Dashboard() {
@@ -22,10 +23,17 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [ghlAccounts, setGhlAccounts] = useState<GhlAccount[]>([])
   const [subaccountStatuses, setSubaccountStatuses] = useState<SubaccountStatus[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10)
+  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [refreshing, setRefreshing] = useState(false)
 
-  const fetchGHLLocations = useCallback(async () => {
+  const fetchGHLLocations = useCallback(async (showLoading = true) => {
     try {
       if (!user) return
+      
+      if (showLoading) setLoading(true)
 
       // Get ALL GHL accounts for this user
       const { data: ghlAccounts, error: ghlError } = await supabase
@@ -34,47 +42,14 @@ export default function Dashboard() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
-      console.log('🔍 DEBUG GHL ACCOUNTS:')
-      console.log('User ID from localStorage:', user.id)
-      console.log('GHL accounts query result:', { ghlAccounts, ghlError, userId: user.id })
-      console.log('GHL accounts details:', ghlAccounts)
-      console.log('GHL error details:', ghlError)
-      
-      // Additional debug - check all GHL accounts with user_ids
-      const { data: allGhlAccounts } = await supabase
-        .from('ghl_accounts')
-        .select('user_id, id, company_id, location_id')
-      console.log('🔍 ALL GHL ACCOUNTS IN DATABASE:', allGhlAccounts)
-      
-      // Check if any accounts exist for current user
-      const { data: userAccounts } = await supabase
-        .from('ghl_accounts')
-        .select('*')
-        .eq('user_id', user.id)
-      console.log('🔍 ACCOUNTS FOR CURRENT USER:', userAccounts)
-      
-      // Quick fix: If no accounts for current user but accounts exist, try to match
-      if ((!ghlAccounts || ghlAccounts.length === 0) && allGhlAccounts && allGhlAccounts.length > 0) {
-        console.log('⚠️ No accounts for current user, but accounts exist in database')
-        console.log('💡 Try updating localStorage with correct user_id:', allGhlAccounts[0].user_id)
-        
-        // Show fix suggestion in console
-        console.log('🔧 FIX: Run this in console:')
-        console.log(`localStorage.setItem('user', JSON.stringify({id: '${allGhlAccounts[0].user_id}', email: '${user.email}', name: '${user.name}'}))`)
-      }
-      
       if (ghlError) {
         console.error('Database error:', ghlError.message, ghlError.code)
       }
       setGhlAccounts(ghlAccounts || [])
 
       if (ghlAccounts && ghlAccounts.length > 0) {
-        // Process all GHL accounts
-        console.log('GHL accounts found, processing sessions...', ghlAccounts)
-        
-        const statuses: SubaccountStatus[] = []
-        
-        for (const ghlAccount of ghlAccounts) {
+        // Fetch all sessions in parallel for better performance
+        const statusPromises = ghlAccounts.map(async (ghlAccount) => {
           if (ghlAccount.location_id) {
             try {
               const sessionResponse = await apiCall(API_ENDPOINTS.getSession(ghlAccount.location_id))
@@ -84,34 +59,32 @@ export default function Dashboard() {
                 sessionData = await sessionResponse.json()
               }
               
-              const locationStatus: SubaccountStatus = {
+              return {
                 id: ghlAccount.id,
                 name: `Location ${ghlAccount.location_id}`,
                 ghl_location_id: ghlAccount.location_id,
                 status: (sessionData.status as 'initializing' | 'qr' | 'ready' | 'disconnected' | 'none') || 'none',
                 phone_number: sessionData.phone_number || undefined,
-                qr: sessionData.qr || undefined
+                qr: sessionData.qr || undefined,
+                created_at: ghlAccount.created_at
               }
-              
-              statuses.push(locationStatus)
-              console.log('Location status added:', locationStatus)
-    } catch (error) {
+            } catch (error) {
               console.error('Error fetching session status:', error)
-              const fallbackStatus: SubaccountStatus = {
+              return {
                 id: ghlAccount.id,
                 name: `Location ${ghlAccount.location_id}`,
                 ghl_location_id: ghlAccount.location_id,
-                status: 'none' as const
+                status: 'none' as const,
+                created_at: ghlAccount.created_at
               }
-              statuses.push(fallbackStatus)
             }
           }
-        }
+          return null
+        })
         
+        const statuses = (await Promise.all(statusPromises)).filter(Boolean) as SubaccountStatus[]
         setSubaccountStatuses(statuses)
-        console.log('All subaccount statuses set:', statuses)
       } else {
-        console.log('No GHL accounts found')
         setSubaccountStatuses([])
       }
     } catch (error) {
@@ -119,104 +92,62 @@ export default function Dashboard() {
       setSubaccountStatuses([])
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [user])
-
-  // Handle OAuth success from URL parameter
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    if (urlParams.get('ghl') === 'connected') {
-      console.log('GHL OAuth success detected, refreshing data...')
-      // Clean URL without page reload
-      window.history.replaceState({}, '', '/dashboard')
-      // Force refresh data
-      setTimeout(() => {
-        fetchGHLLocations()
-      }, 1000)
-    }
-  }, [fetchGHLLocations])
 
   useEffect(() => {
     fetchGHLLocations()
     
-    // Poll for status updates every 5 seconds
+    // Poll for status updates every 10 seconds (increased from 5)
     const interval = setInterval(() => {
-      fetchGHLLocations()
-    }, 5000)
+      fetchGHLLocations(false)
+    }, 10000)
     
     return () => clearInterval(interval)
   }, [fetchGHLLocations])
 
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await fetchGHLLocations(false)
+  }
+
   const openQR = async (locationId: string) => {
     try {
-      console.log(`Creating session for locationId: ${locationId}`)
-      
-      // Show loading state
-      const button = document.querySelector(`[data-location-id="${locationId}"]`) as HTMLButtonElement
-      if (button) {
-        button.disabled = true
-        button.textContent = 'Initializing...'
-      }
-      
-      // First create session if it doesn't exist
       const createResponse = await apiCall(API_ENDPOINTS.createSession(locationId), {
-            method: 'POST',
+        method: 'POST',
         body: JSON.stringify({ locationId })
       })
 
       if (createResponse.ok) {
-        console.log('Session created successfully')
-        // Refresh the locations to show updated status
-        await fetchGHLLocations()
-        
-        // Then open the provider page
+        await fetchGHLLocations(false)
         const link = API_ENDPOINTS.providerUI(locationId)
         window.open(link, '_blank')
-            } else {
+      } else {
         const errorData = await createResponse.json()
-        console.error('Failed to create session:', errorData)
         alert(`Failed to create session: ${errorData.error || 'Unknown error'}`)
-        
-        // Reset button state
-        if (button) {
-          button.disabled = false
-          button.textContent = 'Open QR'
-        }
-        return
-          }
-        } catch (error) {
+      }
+    } catch (error) {
       console.error('Error creating session:', error)
       alert(`Error creating session: ${error}`)
-      
-      // Reset button state
-      const button = document.querySelector(`[data-location-id="${locationId}"]`) as HTMLButtonElement
-      if (button) {
-        button.disabled = false
-        button.textContent = 'Open QR'
-        }
-        return
     }
   }
 
   const logoutSession = async (locationId: string) => {
-    if (!confirm('Are you sure you want to logout this WhatsApp session? This will disconnect WhatsApp from this location.')) {
+    if (!confirm('Are you sure you want to logout this WhatsApp session?')) {
       return
     }
 
     try {
-      console.log(`Logging out session for locationId: ${locationId}`)
-      
       const response = await apiCall(`${API_BASE_URL}/ghl/location/${locationId}/session/logout`, {
         method: 'POST'
       })
 
       if (response.ok) {
-        console.log('Session logged out successfully')
         alert('WhatsApp session logged out successfully!')
-        await fetchGHLLocations()
+        await fetchGHLLocations(false)
       } else {
         const errorData = await response.json()
-        console.error('Failed to logout session:', errorData)
         alert(`Failed to logout session: ${errorData.error || 'Unknown error'}`)
       }
     } catch (error) {
@@ -226,25 +157,21 @@ export default function Dashboard() {
   }
 
   const deleteSubaccount = async (locationId: string) => {
-    if (!confirm('Are you sure you want to delete this subaccount? This will permanently remove the WhatsApp connection and all associated data.')) {
-        return
-      }
+    if (!confirm('Are you sure you want to delete this subaccount? This will permanently remove all data.')) {
+      return
+    }
 
     try {
-      console.log(`Deleting subaccount for locationId: ${locationId}`)
-      
       const response = await apiCall(`${API_BASE_URL}/admin/ghl/delete-subaccount`, {
         method: 'DELETE',
         body: JSON.stringify({ locationId })
       })
 
       if (response.ok) {
-        console.log('Subaccount deleted successfully')
         alert('Subaccount deleted successfully!')
-        await fetchGHLLocations()
+        await fetchGHLLocations(false)
       } else {
         const errorData = await response.json()
-        console.error('Failed to delete subaccount:', errorData)
         alert(`Failed to delete subaccount: ${errorData.error || 'Unknown error'}`)
       }
     } catch (error) {
@@ -253,301 +180,352 @@ export default function Dashboard() {
     }
   }
 
-  const syncAllSubaccounts = async () => {
-    if (!confirm('This will refresh all tokens and reconnect all WhatsApp sessions. Continue?')) {
-      return
+  // Filter and search
+  const filteredAccounts = subaccountStatuses.filter(account => {
+    const matchesSearch = account.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         account.ghl_location_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         account.phone_number?.includes(searchQuery)
+    
+    const matchesStatus = filterStatus === 'all' || account.status === filterStatus
+    
+    return matchesSearch && matchesStatus
+  })
+
+  // Pagination
+  const totalPages = Math.ceil(filteredAccounts.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const currentAccounts = filteredAccounts.slice(startIndex, endIndex)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, filterStatus])
+
+  const getStatusBadge = (status: string) => {
+    const badges = {
+      ready: { color: 'bg-green-100 text-green-800', icon: '✓', text: 'Connected' },
+      qr: { color: 'bg-yellow-100 text-yellow-800', icon: '⏳', text: 'Pending QR' },
+      initializing: { color: 'bg-blue-100 text-blue-800', icon: '🔄', text: 'Initializing' },
+      disconnected: { color: 'bg-red-100 text-red-800', icon: '✗', text: 'Disconnected' },
+      none: { color: 'bg-gray-100 text-gray-800', icon: '○', text: 'Not Connected' }
     }
-
-    try {
-      console.log('Starting sync for all subaccounts...')
-      
-      // Show loading state
-      const button = document.querySelector('button[onclick="syncAllSubaccounts"]') as HTMLButtonElement
-      if (button) {
-        button.disabled = true
-        button.textContent = '🔄 Syncing...'
-      }
-
-      const response = await apiCall(`${API_BASE_URL}/admin/ghl/sync-all-subaccounts`, {
-        method: 'POST'
-      })
-
-      if (response.ok) {
-        const result = await response.json()
-        console.log('Sync completed:', result)
-        alert(`Sync completed successfully! ${result.syncedCount} subaccounts processed.`)
-        await fetchGHLLocations()
-      } else {
-        const errorData = await response.json()
-        console.error('Failed to sync subaccounts:', errorData)
-        alert(`Failed to sync subaccounts: ${errorData.error || 'Unknown error'}`)
-          }
-        } catch (error) {
-      console.error('Error syncing subaccounts:', error)
-      alert(`Error syncing subaccounts: ${error}`)
-    } finally {
-      // Reset button state
-      const button = document.querySelector('button[onclick="syncAllSubaccounts"]') as HTMLButtonElement
-      if (button) {
-        button.disabled = false
-        button.textContent = '🔄 Sync Subaccounts'
-      }
-    }
+    return badges[status as keyof typeof badges] || badges.none
   }
 
   if (loading || authLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-indigo-600 border-t-transparent mx-auto mb-4"></div>
+          <p className="text-gray-600 font-medium">Loading accounts...</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="text-center mb-8">
-        <div className="flex items-center justify-center mb-4">
-          <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
-              </svg>
+    <div className="space-y-6">
+      {/* Header Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Total Accounts</p>
+              <p className="text-3xl font-bold text-gray-900 mt-1">{subaccountStatuses.length}</p>
             </div>
-            <div className="w-12 h-12 bg-indigo-500 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+              <svg className="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
           </div>
         </div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          WhatsApp GHL Integration
-        </h1>
-        <p className="text-gray-600 max-w-2xl mx-auto mb-4">
-          Seamlessly connect WhatsApp with GoHighLevel for powerful business communication
-        </p>
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={fetchGHLLocations}
-            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
-          >
-            🔄 Refresh Status
-          </button>
-          <button
-            onClick={syncAllSubaccounts}
-            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
-          >
-            🔄 Sync Subaccounts
-          </button>
+
+        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Connected</p>
+              <p className="text-3xl font-bold text-green-600 mt-1">
+                {subaccountStatuses.filter(a => a.status === 'ready').length}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+              <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Pending</p>
+              <p className="text-3xl font-bold text-yellow-600 mt-1">
+                {subaccountStatuses.filter(a => a.status === 'qr' || a.status === 'initializing').length}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+              <svg className="w-6 h-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Disconnected</p>
+              <p className="text-3xl font-bold text-red-600 mt-1">
+                {subaccountStatuses.filter(a => a.status === 'disconnected' || a.status === 'none').length}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+              <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* GHL Connection Status */}
-      {ghlAccounts.length > 0 ? (
-        <>
-          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-            <div className="flex items-center">
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-4">
-                <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
+      {/* Main Table Card */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        {/* Table Header */}
+        <div className="px-6 py-4 border-b border-gray-200">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">GHL Accounts</h2>
+              <p className="text-sm text-gray-500 mt-1">Manage your GoHighLevel WhatsApp integrations</p>
             </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">GHL Accounts Connected</h3>
-                <p className="text-gray-600">{ghlAccounts.length} GoHighLevel account(s) successfully connected</p>
-              </div>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                <svg className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+              </button>
+              <a
+                href="/dashboard/add-subaccount"
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                Add Account
+              </a>
             </div>
-          </div>
-          
-          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm mt-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Connected GHL Accounts</h3>
-          <div className="space-y-3">
-            {ghlAccounts.map((account, index) => (
-              <div key={account.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-center">
-                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
-                    <span className="text-green-600 font-semibold text-sm">{index + 1}</span>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Location: {account.location_id}</p>
-                    <p className="text-sm text-gray-500">Connected: {new Date(account.created_at).toLocaleDateString()}</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    Connected
-                  </span>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
-        </>
-      ) : (
-        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center mr-4">
-                <svg className="h-5 w-5 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+
+        {/* Filters and Search */}
+        <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+          <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
+            <div className="flex-1">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search by location ID, phone number..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+                <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Connect GHL Account</h3>
-                <p className="text-gray-600">Link your GoHighLevel account to get started</p>
-              </div>
             </div>
-            <a
-              href="/dashboard/add-subaccount"
-              className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-indigo-700 transition-colors"
-            >
-              Connect GHL Account
-            </a>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-600">Status:</span>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option value="all">All Status</option>
+                <option value="ready">Connected</option>
+                <option value="qr">Pending QR</option>
+                <option value="initializing">Initializing</option>
+                <option value="disconnected">Disconnected</option>
+                <option value="none">Not Connected</option>
+              </select>
+            </div>
           </div>
         </div>
-      )}
 
-      {/* Locations List */}
-      {subaccountStatuses.length > 0 ? (
-        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6">Your GHL Locations</h2>
-          <div className="space-y-4">
-            {subaccountStatuses.map((subaccount) => (
-              <div key={subaccount.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+        {/* Table */}
+        {currentAccounts.length > 0 ? (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Location
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Phone Number
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Created
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {currentAccounts.map((account) => {
+                    const statusBadge = getStatusBadge(account.status)
+                    return (
+                      <tr key={account.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
+                              </svg>
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">{account.name}</div>
+                              <div className="text-sm text-gray-500">{account.ghl_location_id}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {account.phone_number || (
+                              <span className="text-gray-400 italic">Not connected</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusBadge.color}`}>
+                            <span className="mr-1">{statusBadge.icon}</span>
+                            {statusBadge.text}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {account.created_at ? new Date(account.created_at).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center justify-end space-x-2">
+                            <button
+                              onClick={() => openQR(account.ghl_location_id)}
+                              className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 transition-colors"
+                            >
+                              <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                              </svg>
+                              QR Code
+                            </button>
+                            {account.status === 'ready' && (
+                              <button
+                                onClick={() => logoutSession(account.ghl_location_id)}
+                                className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                                title="Logout Session"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                </svg>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => deleteSubaccount(account.ghl_location_id)}
+                              className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700 transition-colors"
+                              title="Delete Account"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                      <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-medium text-gray-900">{subaccount.name}</h3>
-                      <p className="text-gray-500 text-sm">Location ID: {subaccount.ghl_location_id}</p>
-                      {subaccount.phone_number && (
-                        <p className="text-green-600 text-sm mt-1">📱 {subaccount.phone_number}</p>
-                      )}
-                    </div>
+                  <div className="text-sm text-gray-700">
+                    Showing <span className="font-medium">{startIndex + 1}</span> to{' '}
+                    <span className="font-medium">{Math.min(endIndex, filteredAccounts.length)}</span> of{' '}
+                    <span className="font-medium">{filteredAccounts.length}</span> results
                   </div>
-                  <div className="flex items-center space-x-3">
-                    <div className="flex items-center space-x-2">
-                      <div className={`w-2 h-2 rounded-full ${
-                        subaccount.status === 'ready' ? 'bg-green-500' :
-                        subaccount.status === 'qr' ? 'bg-yellow-500 animate-pulse' :
-                        subaccount.status === 'initializing' ? 'bg-blue-500 animate-pulse' :
-                        subaccount.status === 'disconnected' ? 'bg-red-500' :
-                        'bg-gray-400'
-                      }`}></div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        subaccount.status === 'ready' ? 'bg-green-100 text-green-800' :
-                        subaccount.status === 'qr' ? 'bg-yellow-100 text-yellow-800' :
-                        subaccount.status === 'initializing' ? 'bg-blue-100 text-blue-800' :
-                        subaccount.status === 'disconnected' ? 'bg-red-100 text-red-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {subaccount.status === 'ready' ? `Connected ${subaccount.phone_number ? `(${subaccount.phone_number})` : ''}` :
-                         subaccount.status === 'qr' ? 'Scan QR Code' :
-                         subaccount.status === 'initializing' ? 'Initializing...' :
-                         subaccount.status === 'disconnected' ? 'Disconnected' :
-                         'Not Connected'}
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        data-location-id={subaccount.ghl_location_id}
-                        onClick={() => openQR(subaccount.ghl_location_id)}
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
-                      >
-                        {subaccount.status === 'qr' ? 'Scan QR' : 'Open QR'}
-                      </button>
-                      
-                      {subaccount.status === 'ready' && (
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                      className="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Previous
+                    </button>
+                    <div className="flex items-center space-x-1">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
                         <button
-                          onClick={() => logoutSession(subaccount.ghl_location_id)}
-                          className="bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
-                          title="Logout WhatsApp Session"
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                            currentPage === page
+                              ? 'bg-indigo-600 text-white'
+                              : 'text-gray-700 hover:bg-gray-100'
+                          }`}
                         >
-                          🚪 Logout
+                          {page}
                         </button>
-                      )}
-                      
-            <button
-                        onClick={() => deleteSubaccount(subaccount.ghl_location_id)}
-                        className="bg-gray-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
-                        title="Delete Subaccount"
-                      >
-                        🗑️ Delete
-            </button>
-          </div>
-          </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage === totalPages}
+                      className="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Next
+                    </button>
+                  </div>
                 </div>
               </div>
-            ))}
+            )}
+          </>
+        ) : (
+          <div className="px-6 py-16 text-center">
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+              </svg>
             </div>
-            </div>
-          ) : (
-        <div className="glass p-8 text-center">
-          <div className="ghl-gradient p-4 rounded-2xl w-16 h-16 mx-auto mb-4">
-            <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-            </svg>
-            </div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Get Started</h3>
-          <p className="text-gray-600 mb-6">Connect your GoHighLevel account to start using WhatsApp as an SMS provider.</p>
-          <a
-            href="/dashboard/add-subaccount"
-            className="ghl-gradient text-white px-8 py-4 rounded-xl font-semibold hover:shadow-lg transition-all duration-300 transform hover:scale-105 inline-block"
-          >
-            Connect GHL Account
-          </a>
-        </div>
-      )}
-
-      {/* Instructions */}
-      <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">How to Use</h3>
-        <div className="grid md:grid-cols-2 gap-6">
-          <div className="space-y-3">
-            <div className="flex items-start space-x-3">
-              <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-indigo-600 font-semibold text-sm">1</span>
-              </div>
-              <p className="text-gray-700 text-sm">Connect your GHL account above</p>
-            </div>
-            <div className="flex items-start space-x-3">
-              <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-indigo-600 font-semibold text-sm">2</span>
-              </div>
-              <p className="text-gray-700 text-sm">Your locations will appear automatically</p>
-            </div>
-            <div className="flex items-start space-x-3">
-              <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-indigo-600 font-semibold text-sm">3</span>
-              </div>
-              <p className="text-gray-700 text-sm">Click &quot;Open QR&quot; to scan WhatsApp QR code</p>
-            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No accounts found</h3>
+            <p className="text-gray-500 mb-6">
+              {searchQuery || filterStatus !== 'all'
+                ? 'Try adjusting your search or filter to find what you\'re looking for.'
+                : 'Get started by connecting your first GoHighLevel account.'}
+            </p>
+            {!searchQuery && filterStatus === 'all' && (
+              <a
+                href="/dashboard/add-subaccount"
+                className="inline-flex items-center px-6 py-3 border border-transparent rounded-lg text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+              >
+                <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                Add Your First Account
+              </a>
+            )}
           </div>
-          <div className="space-y-3">
-            <div className="flex items-start space-x-3">
-              <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-indigo-600 font-semibold text-sm">4</span>
-              </div>
-              <p className="text-gray-700 text-sm">In GHL Agency, add custom menu link:</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3 ml-9">
-              <code className="text-indigo-600 text-sm break-all">
-                {process.env.NEXT_PUBLIC_API_BASE_URL}/ghl/provider?locationId=&#123;locationId&#125;
-              </code>
-            </div>
-            <div className="flex items-start space-x-3">
-              <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-indigo-600 font-semibold text-sm">5</span>
-              </div>
-              <p className="text-gray-700 text-sm">Set as SMS provider in GHL Phone System settings</p>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   )
