@@ -315,6 +315,7 @@ app.use(cors({
     'https://whatsapp123-frontend.vercel.app',
     'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
     'https://whatsappghl.vercel.app',
+    'https://whatsappgh1.vercel.app',  // Added the actual frontend URL
     'https://whatsapghl.vercel.app',
     'https://*.vercel.app',
     'https://app.gohighlevel.com',
@@ -330,9 +331,10 @@ app.use((req, res, next) => {
   // Allow iframe embedding from GHL domains
   res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com https://app.gohighlevel.com https://*.gohighlevel.com");
   res.setHeader('X-Frame-Options', 'ALLOWALL');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+  // CORS headers are handled by cors() middleware above, don't override them here
+  // res.setHeader('Access-Control-Allow-Origin', '*');
+  // res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  // res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
   next();
 });
 
