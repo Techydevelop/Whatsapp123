@@ -133,7 +133,12 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
     console.log('📊 Media upload response:', response.status, response.data);
     
     console.log('✅ Media uploaded to GHL:', response.data);
-    return response.data;
+    
+    // Return the uploaded file URL, not the conversation response
+    return {
+      ...response.data,
+      url: uploadedFileUrl  // Add the actual media URL to the response
+    };
     
   } catch (error) {
     console.error('❌ GHL media upload failed:');
