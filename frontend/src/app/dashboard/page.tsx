@@ -22,6 +22,7 @@ interface SubaccountStatus {
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth()
   const [loading, setLoading] = useState(true)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [ghlAccounts, setGhlAccounts] = useState<GhlAccount[]>([])
   const [subaccountStatuses, setSubaccountStatuses] = useState<SubaccountStatus[]>([])
   const [searchQuery, setSearchQuery] = useState('')
