@@ -34,19 +34,27 @@ export default function Dashboard() {
 
   const fetchGHLLocations = useCallback(async (showLoading = true) => {
     try {
-      if (!user) return
+      console.log('🔍 fetchGHLLocations called, user:', user?.id)
+      
+      if (!user) {
+        console.log('❌ No user found, returning')
+        return
+      }
       
       if (showLoading) setLoading(true)
 
       // Get ALL GHL accounts for this user
+      console.log('📊 Fetching GHL accounts for user:', user.id)
       const { data: ghlAccounts, error: ghlError } = await supabase
         .from('ghl_accounts')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
+      console.log('📋 GHL Accounts fetched:', ghlAccounts?.length || 0, 'accounts')
+      
       if (ghlError) {
-        console.error('Database error:', ghlError.message, ghlError.code)
+        console.error('❌ Database error:', ghlError.message, ghlError.code)
       }
       setGhlAccounts(ghlAccounts || [])
 
@@ -86,45 +94,49 @@ export default function Dashboard() {
         })
         
         const statuses = (await Promise.all(statusPromises)).filter(Boolean) as SubaccountStatus[]
+        console.log('✅ Final statuses:', statuses.length, 'accounts processed')
         setSubaccountStatuses(statuses)
       } else {
+        console.log('⚠️ No GHL accounts found')
         setSubaccountStatuses([])
       }
     } catch (error) {
-      console.error('Error fetching GHL locations:', error)
+      console.error('❌ Error fetching GHL locations:', error)
       setSubaccountStatuses([])
     } finally {
+      console.log('🏁 Fetch complete, setting loading to false')
       setLoading(false)
       setRefreshing(false)
     }
   }, [user])
 
   useEffect(() => {
+    console.log('🚀 Dashboard mounted, fetching locations...')
     fetchGHLLocations()
+  }, [fetchGHLLocations])
+  
+  // Separate effect for polling to avoid issues
+  useEffect(() => {
+    // Check if any account is pending (qr or initializing)
+    const hasPending = subaccountStatuses.some(acc => 
+      acc.status === 'qr' || acc.status === 'initializing'
+    )
     
-    // Dynamic polling based on status
-    let interval: NodeJS.Timeout
+    // Fast polling (3s) if any account is pending, slow polling (15s) otherwise
+    const pollInterval = hasPending ? 3000 : 15000
     
-    const startPolling = () => {
-      // Check if any account is pending (qr or initializing)
-      const hasPending = subaccountStatuses.some(acc => 
-        acc.status === 'qr' || acc.status === 'initializing'
-      )
-      
-      // Fast polling (3s) if any account is pending, slow polling (15s) otherwise
-      const pollInterval = hasPending ? 3000 : 15000
-      
-      interval = setInterval(() => {
-        fetchGHLLocations(false)
-      }, pollInterval)
-    }
+    console.log(`⏱️ Setting up polling: ${pollInterval}ms (hasPending: ${hasPending})`)
     
-    startPolling()
+    const interval = setInterval(() => {
+      console.log('🔄 Polling for updates...')
+      fetchGHLLocations(false)
+    }, pollInterval)
     
     return () => {
-      if (interval) clearInterval(interval)
+      console.log('🛑 Clearing polling interval')
+      clearInterval(interval)
     }
-  }, [fetchGHLLocations, subaccountStatuses])
+  }, [subaccountStatuses, fetchGHLLocations])
 
   const handleRefresh = async () => {
     setRefreshing(true)
