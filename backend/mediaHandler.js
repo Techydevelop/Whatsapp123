@@ -106,38 +106,14 @@ async function uploadMediaToGHL(mediaBuffer, messageType, contactId, accessToken
       throw new Error('No file URL returned from GHL media upload');
     }
     
-    // Now create conversation message with media attachment
-    const messagePayload = {
-      type: "WhatsApp",
-      contactId: contactId,
-      message: getMediaMessageText(messageType),
-      direction: "inbound",
-      status: "delivered",
-      altId: `wa_${Date.now()}`,
-      attachments: [uploadedFileUrl] // GHL expects array of URLs
-    };
+    console.log('📊 Media URL extracted:', uploadedFileUrl);
     
-    console.log('📤 Creating conversation message with media...');
-    const response = await axios.post(
-      'https://services.leadconnectorhq.com/conversations/messages',
-      messagePayload,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Version': '2021-07-28',
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    
-    console.log('📊 Media upload response:', response.status, response.data);
-    
-    console.log('✅ Media uploaded to GHL:', response.data);
-    
-    // Return the uploaded file URL, not the conversation response
+    // Return ONLY the URL - DO NOT create conversation message here
+    // The conversation message will be created in server.js with the URL
     return {
-      ...response.data,
-      url: uploadedFileUrl  // Add the actual media URL to the response
+      url: uploadedFileUrl,
+      fileId: mediaResponse.data?.fileId,
+      success: true
     };
     
   } catch (error) {

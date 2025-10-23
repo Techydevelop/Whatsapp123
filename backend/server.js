@@ -831,7 +831,12 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     }
     
     // Ignore messages that contain media URLs (these are our inbound messages being echoed back)
-    if (message && message.includes('storage.googleapis.com/msgsndr')) {
+    if (message && (
+      message.includes('storage.googleapis.com/msgsndr') || 
+      message.startsWith('https://storage.googleapis.com') ||
+      message.startsWith('http://') ||
+      (message.startsWith('https://') && message.includes('msgsndr'))
+    )) {
       console.log('🚫 Ignoring echo of media URL message:', message);
       return res.json({ status: 'success', reason: 'media_url_echo' });
     }
