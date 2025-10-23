@@ -3754,6 +3754,15 @@ app.post('/api/test-team-notification', async (req, res) => {
   }
 });
 
+// Force HTTPS redirect for production
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') {
+    res.redirect(`https://${req.header('host')}${req.url}`);
+  } else {
+    next();
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

@@ -13,15 +13,13 @@ export default function AddSubAccount() {
     setLoading(true)
 
     try {
-      if (!user) throw new Error('Not authenticated')
-
+      // Simple auth - no complex user validation
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://whatsapp123-dhn1.onrender.com'
-      const userId = user.id
       
-      // Simple single location OAuth
-      const backendUrl = `${apiBaseUrl}/auth/ghl/connect?userId=${encodeURIComponent(userId)}`
+      // Direct GHL OAuth - let backend handle everything
+      const backendUrl = `${apiBaseUrl}/auth/ghl/connect`
       
-      console.log('📍 Location OAuth redirect:', backendUrl)
+      console.log('📍 Simple GHL OAuth redirect:', backendUrl)
       
       // Redirect to backend which will redirect to GHL OAuth
       window.location.href = backendUrl
