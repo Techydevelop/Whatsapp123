@@ -195,25 +195,40 @@ export default function Dashboard() {
     try {
       console.log('🗑️ Deleting subaccount with locationId:', locationId)
       
-      // Use backend API with proper authentication
-      const response = await fetch(`${API_BASE_URL}/admin/ghl/delete-subaccount`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // Send cookies for authentication
-        body: JSON.stringify({ locationId })
-      })
-
-      if (response.ok) {
-        console.log('✅ Subaccount deleted successfully')
-        setNotification({ type: 'success', message: '✅ Subaccount deleted successfully!' })
-        await fetchGHLLocations(false)
-      } else {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
-        console.error('Delete failed:', errorData)
-        setNotification({ type: 'error', message: `❌ Failed to delete: ${errorData.error}` })
+      if (!user) {
+        setNotification({ type: 'error', message: '❌ User not authenticated' })
+        return
       }
+      
+      // Direct Supabase delete with user filtering (security)
+      // Delete sessions first - filter by user_id for security
+      const { error: sessionsError } = await supabase
+        .from('sessions')
+        .delete()
+        .eq('ghl_location_id', locationId)
+        .eq('user_id', user.id) // Security: Only delete user's own sessions
+      
+      if (sessionsError) {
+        console.error('Error deleting sessions:', sessionsError)
+        // Continue anyway
+      }
+      
+      // Delete subaccount - filter by user_id for security
+      const { error: subaccountError } = await supabase
+        .from('subaccounts')
+        .delete()
+        .eq('ghl_location_id', locationId)
+        .eq('user_id', user.id) // Security: Only delete user's own subaccounts
+      
+      if (subaccountError) {
+        console.error('Error deleting subaccount:', subaccountError)
+        setNotification({ type: 'error', message: `❌ Failed to delete: ${subaccountError.message}` })
+        return
+      }
+      
+      console.log('✅ Subaccount deleted successfully')
+      setNotification({ type: 'success', message: '✅ Subaccount deleted successfully!' })
+      await fetchGHLLocations(false)
       
     } catch (error) {
       console.error('Error deleting subaccount:', error)
