@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
 import { API_ENDPOINTS, API_BASE_URL, apiCall } from '@/lib/config'
+import Modal from '@/components/ui/Modal'
 
 type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
 
@@ -28,6 +29,20 @@ export default function Dashboard() {
   const [itemsPerPage] = useState(10)
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [refreshing, setRefreshing] = useState(false)
+  
+  // Modal states
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; locationId: string; locationName: string }>({ 
+    isOpen: false, 
+    locationId: '', 
+    locationName: '' 
+  })
+  const [logoutModal, setLogoutModal] = useState<{ isOpen: boolean; locationId: string; locationName: string }>({ 
+    isOpen: false, 
+    locationId: '', 
+    locationName: '' 
+  })
+  const [actionLoading, setActionLoading] = useState(false)
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const fetchGHLLocations = useCallback(async (showLoading = true) => {
     try {
@@ -99,13 +114,29 @@ export default function Dashboard() {
   useEffect(() => {
     fetchGHLLocations()
     
-    // Poll for status updates every 10 seconds (increased from 5)
-    const interval = setInterval(() => {
-      fetchGHLLocations(false)
-    }, 10000)
+    // Dynamic polling based on status
+    let interval: NodeJS.Timeout
     
-    return () => clearInterval(interval)
-  }, [fetchGHLLocations])
+    const startPolling = () => {
+      // Check if any account is pending (qr or initializing)
+      const hasPending = subaccountStatuses.some(acc => 
+        acc.status === 'qr' || acc.status === 'initializing'
+      )
+      
+      // Fast polling (3s) if any account is pending, slow polling (15s) otherwise
+      const pollInterval = hasPending ? 3000 : 15000
+      
+      interval = setInterval(() => {
+        fetchGHLLocations(false)
+      }, pollInterval)
+    }
+    
+    startPolling()
+    
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [fetchGHLLocations, subaccountStatuses])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -133,52 +164,66 @@ export default function Dashboard() {
     }
   }
 
-  const logoutSession = async (locationId: string) => {
-    if (!confirm('Are you sure you want to logout this WhatsApp session?')) {
-      return
-    }
-
+  const logoutSession = async () => {
+    if (!logoutModal.locationId) return
+    
     try {
-      const response = await apiCall(`${API_BASE_URL}/ghl/location/${locationId}/session/logout`, {
+      setActionLoading(true)
+      const response = await apiCall(`${API_BASE_URL}/ghl/location/${logoutModal.locationId}/session/logout`, {
         method: 'POST'
       })
 
       if (response.ok) {
-        alert('WhatsApp session logged out successfully!')
+        setNotification({ type: 'success', message: 'WhatsApp session logged out successfully!' })
         await fetchGHLLocations(false)
+        setLogoutModal({ isOpen: false, locationId: '', locationName: '' })
       } else {
         const errorData = await response.json()
-        alert(`Failed to logout session: ${errorData.error || 'Unknown error'}`)
+        setNotification({ type: 'error', message: `Failed to logout: ${errorData.error || 'Unknown error'}` })
       }
     } catch (error) {
       console.error('Error logging out session:', error)
-      alert(`Error logging out session: ${error}`)
+      setNotification({ type: 'error', message: 'Failed to logout session. Please try again.' })
+    } finally {
+      setActionLoading(false)
     }
   }
 
-  const deleteSubaccount = async (locationId: string) => {
-    if (!confirm('Are you sure you want to delete this subaccount? This will permanently remove all data.')) {
-      return
-    }
-
+  const deleteSubaccount = async () => {
+    if (!deleteModal.locationId) return
+    
     try {
+      setActionLoading(true)
       const response = await apiCall(`${API_BASE_URL}/admin/ghl/delete-subaccount`, {
         method: 'DELETE',
-        body: JSON.stringify({ locationId })
+        body: JSON.stringify({ locationId: deleteModal.locationId })
       })
 
       if (response.ok) {
-        alert('Subaccount deleted successfully!')
+        setNotification({ type: 'success', message: 'Subaccount deleted successfully!' })
         await fetchGHLLocations(false)
+        setDeleteModal({ isOpen: false, locationId: '', locationName: '' })
       } else {
         const errorData = await response.json()
-        alert(`Failed to delete subaccount: ${errorData.error || 'Unknown error'}`)
+        setNotification({ type: 'error', message: `Failed to delete: ${errorData.error || 'Unknown error'}` })
       }
     } catch (error) {
       console.error('Error deleting subaccount:', error)
-      alert(`Error deleting subaccount: ${error}`)
+      setNotification({ type: 'error', message: 'Failed to delete subaccount. Please try again.' })
+    } finally {
+      setActionLoading(false)
     }
   }
+  
+  // Auto-hide notification after 5 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null)
+      }, 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [notification])
 
   // Filter and search
   const filteredAccounts = subaccountStatuses.filter(account => {
@@ -429,7 +474,11 @@ export default function Dashboard() {
                             </button>
                             {account.status === 'ready' && (
                               <button
-                                onClick={() => logoutSession(account.ghl_location_id)}
+                                onClick={() => setLogoutModal({ 
+                                  isOpen: true, 
+                                  locationId: account.ghl_location_id,
+                                  locationName: account.name 
+                                })}
                                 className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors"
                                 title="Logout Session"
                               >
@@ -439,7 +488,11 @@ export default function Dashboard() {
                               </button>
                             )}
                             <button
-                              onClick={() => deleteSubaccount(account.ghl_location_id)}
+                              onClick={() => setDeleteModal({ 
+                                isOpen: true, 
+                                locationId: account.ghl_location_id,
+                                locationName: account.name 
+                              })}
                               className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700 transition-colors"
                               title="Delete Account"
                             >
@@ -527,6 +580,95 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Delete Modal */}
+      <Modal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ isOpen: false, locationId: '', locationName: '' })}
+        title="Delete Subaccount"
+        icon="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={deleteSubaccount}
+        loading={actionLoading}
+      >
+        <p>
+          Are you sure you want to delete <strong>{deleteModal.locationName}</strong>? 
+        </p>
+        <p className="mt-2">
+          This action will permanently remove:
+        </p>
+        <ul className="mt-2 list-disc list-inside text-sm space-y-1">
+          <li>All WhatsApp session data</li>
+          <li>Connection settings</li>
+          <li>Chat history</li>
+        </ul>
+        <p className="mt-3 text-red-600 font-medium">
+          This action cannot be undone.
+        </p>
+      </Modal>
+
+      {/* Logout Modal */}
+      <Modal
+        isOpen={logoutModal.isOpen}
+        onClose={() => setLogoutModal({ isOpen: false, locationId: '', locationName: '' })}
+        title="Logout WhatsApp Session"
+        icon="warning"
+        confirmText="Logout"
+        cancelText="Cancel"
+        onConfirm={logoutSession}
+        loading={actionLoading}
+      >
+        <p>
+          Are you sure you want to logout the WhatsApp session for <strong>{logoutModal.locationName}</strong>?
+        </p>
+        <p className="mt-2">
+          You will need to scan the QR code again to reconnect.
+        </p>
+      </Modal>
+
+      {/* Notification Toast */}
+      {notification && (
+        <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-bottom-5">
+          <div className={`max-w-md rounded-lg shadow-lg p-4 ${
+            notification.type === 'success' 
+              ? 'bg-green-50 border-l-4 border-green-500' 
+              : 'bg-red-50 border-l-4 border-red-500'
+          }`}>
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                {notification.type === 'success' ? (
+                  <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ) : (
+                  <svg className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
+              </div>
+              <div className="ml-3 flex-1">
+                <p className={`text-sm font-medium ${
+                  notification.type === 'success' ? 'text-green-800' : 'text-red-800'
+                }`}>
+                  {notification.message}
+                </p>
+              </div>
+              <button
+                onClick={() => setNotification(null)}
+                className={`ml-4 inline-flex flex-shrink-0 ${
+                  notification.type === 'success' ? 'text-green-500 hover:text-green-600' : 'text-red-500 hover:text-red-600'
+                }`}
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

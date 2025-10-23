@@ -34,6 +34,9 @@ class BaileysWhatsAppManager {
     
     // Start connection health monitor
     this.startHealthMonitor();
+    
+    // Start QR expiry cleanup monitor
+    this.startQRCleanupMonitor();
   }
 
   // Make clients accessible for phone number retrieval
@@ -98,6 +101,38 @@ class BaileysWhatsAppManager {
         }
       });
     }, 30000); // Check every 30 seconds
+  }
+
+  // QR expiry cleanup monitor
+  startQRCleanupMonitor() {
+    setInterval(async () => {
+      const QR_EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes
+      const now = Date.now();
+      
+      for (const [sessionId, client] of this.clients.entries()) {
+        // Only check QR-ready sessions
+        if (client.status === 'qr_ready' && client.qrGeneratedAt) {
+          const qrAge = now - client.qrGeneratedAt;
+          
+          if (qrAge > QR_EXPIRY_TIME) {
+            console.log(`🧹 Auto-cleaning expired QR session: ${sessionId} (${Math.round(qrAge/1000)}s old)`);
+            
+            try {
+              // Update database status
+              await this.updateDatabaseStatus(sessionId, 'disconnected');
+              
+              // Disconnect and cleanup
+              await this.disconnectClient(sessionId);
+              this.clearSessionData(sessionId);
+              
+              console.log(`✨ Session ${sessionId} cleaned up. Will regenerate fresh QR on next access.`);
+            } catch (err) {
+              console.error(`Error cleaning up ${sessionId}:`, err.message);
+            }
+          }
+        }
+      }
+    }, 60000); // Check every minute
   }
 
   hasExistingCredentials(sessionId) {
@@ -284,9 +319,10 @@ class BaileysWhatsAppManager {
             socket,
             qr,
             status: 'qr_ready',
-            lastUpdate: Date.now()
+            lastUpdate: Date.now(),
+            qrGeneratedAt: Date.now() // Track when QR was generated
           });
-          console.log(`📱 Status set to 'qr_ready' for session: ${sessionId}`);
+          console.log(`📱 Status set to 'qr_ready' for session: ${sessionId} at ${new Date().toLocaleTimeString()}`);
         } else if (connectionStable) {
           console.log(`🚫 Ignoring QR generation - connection is stable for session: ${sessionId}`);
         } else {
@@ -545,6 +581,30 @@ class BaileysWhatsAppManager {
     try {
       let client = this.clients.get(sessionId);
       
+      // Check if QR is expired (5 minutes old)
+      if (client && client.qrGeneratedAt) {
+        const qrAge = Date.now() - client.qrGeneratedAt;
+        const QR_EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes
+        
+        if (qrAge > QR_EXPIRY_TIME) {
+          console.log(`⏰ QR code expired for ${sessionId} (${Math.round(qrAge/1000)}s old). Regenerating...`);
+          
+          // Disconnect old client and clear session
+          await this.disconnectClient(sessionId);
+          this.clearSessionData(sessionId);
+          
+          // Wait a bit before creating new client
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Create fresh client
+          await this.createClient(sessionId);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          client = this.clients.get(sessionId);
+          
+          console.log(`✨ Fresh QR code generated for session: ${sessionId}`);
+        }
+      }
+      
       if (!client) {
         console.log(`🔄 No client found for ${sessionId}, creating new one...`);
         await this.createClient(sessionId);
@@ -554,7 +614,8 @@ class BaileysWhatsAppManager {
       }
 
       if (client && client.qr) {
-        console.log(`📱 Returning QR code for session: ${sessionId}`);
+        const qrAge = client.qrGeneratedAt ? Math.round((Date.now() - client.qrGeneratedAt) / 1000) : 0;
+        console.log(`📱 Returning QR code for session: ${sessionId} (age: ${qrAge}s)`);
         return client.qr;
       }
 

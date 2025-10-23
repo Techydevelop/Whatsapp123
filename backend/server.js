@@ -600,9 +600,7 @@ app.post('/admin/create-session', requireAuth, async (req, res) => {
 
     console.log(`✅ Session created with ID: ${session.id}, mode: ${mode}`);
 
-    // Start WhatsApp client creation based on mode
-    if (mode === 'qr') {
-      // For QR mode, create client and generate QR
+    // Start WhatsApp client creation for QR mode
       const sessionName = `subaccount_${subaccountId}_${session.id}`;
       
       try {
@@ -615,29 +613,13 @@ app.post('/admin/create-session', requireAuth, async (req, res) => {
           .from('sessions')
           .update({ status: 'disconnected' })
           .eq('id', session.id);
-      }
-    } else if (mode === 'pairing') {
-      // For pairing mode, create client ready for pairing code
-      const sessionName = `subaccount_${subaccountId}_${session.id}`;
-      
-      try {
-        await waManager.createClient(sessionName);
-        console.log(`🔢 Pairing session client created: ${sessionName}`);
-      } catch (error) {
-        console.error('❌ Error creating pairing client:', error);
-        // Update session status to error
-        await supabaseAdmin
-          .from('sessions')
-          .update({ status: 'disconnected' })
-          .eq('id', session.id);
-      }
     }
 
     res.json({ 
       success: true,
       sessionId: session.id,
       mode: mode,
-      message: `${mode === 'qr' ? 'QR' : 'Pairing'} session created successfully`
+      message: 'QR session created successfully'
     });
   } catch (error) {
     console.error('❌ Error creating session:', error);
@@ -939,7 +921,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         // Send notification message back to GHL conversation
         try {
           const notificationPayload = {
-            type: "WhatsApp",
+            type: "SMS",
             contactId: contactId,
             message: `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`,
             direction: "inbound",
@@ -980,7 +962,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       // Send error notification to GHL conversation
       try {
         const errorPayload = {
-          type: "WhatsApp",
+          type: "SMS",
           contactId: contactId,
           message: `⚠️ Message delivery failed\n\n❌ Error: ${sendError.message}\n\n💡 Please check the phone number and try again.`,
           direction: "inbound",
@@ -1328,7 +1310,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
                 console.log(`🔄 Sending media URL as attachment instead...`);
                 
       const payload = {
-        type: "WhatsApp",
+        type: "SMS",
         contactId: contactId,
                   message: `${getMediaMessageText(messageType)}\n\nMedia URL: ${mediaUrl}`,
         direction: "inbound",
@@ -1369,7 +1351,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
         }
         
         const payload = {
-          type: "WhatsApp",
+          type: "SMS",
           contactId: contactId,
           message: finalMessage,
           direction: "inbound",
@@ -1766,279 +1748,272 @@ app.get('/ghl/provider', async (req, res) => {
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>WhatsApp Provider - ${subaccountName}</title>
           <style>
+            * {
+              box-sizing: border-box;
+            }
             body { 
-              font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; 
-              padding: 16px; 
-              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-              min-height: 100vh;
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+              padding: 0; 
               margin: 0;
-            }
-            .container { 
-              max-width: 600px; 
-              margin: 0 auto; 
-              padding: 20px;
-            }
-            .card { 
-              background: white; 
-              border-radius: 16px; 
-              padding: 32px; 
-              box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            }
-            .header {
-              text-align: center;
-              margin-bottom: 32px;
-            }
-            .logo {
-              width: 64px;
-              height: 64px;
-              background: #25D366;
-              border-radius: 50%;
-              margin: 0 auto 16px;
+              background: linear-gradient(135deg, #128C7E 0%, #075E54 50%, #25D366 100%);
+              min-height: 100vh;
               display: flex;
               align-items: center;
               justify-content: center;
-              font-size: 32px;
+            }
+            .container { 
+              max-width: 1200px;
+              width: 95%;
+              margin: 20px auto;
+            }
+            .card { 
+              background: white; 
+              border-radius: 20px; 
+              padding: 0;
+              box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+              overflow: hidden;
+            }
+            .header {
+              background: linear-gradient(135deg, #075E54 0%, #128C7E 100%);
+              padding: 30px 40px;
+              color: white;
+              display: flex;
+              align-items: center;
+              gap: 20px;
+            }
+            .logo {
+              width: 70px;
+              height: 70px;
+              background: white;
+              border-radius: 18px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              flex-shrink: 0;
+              box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            }
+            .logo svg {
+              width: 50px;
+              height: 50px;
+            }
+            .header-text {
+              flex: 1;
             }
             .title {
-              font-size: 28px;
+              font-size: 32px;
               font-weight: 700;
-              color: #1f2937;
               margin: 0 0 8px 0;
+              letter-spacing: -0.5px;
             }
             .subtitle {
-              color: #6b7280;
               font-size: 16px;
               margin: 0;
+              opacity: 0.95;
+            }
+            .content-wrapper {
+              display: grid;
+              grid-template-columns: 1fr 1.2fr;
+              gap: 0;
+              min-height: 500px;
+            }
+            .left-panel {
+              background: #F0F2F5;
+              padding: 40px;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+            }
+            .right-panel {
+              padding: 40px;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              background: white;
             }
             .info-section {
-              background: #f8fafc;
+              background: white;
               border-radius: 12px;
-              padding: 20px;
+              padding: 24px;
               margin-bottom: 24px;
+              box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            }
+            .info-section h3 {
+              margin: 0 0 16px 0;
+              color: #075E54;
+              font-size: 18px;
+              font-weight: 600;
+              display: flex;
+              align-items: center;
+              gap: 8px;
             }
             .info-row {
               display: flex;
               justify-content: space-between;
               align-items: center;
-              padding: 8px 0;
-              border-bottom: 1px solid #e5e7eb;
+              padding: 12px 0;
+              border-bottom: 1px solid #E9EDEF;
             }
             .info-row:last-child {
               border-bottom: none;
             }
             .info-label {
               font-weight: 600;
-              color: #374151;
+              color: #54656F;
+              font-size: 14px;
             }
             .info-value {
-              color: #6b7280;
-              font-family: monospace;
+              color: #111B21;
+              font-family: 'Courier New', monospace;
+              font-size: 13px;
             }
             .connected-number {
-              color: #059669;
-              font-weight: 600;
+              color: #25D366;
+              font-weight: 700;
+              font-size: 16px;
             }
             .qr-section {
               text-align: center;
-              margin: 24px 0;
             }
             .qr-container {
               background: white;
-              border: 2px solid #e5e7eb;
-              border-radius: 12px;
-              padding: 20px;
+              border: 3px solid #25D366;
+              border-radius: 16px;
+              padding: 24px;
               display: inline-block;
-              margin: 16px 0;
+              box-shadow: 0 4px 12px rgba(37, 211, 102, 0.15);
             }
             .qr-container img {
-              max-width: 256px;
-              height: auto;
-            }
-            .toggle-buttons {
-              display: flex;
-              justify-content: center;
-              margin-bottom: 20px;
-              gap: 8px;
-            }
-            .toggle-btn {
-              padding: 8px 16px;
-              border: 2px solid #e5e7eb;
-              background: white;
-              color: #6b7280;
-              border-radius: 8px;
-              cursor: pointer;
-              font-weight: 500;
-              transition: all 0.2s;
-            }
-            .toggle-btn.active {
-              background: #3b82f6;
-              color: white;
-              border-color: #3b82f6;
-            }
-            .toggle-btn:hover:not(.active) {
-              background: #f3f4f6;
-              border-color: #d1d5db;
-            }
-            .pairing-container {
-              text-align: center;
-              margin: 20px 0;
-            }
-            .pairing-form {
-              max-width: 400px;
-              margin: 0 auto;
-            }
-            .form-group {
-              margin-bottom: 20px;
-            }
-            .form-group label {
+              width: 280px;
+              height: 280px;
               display: block;
-              font-weight: 600;
-              color: #374151;
-              margin-bottom: 8px;
-            }
-            .form-group input {
-              width: 100%;
-              padding: 12px;
-              border: 2px solid #e5e7eb;
-              border-radius: 8px;
-              font-size: 16px;
-              margin-bottom: 12px;
-              box-sizing: border-box;
-            }
-            .form-group input:focus {
-              outline: none;
-              border-color: #3b82f6;
-              box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-            }
-            .pairing-result {
-              background: #d1fae5;
-              border: 2px solid #6ee7b7;
-              border-radius: 12px;
-              padding: 24px;
-              margin-top: 20px;
-            }
-            .pairing-code-display {
-              text-align: center;
-            }
-            .code-number {
-              font-size: 48px;
-              font-weight: 700;
-              color: #065f46;
-              margin-bottom: 16px;
-              letter-spacing: 4px;
-              font-family: monospace;
-            }
-            .code-instructions {
-              font-weight: 600;
-              color: #065f46;
-              margin-bottom: 16px;
-            }
-            .code-steps {
-              text-align: left;
-              color: #047857;
-              font-size: 14px;
-              line-height: 1.6;
-            }
-            .code-steps p {
-              margin: 8px 0;
-            }
-            .pairing-error {
-              background: #fee2e2;
-              border: 2px solid #fca5a5;
-              border-radius: 8px;
-              padding: 16px;
-              color: #991b1b;
-              margin-top: 16px;
             }
             .status {
-              margin: 16px 0;
-              padding: 12px;
-              border-radius: 8px;
-              font-weight: 500;
+              margin: 20px 0;
+              padding: 16px 24px;
+              border-radius: 12px;
+              font-weight: 600;
+              font-size: 15px;
+              display: inline-flex;
+              align-items: center;
+              gap: 12px;
             }
             .status.initializing {
-              background: #dbeafe;
-              color: #1e40af;
-              border: 1px solid #93c5fd;
+              background: #E3F2FD;
+              color: #1565C0;
+              border: 2px solid #90CAF9;
             }
             .status.qr {
-              background: #fef3c7;
-              color: #92400e;
-              border: 1px solid #fcd34d;
+              background: #FFF3E0;
+              color: #E65100;
+              border: 2px solid #FFB74D;
             }
             .status.ready {
-              background: #d1fae5;
-              color: #065f46;
-              border: 1px solid #6ee7b7;
+              background: #E8F5E9;
+              color: #2E7D32;
+              border: 2px solid #81C784;
             }
             .status.disconnected {
-              background: #fee2e2;
-              color: #991b1b;
-              border: 1px solid #fca5a5;
+              background: #FFEBEE;
+              color: #C62828;
+              border: 2px solid #E57373;
             }
             .instructions {
-              background: #f0f9ff;
-              border: 1px solid #bae6fd;
+              background: white;
+              border: 2px solid #25D366;
               border-radius: 12px;
-              padding: 20px;
-              margin: 24px 0;
+              padding: 24px;
+              box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             }
             .instructions h3 {
-              color: #0c4a6e;
-              margin: 0 0 12px 0;
+              color: #075E54;
+              margin: 0 0 16px 0;
               font-size: 18px;
+              font-weight: 600;
+              display: flex;
+              align-items: center;
+              gap: 8px;
             }
             .instructions ol {
-              color: #075985;
+              color: #111B21;
               margin: 0;
-              padding-left: 20px;
+              padding-left: 24px;
+              line-height: 1.8;
             }
             .instructions li {
-              margin: 8px 0;
-              line-height: 1.5;
+              margin: 12px 0;
+              font-size: 15px;
+            }
+            .instructions strong {
+              color: #075E54;
+            }
+            .warning-box {
+              background: #FFF8E1;
+              border-left: 4px solid #FFA000;
+              padding: 16px;
+              margin-top: 16px;
+              border-radius: 8px;
+              font-size: 14px;
+              color: #E65100;
+              line-height: 1.6;
+            }
+            .warning-box strong {
+              display: block;
+              margin-bottom: 8px;
+              color: #E65100;
             }
             .button-group {
               display: flex;
               gap: 12px;
               justify-content: center;
-              margin-top: 24px;
+              margin-top: 32px;
+              flex-wrap: wrap;
             }
             button { 
-              padding: 12px 24px; 
-              border-radius: 8px; 
+              padding: 14px 28px; 
+              border-radius: 10px; 
               border: none; 
               font-weight: 600;
+              font-size: 15px;
               cursor: pointer;
-              transition: all 0.2s;
+              transition: all 0.3s ease;
+              display: inline-flex;
+              align-items: center;
+              gap: 8px;
             }
             .btn-primary {
-              background: #3b82f6;
+              background: #25D366;
               color: white;
             }
             .btn-primary:hover {
-              background: #2563eb;
+              background: #1DA851;
+              transform: translateY(-2px);
+              box-shadow: 0 4px 12px rgba(37, 211, 102, 0.4);
             }
             .btn-secondary {
-              background: #f3f4f6;
-              color: #374151;
-              border: 1px solid #d1d5db;
+              background: #F0F2F5;
+              color: #54656F;
+              border: 2px solid #E9EDEF;
             }
             .btn-secondary:hover {
-              background: #e5e7eb;
+              background: #E9EDEF;
+              transform: translateY(-2px);
             }
             .btn-success {
-              background: #10b981;
+              background: #075E54;
               color: white;
             }
             .btn-success:hover {
-              background: #059669;
+              background: #054A42;
+              transform: translateY(-2px);
+              box-shadow: 0 4px 12px rgba(7, 94, 84, 0.4);
             }
             .loading {
               display: inline-block;
               width: 20px;
               height: 20px;
-              border: 3px solid #f3f3f3;
-              border-top: 3px solid #3b82f6;
+              border: 3px solid rgba(255,255,255,0.3);
+              border-top: 3px solid white;
               border-radius: 50%;
               animation: spin 1s linear infinite;
             }
@@ -2046,18 +2021,44 @@ app.get('/ghl/provider', async (req, res) => {
               0% { transform: rotate(0deg); }
               100% { transform: rotate(360deg); }
             }
+            @media (max-width: 968px) {
+              .content-wrapper {
+                grid-template-columns: 1fr;
+              }
+              .left-panel {
+                order: 2;
+              }
+              .right-panel {
+                order: 1;
+              }
+            }
           </style>
         </head>
         <body>
           <div class="container">
             <div class="card">
               <div class="header">
-                <div class="logo">📱</div>
-                <h1 class="title">WhatsApp SMS Provider</h1>
-                <p class="subtitle">Connect your WhatsApp to GoHighLevel</p>
+                <div class="logo">
+                  <svg viewBox="0 0 175.216 175.552" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                      <linearGradient id="whatsapp-gradient" x1="50%" y1="0%" x2="50%" y2="100%">
+                        <stop offset="0%" style="stop-color:#25D366" />
+                        <stop offset="100%" style="stop-color:#128C7E" />
+                      </linearGradient>
+                    </defs>
+                    <path fill="url(#whatsapp-gradient)" d="M87.184.003C39.065.003 0 39.068 0 87.187c0 15.435 4.023 29.892 11.068 42.455L3.873 171.55l43.405-11.374c12.006 6.521 25.764 10.246 40.316 10.246 48.12 0 87.185-39.065 87.185-87.185C174.78 39.068 135.715.003 87.184.003zm50.964 123.17c-2.046 5.766-10.152 10.548-16.608 11.93-4.423.927-10.194 1.677-29.608-6.364-24.828-10.28-40.901-35.496-42.142-37.126-1.24-1.63-10.163-13.522-10.163-25.796 0-12.274 6.438-18.292 8.724-20.782 2.285-2.49 4.99-3.114 6.652-3.114 1.663 0 3.326.016 4.778.087 1.53.075 3.585-.581 5.603 4.269 2.046 4.923 6.963 16.986 7.572 18.217.609 1.231.203 2.663-.406 3.894-.609 1.231-1.218 2.138-2.458 3.37-1.24 1.23-2.603 2.748-3.717 3.69-1.24 1.051-2.533 2.19-1.088 4.292 1.445 2.102 6.417 10.602 13.782 17.162 9.463 8.434 17.444 11.057 19.912 12.288 2.468 1.231 3.907.986 5.353-.609 1.445-1.595 6.219-7.266 7.88-9.757 1.662-2.49 3.325-2.084 5.61-1.247 2.286.837 14.56 6.87 17.047 8.116 2.488 1.247 4.153 1.863 4.762 2.906.609 1.043.609 6.006-1.437 11.772z"/>
+                  </svg>
+                </div>
+                <div class="header-text">
+                  <h1 class="title">WhatsApp Business Integration</h1>
+                  <p class="subtitle">Connect your WhatsApp to GoHighLevel SMS Provider</p>
+                </div>
               </div>
 
+              <div class="content-wrapper">
+                <div class="left-panel">
               <div class="info-section">
+                    <h3>📊 Connection Details</h3>
                 <div class="info-row">
                   <span class="info-label">Subaccount:</span>
                   <span class="info-value">${subaccountName}</span>
@@ -2076,63 +2077,50 @@ app.get('/ghl/provider', async (req, res) => {
                 </div>
               </div>
 
-              <div class="qr-section">
-                <!-- Toggle Buttons (only show if no mode specified) -->
-                <div class="toggle-buttons" id="toggle-buttons" style="display: none;">
-                  <button id="qr-toggle" class="toggle-btn active">QR Code</button>
-                  <button id="pairing-toggle" class="toggle-btn">Pairing Code</button>
+                  <div class="instructions">
+                    <h3>📱 How to Connect WhatsApp:</h3>
+                    <ol>
+                      <li><strong>Open WhatsApp</strong> on your phone</li>
+                      <li><strong>Tap Menu</strong> (⋮) → <strong>Linked Devices</strong></li>
+                      <li><strong>Tap "Link a Device"</strong></li>
+                      <li><strong>Scan the QR Code</strong> shown on the right</li>
+                      <li><strong>Wait patiently</strong> for connection to complete (30-60 seconds)</li>
+                      <li><strong>Don't close</strong> this window until "Connected" appears</li>
+                    </ol>
+                    
+                    <div class="warning-box">
+                      <strong>⚠️ Important Notes:</strong>
+                      After scanning, please wait for the connection to fully establish. The status will change to "Connected" when ready. 
+                      <br><br>
+                      <strong>If connection takes too long (5+ minutes):</strong>
+                      <br>
+                      1. Delete this subaccount from your dashboard
+                      <br>
+                      2. Add the subaccount again
+                      <br>
+                      3. Scan the new QR code immediately
+                    </div>
                 </div>
 
+                  <div class="button-group">
+                    <button id="reset" class="btn-secondary">🔄 Reset QR</button>
+                    <button id="refresh" class="btn-primary">🔄 Refresh Status</button>
+                    <button id="close" class="btn-success" style="display: none;">✅ Close Window</button>
+                  </div>
+                </div>
+
+                <div class="right-panel">
+                  <div class="qr-section">
                 <!-- QR Code Section -->
                 <div id="qr" class="qr-container" style="display: none;">
                   <div id="qr-image"></div>
-                </div>
-
-                <!-- Pairing Code Section -->
-                <div id="pairing-code" class="pairing-container" style="display: none;">
-                  <div class="pairing-form">
-                    <div class="form-group">
-                      <label for="phone-input">📱 Enter your phone number:</label>
-                      <input type="tel" id="phone-input" placeholder="e.g., +1234567890 or 1234567890" />
-                      <button id="request-pairing" class="btn-primary">Get Pairing Code</button>
-                    </div>
-                    <div id="pairing-result" class="pairing-result" style="display: none;">
-                      <div class="pairing-code-display">
-                        <div class="code-number" id="code-number"></div>
-                        <p class="code-instructions">Enter this 8-digit code in your WhatsApp app</p>
-                        <div class="code-steps">
-                          <p>1. Open WhatsApp on your phone</p>
-                          <p>2. Go to Settings → Linked Devices</p>
-                          <p>3. Tap &quot;Link a Device&quot;</p>
-                          <p>4. Enter the code above</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div id="pairing-error" class="pairing-error" style="display: none;"></div>
-                  </div>
                 </div>
 
                 <div id="status" class="status initializing">
                   <div class="loading"></div> Preparing WhatsApp session...
                 </div>
               </div>
-
-              <div class="instructions">
-                <h3>📋 How to Connect:</h3>
-                <ol>
-                  <li><strong>Open WhatsApp</strong> on your phone</li>
-                  <li><strong>Tap Menu</strong> (three dots) → <strong>Linked Devices</strong></li>
-                  <li><strong>Tap "Link a Device"</strong></li>
-                  <li><strong>Scan the QR code</strong> above with your phone</li>
-                  <li><strong>Wait for "Connected"</strong> status</li>
-                  <li><strong>Use in GHL</strong> as SMS provider</li>
-                </ol>
               </div>
-
-              <div class="button-group">
-                <button id="reset" class="btn-secondary">🔄 Reset QR</button>
-                <button id="refresh" class="btn-primary">🔄 Refresh Status</button>
-                <button id="close" class="btn-success" style="display: none;">✅ Close</button>
               </div>
             </div>
           </div>
@@ -2152,92 +2140,47 @@ app.get('/ghl/provider', async (req, res) => {
             const resetBtn = document.getElementById('reset');
             const refreshBtn = document.getElementById('refresh');
             const closeBtn = document.getElementById('close');
-            
-            // Pairing code elements
-            const toggleButtons = document.getElementById('toggle-buttons');
-            const qrToggle = document.getElementById('qr-toggle');
-            const pairingToggle = document.getElementById('pairing-toggle');
-            const pairingCodeEl = document.getElementById('pairing-code');
-            const phoneInput = document.getElementById('phone-input');
-            const requestPairingBtn = document.getElementById('request-pairing');
-            const pairingResult = document.getElementById('pairing-result');
-            const codeNumber = document.getElementById('code-number');
-            const pairingError = document.getElementById('pairing-error');
 
             function updateStatus(status, phoneNumber = null) {
               // Update status text
-              statusTextEl.textContent = status;
+              statusTextEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
               
               // Update status element
               statusEl.className = 'status ' + status;
               
               switch(status) {
                 case 'initializing':
-                  statusEl.innerHTML = '<div class="loading"></div> Preparing WhatsApp session...';
+                  statusEl.innerHTML = '<div class="loading"></div> <strong>Initializing...</strong><br><small>Setting up your WhatsApp connection</small>';
                   qrEl.style.display = 'none';
-                  pairingCodeEl.style.display = 'none';
-                  toggleButtons.style.display = 'none';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
                   break;
                   
                 case 'qr':
-                  statusEl.innerHTML = '📱 <strong>Scan QR Code</strong><br><small>Open WhatsApp → Menu → Linked Devices → Link a Device</small>';
+                  statusEl.innerHTML = '📱 <strong>Ready to Scan</strong><br><small>Please scan the QR code with your WhatsApp app</small>';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
-                  
-                  // Handle mode-specific display
-                  if (mode === 'qr') {
-                    // QR mode: show only QR code
-                    toggleButtons.style.display = 'none';
-                    qrEl.style.display = 'block';
-                    pairingCodeEl.style.display = 'none';
-                    currentViewMode = 'qr';
-                  } else if (mode === 'pairing') {
-                    // Pairing mode: show only pairing code
-                    toggleButtons.style.display = 'none';
-                    qrEl.style.display = 'none';
-                    pairingCodeEl.style.display = 'block';
-                    currentViewMode = 'pairing';
-                  } else {
-                    // No mode specified: show toggle buttons
-                    toggleButtons.style.display = 'flex';
-                    
-                    // Show the appropriate view based on current mode
-                    if (currentViewMode === 'qr') {
-                      qrEl.style.display = 'block';
-                      pairingCodeEl.style.display = 'none';
-                    } else {
-                      qrEl.style.display = 'none';
-                      pairingCodeEl.style.display = 'block';
-                    }
-                  }
+                  qrEl.style.display = 'block';
                   break;
                   
                 case 'ready':
-                  statusEl.innerHTML = '✅ <strong>Connected Successfully!</strong><br><small>WhatsApp is now linked to this location</small>';
+                  statusEl.innerHTML = '✅ <strong>Connected Successfully!</strong><br><small>Your WhatsApp is now linked and ready to use</small>';
                   qrEl.style.display = 'none';
-                  pairingCodeEl.style.display = 'none';
-                  toggleButtons.style.display = 'none';
                   phoneRowEl.style.display = 'flex';
                   phoneNumberEl.textContent = phoneNumber || 'Unknown';
-                  closeBtn.style.display = 'inline-block';
+                  closeBtn.style.display = 'inline-flex';
                   break;
                   
                 case 'disconnected':
-                  statusEl.innerHTML = '❌ <strong>Disconnected</strong><br><small>WhatsApp session ended</small>';
+                  statusEl.innerHTML = '❌ <strong>Connection Lost</strong><br><small>Please refresh and scan the QR code again</small>';
                   qrEl.style.display = 'none';
-                  pairingCodeEl.style.display = 'none';
-                  toggleButtons.style.display = 'none';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
                   break;
                   
                 default:
-                  statusEl.innerHTML = '❓ <strong>Unknown Status</strong><br><small>Status: ' + status + '</small>';
+                  statusEl.innerHTML = '⚠️ <strong>Unknown Status</strong><br><small>Current state: ' + status + '</small>';
                   qrEl.style.display = 'none';
-                  pairingCodeEl.style.display = 'none';
-                  toggleButtons.style.display = 'none';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
               }
@@ -2283,9 +2226,6 @@ app.get('/ghl/provider', async (req, res) => {
               }
             }
 
-            // Track current view mode
-            let currentViewMode = 'qr'; // 'qr' or 'pairing'
-
             let pollInterval = setInterval(poll, 3000); // Poll every 3 seconds
 
             // Event listeners
@@ -2302,90 +2242,6 @@ app.get('/ghl/provider', async (req, res) => {
             closeBtn.addEventListener('click', () => {
               window.close();
             });
-
-            // Toggle between QR and Pairing Code
-            qrToggle.addEventListener('click', () => {
-              qrToggle.classList.add('active');
-              pairingToggle.classList.remove('active');
-              qrEl.style.display = 'block';
-              pairingCodeEl.style.display = 'none';
-              currentViewMode = 'qr';
-            });
-
-            pairingToggle.addEventListener('click', () => {
-              pairingToggle.classList.add('active');
-              qrToggle.classList.remove('active');
-              qrEl.style.display = 'none';
-              pairingCodeEl.style.display = 'block';
-              currentViewMode = 'pairing';
-            });
-
-            // Request pairing code
-            requestPairingBtn.addEventListener('click', async () => {
-              const phoneNumber = phoneInput.value.trim();
-              
-              if (!phoneNumber) {
-                showPairingError('Please enter your phone number');
-                return;
-              }
-
-              requestPairingBtn.disabled = true;
-              requestPairingBtn.textContent = 'Getting Code...';
-              pairingError.style.display = 'none';
-              pairingResult.style.display = 'none';
-
-              try {
-                // Create a new session if none exists, or get existing one
-                let sessionId;
-                
-                // First try to get existing session
-                const sessionResponse = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session');
-                const sessionData = await sessionResponse.json().catch(() => ({}));
-                
-                if (sessionData.id) {
-                  sessionId = sessionData.id;
-                } else {
-                  // Create new session if none exists
-                  const createResponse = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session' + (companyId ? ('?companyId=' + encodeURIComponent(companyId)) : ''), { 
-                    method: 'POST' 
-                  });
-                  const createData = await createResponse.json().catch(() => ({}));
-                  sessionId = createData.id;
-                }
-                
-                if (!sessionId) {
-                  throw new Error('Failed to get or create session');
-                }
-
-                const response = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session/' + sessionId + '/pairing-code', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({ phoneNumber: phoneNumber })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                  codeNumber.textContent = result.pairingCode;
-                  pairingResult.style.display = 'block';
-                } else {
-                  showPairingError(result.error || 'Failed to get pairing code');
-                }
-              } catch (error) {
-                console.error('Pairing code request error:', error);
-                showPairingError('Failed to get pairing code. Please try again.');
-              } finally {
-                requestPairingBtn.disabled = false;
-                requestPairingBtn.textContent = 'Get Pairing Code';
-              }
-            });
-
-            function showPairingError(message) {
-              pairingError.textContent = message;
-              pairingError.style.display = 'block';
-            }
 
             // Initialize
             (async () => {
@@ -2461,66 +2317,129 @@ app.get('/admin/ghl/locations', async (req, res) => {
     const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
     let userId = null;
     
-      try {
+    try {
       const decoded = jwt.verify(token, jwtSecret);
       userId = decoded.userId;
-      } catch (e) {
+    } catch (e) {
       console.log('JWT validation failed:', e.message);
       return res.status(401).json({ error: 'Invalid token' });
     }
     
-    // Get GHL account for this user
-    const { data: ghlAccount, error: ghlError } = await supabaseAdmin
+    // Get ALL GHL accounts for this user (agency + subaccounts)
+    const { data: ghlAccounts, error: ghlError } = await supabaseAdmin
       .from('ghl_accounts')
-      .select('access_token, location_id')
+      .select('*')
       .eq('user_id', userId)
-      .single();
+      .order('created_at', { ascending: false });
 
-    if (ghlError || !ghlAccount) {
+    if (ghlError || !ghlAccounts || ghlAccounts.length === 0) {
       console.error('GHL account lookup error:', ghlError);
       return res.status(404).json({ error: 'GHL account not found. Please connect your GHL account first.' });
     }
     
-    // If we have a location_id, return that single location
-    if (ghlAccount.location_id) {
-      return res.json({
-        locations: [{
-          id: ghlAccount.location_id,
-          name: `Location ${ghlAccount.location_id}`
-        }]
-      });
+    console.log(`📊 Found ${ghlAccounts.length} GHL account(s) for user ${userId}`);
+    
+    let allLocations = [];
+    
+    // Process each GHL account
+    for (const account of ghlAccounts) {
+      console.log(`🔍 Processing account - Location ID: ${account.location_id}, Company ID: ${account.company_id}`);
+      
+      // Check if this is an agency-level account (has company_id but no specific location_id, or location_id matches company_id)
+      const isAgencyAccount = account.company_id && (!account.location_id || account.location_id === account.company_id);
+      
+      if (isAgencyAccount) {
+        // Agency level - fetch all locations under this company
+        console.log(`🏢 Agency account detected for company: ${account.company_id}`);
+        
+        try {
+          const ghlResponse = await fetch('https://services.leadconnectorhq.com/locations/', {
+            headers: {
+              'Authorization': `Bearer ${account.access_token}`,
+              'Version': '2021-07-28'
+            }
+          });
+          
+          if (ghlResponse.ok) {
+            const ghlData = await ghlResponse.json();
+            console.log(`✅ Fetched ${ghlData.locations?.length || 0} locations from agency account`);
+            
+            if (ghlData.locations && Array.isArray(ghlData.locations)) {
+              // Add source info to each location
+              const locationsWithSource = ghlData.locations.map(loc => ({
+                ...loc,
+                source: 'agency',
+                companyId: account.company_id
+              }));
+              allLocations.push(...locationsWithSource);
+            }
+          } else {
+            console.log(`⚠️ Failed to fetch agency locations: ${ghlResponse.status}`);
+          }
+        } catch (error) {
+          console.error('❌ Error fetching agency locations:', error);
+        }
+      } else if (account.location_id) {
+        // Specific location/subaccount
+        console.log(`📍 Subaccount detected for location: ${account.location_id}`);
+        
+        // Check if this location is already in the list (might be from agency fetch)
+        const existingLocation = allLocations.find(loc => loc.id === account.location_id);
+        
+        if (!existingLocation) {
+          // Fetch specific location details
+          try {
+            const ghlResponse = await fetch(`https://services.leadconnectorhq.com/locations/${account.location_id}`, {
+              headers: {
+                'Authorization': `Bearer ${account.access_token}`,
+                'Version': '2021-07-28'
+              }
+            });
+            
+            if (ghlResponse.ok) {
+              const locationData = await ghlResponse.json();
+              console.log(`✅ Fetched location details: ${locationData.name || account.location_id}`);
+              
+              allLocations.push({
+                ...locationData,
+                source: 'subaccount',
+                companyId: account.company_id
+              });
+            } else {
+              // Fallback if API call fails
+              console.log(`⚠️ Failed to fetch location details, using fallback`);
+              allLocations.push({
+                id: account.location_id,
+                name: `Location ${account.location_id}`,
+                source: 'subaccount',
+                companyId: account.company_id
+              });
+            }
+          } catch (error) {
+            console.error('❌ Error fetching location details:', error);
+            // Add basic location info as fallback
+            allLocations.push({
+              id: account.location_id,
+              name: `Location ${account.location_id}`,
+              source: 'subaccount',
+              companyId: account.company_id
+            });
+          }
+        }
+      }
     }
     
-    // Otherwise try to fetch from GHL API (if we have company-level access)
-    try {
-      const ghlResponse = await fetch('https://services.leadconnectorhq.com/locations/', {
-        headers: {
-          'Authorization': `Bearer ${ghlAccount.access_token}`,
-          'Version': '2021-07-28'
-        }
-      });
-      
-      if (ghlResponse.ok) {
-        const ghlData = await ghlResponse.json();
-        return res.json(ghlData);
-    } else {
-        // Fallback to single location if API call fails
-        return res.json({
-          locations: [{
-            id: ghlAccount.location_id || 'unknown',
-            name: 'Connected Location'
-          }]
-        });
-      }
-    } catch (error) {
-      console.error('GHL API error:', error);
-      return res.json({
-        locations: [{
-          id: ghlAccount.location_id || 'unknown',
-          name: 'Connected Location'
-        }]
-      });
-    }
+    // Remove duplicates based on location ID
+    const uniqueLocations = Array.from(
+      new Map(allLocations.map(loc => [loc.id, loc])).values()
+    );
+    
+    console.log(`✅ Returning ${uniqueLocations.length} unique location(s)`);
+    
+    res.json({
+      locations: uniqueLocations,
+      totalAccounts: ghlAccounts.length
+    });
 
   } catch (error) {
     console.error('Error fetching GHL locations:', error);
@@ -2883,7 +2802,7 @@ app.post('/ghl/location/:locationId/session/logout', async (req, res) => {
 });
 
 // Delete subaccount
-app.delete('/admin/ghl/delete-subaccount', async (req, res) => {
+app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
   try {
     const { locationId } = req.body;
     
@@ -2891,15 +2810,18 @@ app.delete('/admin/ghl/delete-subaccount', async (req, res) => {
       return res.status(400).json({ error: 'Location ID is required' });
     }
 
-    // Get GHL account
+    console.log(`🗑️ Deleting subaccount for location: ${locationId} by user: ${req.user?.id}`);
+
+    // Get GHL account and verify ownership
     const { data: ghlAccount } = await supabaseAdmin
       .from('ghl_accounts')
       .select('*')
       .eq('location_id', locationId)
+      .eq('user_id', req.user?.id) // Verify user owns this account
       .maybeSingle();
 
     if (!ghlAccount) {
-      return res.status(404).json({ error: 'GHL account not found' });
+      return res.status(404).json({ error: 'GHL account not found or you do not have permission to delete it' });
     }
 
     // Get all sessions for this subaccount
@@ -2908,32 +2830,49 @@ app.delete('/admin/ghl/delete-subaccount', async (req, res) => {
       .select('*')
       .eq('subaccount_id', ghlAccount.id);
 
+    console.log(`📋 Found ${sessions?.length || 0} session(s) to cleanup`);
+
     // Disconnect all WhatsApp clients
-    if (sessions) {
+    if (sessions && sessions.length > 0) {
       for (const session of sessions) {
-        const sessionName = `location_${locationId}_${session.id}`;
-        await waManager.disconnectClient(sessionName);
-        waManager.clearSessionData(sessionName);
+        try {
+          const sessionName = `subaccount_${ghlAccount.id}_${session.id}`;
+          await waManager.disconnectClient(sessionName);
+          waManager.clearSessionData(sessionName);
+          console.log(`✅ Cleaned up session: ${sessionName}`);
+        } catch (sessionError) {
+          console.error(`⚠️ Error cleaning session ${session.id}:`, sessionError.message);
+          // Continue with other sessions
+        }
       }
     }
 
     // Delete all sessions
-    await supabaseAdmin
+    const { error: sessionsDeleteError } = await supabaseAdmin
       .from('sessions')
       .delete()
       .eq('subaccount_id', ghlAccount.id);
 
+    if (sessionsDeleteError) {
+      console.error('Error deleting sessions:', sessionsDeleteError);
+    }
+
     // Delete GHL account
-    await supabaseAdmin
+    const { error: accountDeleteError } = await supabaseAdmin
       .from('ghl_accounts')
       .delete()
       .eq('id', ghlAccount.id);
 
-    console.log(`✅ Subaccount deleted for location: ${locationId}`);
+    if (accountDeleteError) {
+      console.error('Error deleting GHL account:', accountDeleteError);
+      return res.status(500).json({ error: 'Failed to delete account from database' });
+    }
+
+    console.log(`✅ Subaccount deleted successfully for location: ${locationId}`);
     res.json({ status: 'success', message: 'Subaccount deleted successfully' });
   } catch (error) {
     console.error('Delete subaccount error:', error);
-    res.status(500).json({ error: 'Failed to delete subaccount' });
+    res.status(500).json({ error: 'Failed to delete subaccount', details: error.message });
   }
 });
 
@@ -3117,46 +3056,6 @@ app.post('/ghl/provider/messages', async (req, res) => {
   }
 });
 
-// Request pairing code endpoint
-app.post('/ghl/location/:locationId/session/:sessionId/pairing-code', async (req, res) => {
-  try {
-    const { locationId, sessionId } = req.params;
-    const { phoneNumber } = req.body;
-
-    if (!phoneNumber) {
-      return res.status(400).json({ error: 'Phone number is required' });
-    }
-
-    console.log(`📱 Requesting pairing code for session: ${sessionId}, phone: ${phoneNumber}`);
-
-    // Check if client exists and supports pairing code
-    const clientKey = `location_${locationId}_${sessionId}`;
-    const isSupported = waManager.isPairingCodeSupported(clientKey);
-    
-    if (!isSupported) {
-      return res.status(400).json({ 
-        error: 'Pairing code not supported for this client or client not ready' 
-      });
-    }
-
-    // Request pairing code
-    const result = await waManager.requestPairingCode(clientKey, phoneNumber);
-    
-    res.json({
-      success: true,
-      pairingCode: result.pairingCode,
-      phoneNumber: result.phoneNumber,
-      message: result.message
-    });
-
-  } catch (error) {
-    console.error('❌ Error requesting pairing code:', error);
-    res.status(500).json({ 
-      error: error.message || 'Failed to request pairing code' 
-    });
-  }
-});
-
 // Debug endpoint to check WhatsApp clients (Baileys)
 app.get('/debug/whatsapp-clients', (req, res) => {
   try {
@@ -3166,8 +3065,7 @@ app.get('/debug/whatsapp-clients', (req, res) => {
       status: client.status,
       lastUpdate: client.lastUpdate,
       hasQR: client.hasQR,
-      isConnected: client.status === 'connected',
-      pairingCodeSupported: waManager.isPairingCodeSupported(client.sessionId)
+      isConnected: client.status === 'connected'
     }));
     
     res.json({
