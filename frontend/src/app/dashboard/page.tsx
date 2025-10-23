@@ -209,7 +209,7 @@ export default function Dashboard() {
         .select('id, name, ghl_location_id, user_id')
         .eq('ghl_location_id', locationId)
         .eq('user_id', user.id)
-        .single()
+        .maybeSingle()
       
       console.log('📋 Subaccount search result:', { subaccount, error: subaccountFetchError })
       
