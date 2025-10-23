@@ -200,25 +200,40 @@ export default function Dashboard() {
         return
       }
       
-      // Direct Supabase delete with user filtering (security)
-      // Delete sessions first - filter by user_id for security
+      // First, find the subaccount to get its ID
+      const { data: subaccount, error: subaccountFetchError } = await supabase
+        .from('subaccounts')
+        .select('id')
+        .eq('ghl_location_id', locationId)
+        .eq('user_id', user.id)
+        .single()
+      
+      if (subaccountFetchError || !subaccount) {
+        console.error('Error finding subaccount:', subaccountFetchError)
+        setNotification({ type: 'error', message: '❌ Subaccount not found' })
+        return
+      }
+      
+      console.log('📋 Found subaccount ID:', subaccount.id)
+      
+      // Delete sessions using subaccount_id (correct column)
       const { error: sessionsError } = await supabase
         .from('sessions')
         .delete()
-        .eq('ghl_location_id', locationId)
-        .eq('user_id', user.id) // Security: Only delete user's own sessions
+        .eq('subaccount_id', subaccount.id) // Use subaccount_id, not ghl_location_id
       
       if (sessionsError) {
         console.error('Error deleting sessions:', sessionsError)
-        // Continue anyway
+        // Continue anyway - sessions might not exist
+      } else {
+        console.log('✅ Sessions deleted successfully')
       }
       
-      // Delete subaccount - filter by user_id for security
+      // Delete subaccount
       const { error: subaccountError } = await supabase
         .from('subaccounts')
         .delete()
-        .eq('ghl_location_id', locationId)
-        .eq('user_id', user.id) // Security: Only delete user's own subaccounts
+        .eq('id', subaccount.id) // Use subaccount ID
       
       if (subaccountError) {
         console.error('Error deleting subaccount:', subaccountError)
