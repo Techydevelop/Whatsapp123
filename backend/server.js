@@ -350,34 +350,68 @@ app.options('*', (req, res) => {
   res.sendStatus(200);
 });
 
-// Auth middleware - JWT based
+// Auth middleware - JWT based with fallback to Supabase
 const requireAuth = async (req, res, next) => {
   try {
-    // Get JWT from cookie
-    const token = req.cookies?.auth_token;
+    // Try 1: Get JWT from cookie (for same-domain requests)
+    let token = req.cookies?.auth_token;
+    
+    // Try 2: Get from Authorization header (for cross-domain requests)
+    if (!token && req.headers.authorization) {
+      token = req.headers.authorization.replace('Bearer ', '');
+    }
+    
+    // Try 3: Get from query parameter (as fallback)
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
     
     if (!token) {
+      console.log('❌ No auth token found in cookie, header, or query');
       return res.status(401).json({ error: 'No authentication token provided' });
     }
 
-    // Verify JWT
-    const jwt = require('jsonwebtoken');
-    const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
-    
-    const decoded = jwt.verify(token, jwtSecret);
-    
-    if (!decoded || !decoded.userId) {
-      return res.status(401).json({ error: 'Invalid token' });
+    // Check if it's a Supabase JWT or our custom JWT
+    if (token.startsWith('eyJ') && token.includes('.')) {
+      // Try Supabase verification first
+      try {
+        const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+        
+        if (user && !error) {
+          console.log('✅ Supabase auth verified for user:', user.id);
+          req.user = {
+            id: user.id,
+            email: user.email,
+            name: user.user_metadata?.name || user.email
+          };
+          return next();
+        }
+      } catch (supabaseError) {
+        console.log('Supabase auth failed, trying custom JWT:', supabaseError.message);
+      }
+      
+      // Fallback to custom JWT verification
+      try {
+        const jwt = require('jsonwebtoken');
+        const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+        const decoded = jwt.verify(token, jwtSecret);
+        
+        if (decoded && decoded.userId) {
+          console.log('✅ Custom JWT verified for user:', decoded.userId);
+          req.user = {
+            id: decoded.userId,
+            email: decoded.email,
+            name: decoded.name
+          };
+          return next();
+        }
+      } catch (jwtError) {
+        console.log('Custom JWT verification failed:', jwtError.message);
+      }
     }
-
-    // Set user info in request (same format as before for compatibility)
-    req.user = {
-      id: decoded.userId,
-      email: decoded.email,
-      name: decoded.name
-    };
     
-    next();
+    return res.status(401).json({ error: 'Invalid authentication token' });
+    
   } catch (error) {
     console.error('Auth middleware error:', error);
     res.status(401).json({ error: 'Authentication failed' });

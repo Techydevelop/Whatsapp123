@@ -21,13 +21,38 @@ export const API_ENDPOINTS = {
   }
 };
 
+// Helper function to get Supabase session token
+async function getSupabaseToken(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  
+  try {
+    // Import supabase dynamically to avoid SSR issues
+    const { supabase } = await import('./supabase');
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  } catch (e) {
+    console.error('Failed to get Supabase session:', e);
+    return null;
+  }
+}
+
 // Helper function to make authenticated API calls
-// Note: Auth token is automatically sent via httpOnly cookie, no need to manually add Authorization header
 export const apiCall = async (url: string, options: RequestInit = {}) => {
+  // Get Supabase auth token
+  const authToken = await getSupabaseToken();
+  
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
+  
+  // Add Authorization header if we have a token
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+    console.log('🔑 Sending request with auth token');
+  } else {
+    console.warn('⚠️ No auth token available');
+  }
 
   return fetch(url, {
     ...options,
