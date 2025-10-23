@@ -940,13 +940,11 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
-    // Send message using Baileys
+    // Send message using Baileys - TEXT ONLY
     try {
-      let sendResult;
-      
-      // Only send text messages - skip media processing to avoid "unsuccessful" messages
+      // Only send text messages - completely skip any media processing
       console.log(`📤 Sending text message only: ${message}`);
-      sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '');
+      const sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '', 'text');
       
       // Check if message was skipped (no WhatsApp)
       if (sendResult && sendResult.status === 'skipped') {
@@ -1340,10 +1338,10 @@ app.post('/whatsapp/webhook', async (req, res) => {
               // Get the accessible media URL from GHL response
               const accessibleUrl = ghlResponse.url || 'Media URL not available';
               
-              // Send accessible URL in message content
-              finalMessage = `📎 ${getMediaMessageText(messageType)}\n\n🔗 Media URL: ${accessibleUrl}`;
+              // Send ONLY the media URL as message content (no extra text)
+              finalMessage = accessibleUrl;
               
-              console.log(`📤 Sending accessible media URL: ${accessibleUrl}`);
+              console.log(`📤 Sending media URL as message: ${accessibleUrl}`);
               
             } catch (uploadError) {
               console.error(`❌ Media upload failed:`, uploadError.message);
