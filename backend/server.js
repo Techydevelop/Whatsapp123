@@ -103,6 +103,18 @@ function getMediaMessageText(messageType) {
   return messages[messageType] || '📎 Media received';
 }
 
+// Helper function to get media file extension
+function getMediaExtension(messageType) {
+  switch (messageType) {
+    case 'image': return 'jpg';
+    case 'voice': return 'ogg';
+    case 'video': return 'mp4';
+    case 'audio': return 'mp3';
+    case 'document': return 'pdf';
+    default: return 'bin';
+  }
+}
+
 // Check and refresh token if needed
 async function ensureValidToken(ghlAccount, forceRefresh = false) {
   try {
@@ -1330,7 +1342,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
               }
             }
             
-            // Try to upload to GHL media library
+            // Upload media to GHL and get accessible URL
             try {
               const { uploadMediaToGHL } = require('./mediaHandler');
               const ghlResponse = await uploadMediaToGHL(
@@ -1343,15 +1355,16 @@ app.post('/whatsapp/webhook', async (req, res) => {
               
               console.log(`✅ Media uploaded to GHL successfully:`, ghlResponse);
               
-              // For successful upload, we don't need to send another message
-              return res.json({ 
-                status: 'success', 
-                message: 'Media uploaded successfully',
-                ghlResponse: ghlResponse
-              });
+              // Get the accessible media URL from GHL response
+              const accessibleUrl = ghlResponse.url || 'Media uploaded successfully';
+              
+              // Send accessible URL in message content
+              finalMessage = `📎 ${getMediaMessageText(messageType)}\n\n🔗 Media URL: ${accessibleUrl}`;
+              
+              console.log(`📤 Sending accessible media URL: ${accessibleUrl}`);
               
             } catch (uploadError) {
-              console.error(`❌ GHL media upload failed (trying direct URL method):`, uploadError.message);
+              console.error(`❌ Media upload failed:`, uploadError.message);
               
               // Fallback: Send message with media URL as attachment
               if (mediaUrl && !mediaUrl.includes('ENCRYPTED')) {
