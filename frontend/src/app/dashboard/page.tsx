@@ -194,6 +194,8 @@ export default function Dashboard() {
     
     try {
       console.log('🗑️ Deleting subaccount with locationId:', locationId)
+      console.log('👤 Current user:', user)
+      console.log('🆔 User ID:', user?.id)
       
       if (!user) {
         setNotification({ type: 'error', message: '❌ User not authenticated' })
@@ -201,22 +203,26 @@ export default function Dashboard() {
       }
       
       // First, find the subaccount to get its ID
+      console.log('🔍 Searching for subaccount...')
       const { data: subaccount, error: subaccountFetchError } = await supabase
         .from('subaccounts')
-        .select('id')
+        .select('id, name, ghl_location_id, user_id')
         .eq('ghl_location_id', locationId)
         .eq('user_id', user.id)
         .single()
       
+      console.log('📋 Subaccount search result:', { subaccount, error: subaccountFetchError })
+      
       if (subaccountFetchError || !subaccount) {
         console.error('Error finding subaccount:', subaccountFetchError)
-        setNotification({ type: 'error', message: '❌ Subaccount not found' })
+        setNotification({ type: 'error', message: `❌ Subaccount not found: ${subaccountFetchError?.message || 'No subaccount found'}` })
         return
       }
       
       console.log('📋 Found subaccount ID:', subaccount.id)
       
       // Delete sessions using subaccount_id (correct column)
+      console.log('🗑️ Deleting sessions...')
       const { error: sessionsError } = await supabase
         .from('sessions')
         .delete()
@@ -230,6 +236,7 @@ export default function Dashboard() {
       }
       
       // Delete subaccount
+      console.log('🗑️ Deleting subaccount...')
       const { error: subaccountError } = await supabase
         .from('subaccounts')
         .delete()
