@@ -20,15 +20,20 @@ export default function AddSubAccount() {
         return
       }
 
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://whatsapp123-dhn1.onrender.com'
+      // GHL OAuth configuration
+      const GHL_CLIENT_ID = process.env.NEXT_PUBLIC_GHL_CLIENT_ID || 'YOUR_CLIENT_ID'
+      const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://whatsapp123-dhn1.onrender.com'
+      const REDIRECT_URI = `${BACKEND_URL}/oauth/callback`
+      const SCOPES = 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write businesses.readonly users.readonly medias.write'
       
-      // Pass logged-in user ID to backend
-      const backendUrl = `${apiBaseUrl}/auth/ghl/connect?userId=${encodeURIComponent(user.id)}`
+      // Direct GHL OAuth URL with user ID in state parameter
+      const ghlOAuthUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(SCOPES)}&state=${encodeURIComponent(user.id)}`
       
-      console.log('📍 GHL OAuth redirect with user ID:', user.id)
+      console.log('📍 Direct GHL OAuth redirect with user ID:', user.id)
+      console.log('🔗 OAuth URL:', ghlOAuthUrl)
       
-      // Redirect to backend which will redirect to GHL OAuth
-      window.location.href = backendUrl
+      // Direct redirect to GHL marketplace (NO backend HTTP call)
+      window.location.href = ghlOAuthUrl
       
     } catch (error) {
       console.error('Error starting OAuth:', error)

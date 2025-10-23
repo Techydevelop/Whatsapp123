@@ -309,21 +309,43 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'https://whatsapp123-dhn1.onrender.com',
-    'https://whatsapp123-frontend.vercel.app',
-    'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
-    'https://whatsappghl.vercel.app',
-    'https://whatsappgh1.vercel.app',  // Added the actual frontend URL
-    'https://whatsapghl.vercel.app',
-    'https://*.vercel.app',
-    'https://app.gohighlevel.com',
-    'https://*.onrender.com'
-  ],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, postman)
+    if (!origin) return callback(null, true);
+    
+    // List of allowed origins
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://whatsapp123-dhn1.onrender.com',
+      'https://whatsapp123-frontend.vercel.app',
+      'https://whatsappghl.vercel.app',
+      'https://whatsappgh1.vercel.app',
+      'https://whatsapghl.vercel.app',
+      'https://whatsanghl.vercel.app',
+      'https://app.gohighlevel.com'
+    ];
+    
+    // Check if origin is in allowed list OR matches pattern
+    const isAllowed = allowedOrigins.includes(origin) || 
+                      origin.endsWith('.vercel.app') || 
+                      origin.endsWith('.onrender.com') ||
+                      origin.endsWith('.gohighlevel.com');
+    
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      console.log('❌ CORS blocked origin:', origin);
+      callback(null, false);
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'X-User-ID'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+  maxAge: 86400 // 24 hours
 }));
 
 // Add CSP headers for iframe embedding
@@ -341,14 +363,9 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(cookieParser()); // Parse cookies from requests
 
-// Handle preflight requests
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.sendStatus(200);
-});
+// Handle preflight requests - CORS middleware handles this automatically
+// but we add this for extra safety
+app.options('*', cors());
 
 // Auth middleware - JWT based
 const requireAuth = async (req, res, next) => {
