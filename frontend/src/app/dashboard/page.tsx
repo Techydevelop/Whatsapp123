@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
 import { API_ENDPOINTS, API_BASE_URL, apiCall } from '@/lib/config'
-import Modal from '@/components/ui/Modal'
+// import Modal from '@/components/ui/Modal'
 
 type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
 
@@ -30,19 +30,6 @@ export default function Dashboard() {
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [refreshing, setRefreshing] = useState(false)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-  
-  // Modal states
-  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; locationId: string; locationName: string }>({ 
-    isOpen: false, 
-    locationId: '', 
-    locationName: '' 
-  })
-  const [logoutModal, setLogoutModal] = useState<{ isOpen: boolean; locationId: string; locationName: string }>({ 
-    isOpen: false, 
-    locationId: '', 
-    locationName: '' 
-  })
-  const [actionLoading, setActionLoading] = useState(false)
 
   const fetchGHLLocations = useCallback(async (showLoading = true) => {
     try {
@@ -164,54 +151,50 @@ export default function Dashboard() {
     }
   }
 
-  const logoutSession = async () => {
-    if (!logoutModal.locationId) return
+  const logoutSession = async (locationId: string) => {
+    if (!confirm('⚠️ Are you sure you want to logout this WhatsApp session?\n\nYou will need to scan the QR code again to reconnect.')) {
+      return
+    }
     
     try {
-      setActionLoading(true)
-      const response = await apiCall(`${API_BASE_URL}/ghl/location/${logoutModal.locationId}/session/logout`, {
+      const response = await apiCall(`${API_BASE_URL}/ghl/location/${locationId}/session/logout`, {
         method: 'POST'
       })
 
       if (response.ok) {
-        setNotification({ type: 'success', message: 'WhatsApp session logged out successfully!' })
+        setNotification({ type: 'success', message: '✅ WhatsApp session logged out successfully!' })
         await fetchGHLLocations(false)
-        setLogoutModal({ isOpen: false, locationId: '', locationName: '' })
       } else {
         const errorData = await response.json()
-        setNotification({ type: 'error', message: `Failed to logout: ${errorData.error || 'Unknown error'}` })
+        setNotification({ type: 'error', message: `❌ Failed to logout: ${errorData.error || 'Unknown error'}` })
       }
     } catch (error) {
       console.error('Error logging out session:', error)
-      setNotification({ type: 'error', message: 'Failed to logout session. Please try again.' })
-    } finally {
-      setActionLoading(false)
+      setNotification({ type: 'error', message: '❌ Failed to logout session. Please try again.' })
     }
   }
 
-  const deleteSubaccount = async () => {
-    if (!deleteModal.locationId) return
+  const deleteSubaccount = async (locationId: string) => {
+    if (!confirm('🗑️ Are you sure you want to delete this subaccount?\n\n⚠️ This will permanently remove:\n• All WhatsApp session data\n• Connection settings\n• Chat history\n\n❌ This action cannot be undone!')) {
+      return
+    }
     
     try {
-      setActionLoading(true)
       const response = await apiCall(`${API_BASE_URL}/admin/ghl/delete-subaccount`, {
         method: 'DELETE',
-        body: JSON.stringify({ locationId: deleteModal.locationId })
+        body: JSON.stringify({ locationId })
       })
 
       if (response.ok) {
-        setNotification({ type: 'success', message: 'Subaccount deleted successfully!' })
+        setNotification({ type: 'success', message: '✅ Subaccount deleted successfully!' })
         await fetchGHLLocations(false)
-        setDeleteModal({ isOpen: false, locationId: '', locationName: '' })
       } else {
         const errorData = await response.json()
-        setNotification({ type: 'error', message: `Failed to delete: ${errorData.error || 'Unknown error'}` })
+        setNotification({ type: 'error', message: `❌ Failed to delete: ${errorData.error || 'Unknown error'}` })
       }
     } catch (error) {
       console.error('Error deleting subaccount:', error)
-      setNotification({ type: 'error', message: 'Failed to delete subaccount. Please try again.' })
-    } finally {
-      setActionLoading(false)
+      setNotification({ type: 'error', message: '❌ Failed to delete subaccount. Please try again.' })
     }
   }
   
@@ -474,11 +457,7 @@ export default function Dashboard() {
                             </button>
                             {account.status === 'ready' && (
                               <button
-                                onClick={() => setLogoutModal({ 
-                                  isOpen: true, 
-                                  locationId: account.ghl_location_id,
-                                  locationName: account.name 
-                                })}
+                                onClick={() => logoutSession(account.ghl_location_id)}
                                 className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors"
                                 title="Logout Session"
                               >
@@ -488,11 +467,7 @@ export default function Dashboard() {
                               </button>
                             )}
                             <button
-                              onClick={() => setDeleteModal({ 
-                                isOpen: true, 
-                                locationId: account.ghl_location_id,
-                                locationName: account.name 
-                              })}
+                              onClick={() => deleteSubaccount(account.ghl_location_id)}
                               className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700 transition-colors"
                               title="Delete Account"
                             >
@@ -580,52 +555,6 @@ export default function Dashboard() {
           </div>
         )}
       </div>
-
-      {/* Delete Modal */}
-      <Modal
-        isOpen={deleteModal.isOpen}
-        onClose={() => setDeleteModal({ isOpen: false, locationId: '', locationName: '' })}
-        title="Delete Subaccount"
-        icon="danger"
-        confirmText="Delete"
-        cancelText="Cancel"
-        onConfirm={deleteSubaccount}
-        loading={actionLoading}
-      >
-        <p>
-          Are you sure you want to delete <strong>{deleteModal.locationName}</strong>? 
-        </p>
-        <p className="mt-2">
-          This action will permanently remove:
-        </p>
-        <ul className="mt-2 list-disc list-inside text-sm space-y-1">
-          <li>All WhatsApp session data</li>
-          <li>Connection settings</li>
-          <li>Chat history</li>
-        </ul>
-        <p className="mt-3 text-red-600 font-medium">
-          This action cannot be undone.
-        </p>
-      </Modal>
-
-      {/* Logout Modal */}
-      <Modal
-        isOpen={logoutModal.isOpen}
-        onClose={() => setLogoutModal({ isOpen: false, locationId: '', locationName: '' })}
-        title="Logout WhatsApp Session"
-        icon="warning"
-        confirmText="Logout"
-        cancelText="Cancel"
-        onConfirm={logoutSession}
-        loading={actionLoading}
-      >
-        <p>
-          Are you sure you want to logout the WhatsApp session for <strong>{logoutModal.locationName}</strong>?
-        </p>
-        <p className="mt-2">
-          You will need to scan the QR code again to reconnect.
-        </p>
-      </Modal>
 
       {/* Notification Toast */}
       {notification && (
