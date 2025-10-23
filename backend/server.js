@@ -830,6 +830,12 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       return res.json({ status: 'success' });
     }
     
+    // Ignore messages that contain media URLs (these are our inbound messages being echoed back)
+    if (message && message.includes('storage.googleapis.com/msgsndr')) {
+      console.log('🚫 Ignoring echo of media URL message:', message);
+      return res.json({ status: 'success', reason: 'media_url_echo' });
+    }
+    
     // Get GHL account
     const { data: ghlAccount } = await supabaseAdmin
       .from('ghl_accounts')
@@ -953,7 +959,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         // Send notification message back to GHL conversation
         try {
           const notificationPayload = {
-            type: "SMS",
+            type: "WhatsApp",
             contactId: contactId,
             message: `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`,
             direction: "inbound",
@@ -1002,7 +1008,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       // Send error notification to GHL conversation
       try {
         const errorPayload = {
-          type: "SMS",
+          type: "WhatsApp",
           contactId: contactId,
           message: `⚠️ Message delivery failed\n\n❌ Error: ${sendError.message}\n\n💡 Please check the phone number and try again.`,
           direction: "inbound",
@@ -1351,13 +1357,13 @@ app.post('/whatsapp/webhook', async (req, res) => {
                 console.log(`🔄 Sending media URL as attachment instead...`);
                 
       const payload = {
-        type: "SMS",
+        type: "WhatsApp",
         contactId: contactId,
-                  message: `${getMediaMessageText(messageType)}\n\nMedia URL: ${mediaUrl}`,
+        message: `${getMediaMessageText(messageType)}\n\nMedia URL: ${mediaUrl}`,
         direction: "inbound",
         status: "delivered",
-                  altId: whatsappMsgId,
-                  attachments: [mediaUrl]  // Send URL directly as attachment
+        altId: whatsappMsgId,
+        attachments: [mediaUrl]  // Send URL directly as attachment
       };
       
       const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
@@ -1392,13 +1398,13 @@ app.post('/whatsapp/webhook', async (req, res) => {
         }
         
         const payload = {
-          type: "SMS",
+          type: "WhatsApp",
           contactId: contactId,
           message: finalMessage,
           direction: "inbound",
           status: "delivered",
           altId: whatsappMsgId || `wa_${Date.now()}`, // idempotency
-          conversationProviderId: providerId // Add provider ID for SMS channel recognition
+          conversationProviderId: providerId
         };
         
         // Only add attachments if we have them
