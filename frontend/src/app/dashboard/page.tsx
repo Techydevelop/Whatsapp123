@@ -193,18 +193,35 @@ export default function Dashboard() {
     }
     
     try {
-      const response = await apiCall(`${API_BASE_URL}/admin/ghl/delete-subaccount`, {
-        method: 'DELETE',
-        body: JSON.stringify({ locationId })
-      })
-
-      if (response.ok) {
-        setNotification({ type: 'success', message: '✅ Subaccount deleted successfully!' })
-        await fetchGHLLocations(false)
-      } else {
-        const errorData = await response.json()
-        setNotification({ type: 'error', message: `❌ Failed to delete: ${errorData.error || 'Unknown error'}` })
+      console.log('🗑️ Deleting subaccount with locationId:', locationId)
+      
+      // Delete sessions first (foreign key constraint)
+      const { error: sessionsError } = await supabase
+        .from('sessions')
+        .delete()
+        .eq('ghl_location_id', locationId)
+      
+      if (sessionsError) {
+        console.error('Error deleting sessions:', sessionsError)
+        // Continue anyway - sessions might not exist
       }
+      
+      // Delete subaccount
+      const { error: subaccountError } = await supabase
+        .from('subaccounts')
+        .delete()
+        .eq('ghl_location_id', locationId)
+      
+      if (subaccountError) {
+        console.error('Error deleting subaccount:', subaccountError)
+        setNotification({ type: 'error', message: `❌ Failed to delete: ${subaccountError.message}` })
+        return
+      }
+      
+      console.log('✅ Subaccount deleted successfully')
+      setNotification({ type: 'success', message: '✅ Subaccount deleted successfully!' })
+      await fetchGHLLocations(false)
+      
     } catch (error) {
       console.error('Error deleting subaccount:', error)
       setNotification({ type: 'error', message: '❌ Failed to delete subaccount. Please try again.' })
