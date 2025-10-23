@@ -465,8 +465,10 @@ app.get('/whatsapp/webhook', (req, res) => {
 app.get('/auth/ghl/connect', (req, res) => {
   const { userId } = req.query;
   
-  // Use state parameter to pass userId
-  const state = userId ? userId : '';
+  // Generate a simple state if no userId provided
+  const state = userId ? userId : 'simple-auth-' + Date.now();
+  
+  console.log('🔗 GHL OAuth redirect:', { userId, state });
   
   const authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}&state=${encodeURIComponent(state)}`;
     res.redirect(authUrl);
@@ -575,7 +577,30 @@ app.get('/oauth/callback', async (req, res) => {
         console.log('Using legacy state format, user ID:', targetUserId);
       }
       } else {
-      return res.status(400).json({ error: 'State parameter missing - user ID required' });
+      console.log('⚠️ No state parameter - using simple auth flow');
+      // Create a simple user for this session
+      const simpleUserId = 'simple-user-' + Date.now();
+      
+      // Store simple user in database
+      const { data: simpleUser, error: userError } = await supabaseAdmin
+        .from('users')
+        .insert({
+          id: simpleUserId,
+          name: 'GHL User',
+          email: 'ghl@example.com',
+          password: 'temp-password',
+          is_verified: true
+        })
+        .select()
+        .single();
+        
+      if (userError) {
+        console.error('Error creating simple user:', userError);
+        return res.status(500).json({ error: 'Failed to create user session' });
+      }
+      
+      targetUserId = simpleUserId;
+      console.log('✅ Created simple user:', targetUserId);
     }
 
     const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
