@@ -996,6 +996,70 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       }
       
       console.log('✅ Message sent successfully via Baileys');
+      
+      // Store outgoing message in local database
+      try {
+        // Get session info for database storage
+        let sessionData = null;
+        if (sessionId) {
+          const { data: session } = await supabaseAdmin
+            .from('sessions')
+            .select('*, subaccounts(*)')
+            .eq('id', sessionId)
+            .maybeSingle();
+          
+          if (session) {
+            sessionData = session;
+          }
+        }
+        
+        // If no session found, try to find by GHL account
+        if (!sessionData && ghlAccount) {
+          const { data: session } = await supabaseAdmin
+            .from('sessions')
+            .select('*, subaccounts(*)')
+            .eq('subaccount_id', ghlAccount.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (session) {
+            sessionData = session;
+          }
+        }
+        
+        if (sessionData) {
+          // Extract phone numbers
+          const fromNumber = sessionData.phone_number || 'unknown';
+          const toNumber = phoneNumber.replace('+', '');
+          
+          // Store in local messages table
+          const { error: insertError } = await supabaseAdmin
+            .from('messages')
+            .insert({
+              session_id: sessionData.id,
+              user_id: sessionData.user_id,
+              subaccount_id: sessionData.subaccount_id,
+              from_number: fromNumber,
+              to_number: toNumber,
+              body: message || '',
+              media_url: mediaUrl,
+              media_mime: mediaType,
+              direction: 'out',
+              created_at: new Date().toISOString()
+            });
+          
+          if (insertError) {
+            console.error('❌ Failed to store outgoing message in local database:', insertError);
+          } else {
+            console.log('✅ Outgoing message stored in local database');
+          }
+        } else {
+          console.log('⚠️ No session found for outgoing message storage');
+        }
+      } catch (dbError) {
+        console.error('❌ Error storing outgoing message in local database:', dbError);
+      }
     } catch (sendError) {
       console.error('❌ Error sending message via Baileys:', sendError.message);
       
@@ -1396,7 +1460,8 @@ app.post('/whatsapp/webhook', async (req, res) => {
           message: finalMessage,
           direction: "inbound",
           status: "delivered",
-          altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
+          altId: whatsappMsgId || `wa_${Date.now()}`, // idempotency
+          conversationProviderId: providerId // Add provider ID for SMS channel recognition
         };
         
         // Only add attachments if we have them
@@ -1404,22 +1469,33 @@ app.post('/whatsapp/webhook', async (req, res) => {
           payload.attachments = attachments;
         }
       
-      console.log(`📤 Sending to GHL:`, JSON.stringify(payload, null, 2));
+      console.log(`📤 Sending to GHL SMS Provider:`, JSON.stringify(payload, null, 2));
       console.log(`🔑 Using Provider ID:`, providerId);
       console.log(`👤 Using Contact ID:`, contactId);
       console.log(`💬 Message Content:`, `"${message}"`);
       console.log(`📏 Message Length:`, message.length);
       console.log(`📎 Attachments Count:`, attachments.length);
       
-      const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+      // Send message to GHL via SMS provider webhook (this will trigger workflows)
+      const smsProviderPayload = {
+        locationId: locationId,
+        message: finalMessage,
+        contactId: contactId,
+        phone: phone,
+        attachments: attachments,
+        messageType: messageType,
+        mediaUrl: mediaUrl,
+        altId: whatsappMsgId || `wa_${Date.now()}`
+      };
+      
+      // Call SMS provider webhook endpoint
+      const inboundRes = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/ghl/provider/webhook`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${validToken}`,
-          Version: "2021-07-28",
-          "Content-Type": "application/json"
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(payload)
-      }, ghlAccount);
+        body: JSON.stringify(smsProviderPayload)
+      });
       
       if (inboundRes.ok) {
         const responseData = await inboundRes.json();
@@ -1455,6 +1531,73 @@ app.post('/whatsapp/webhook', async (req, res) => {
           }
         }
         
+        // Store message in local database
+        try {
+          // Get session info for database storage
+          let sessionData = null;
+          if (sessionId) {
+            const { data: session } = await supabaseAdmin
+              .from('sessions')
+              .select('*, subaccounts(*)')
+              .eq('id', sessionId)
+              .maybeSingle();
+            
+            if (session) {
+              sessionData = session;
+            }
+          }
+          
+          // If no session found, try to find by GHL account
+          if (!sessionData && ghlAccount) {
+            const { data: session } = await supabaseAdmin
+              .from('sessions')
+              .select('*, subaccounts(*)')
+              .eq('subaccount_id', ghlAccount.id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            
+            if (session) {
+              sessionData = session;
+            }
+          }
+          
+          if (sessionData) {
+            // Extract phone numbers
+            const fromNumber = phone.replace('+', '');
+            const toNumber = sessionData.phone_number || 'unknown';
+            
+            // Store in local messages table
+            const { error: insertError } = await supabaseAdmin
+              .from('messages')
+              .insert({
+                session_id: sessionData.id,
+                user_id: sessionData.user_id,
+                subaccount_id: sessionData.subaccount_id,
+                from_number: fromNumber,
+                to_number: toNumber,
+                body: finalMessage,
+                media_url: mediaUrl,
+                media_mime: messageType,
+                direction: 'in',
+                created_at: new Date().toISOString()
+              });
+            
+            if (insertError) {
+              console.error('❌ Failed to store message in local database:', insertError);
+            } else {
+              console.log('✅ Message stored in local database');
+            }
+          } else {
+            console.log('⚠️ No session found for local message storage');
+          }
+        } catch (dbError) {
+          console.error('❌ Error storing message in local database:', dbError);
+        }
+
+        // Note: Team notifications are now handled by GHL workflows
+        // The workflow will call /api/team-notification endpoint with proper team members
+
         // Track this message to prevent echo
         if (!global.recentInboundMessages) {
           global.recentInboundMessages = new Set();
@@ -3451,6 +3594,126 @@ app.post('/debug/test-outbound', async (req, res) => {
   }
 });
 
+// GHL Workflow Webhook Handler
+app.post('/api/ghl-workflow', async (req, res) => {
+  try {
+    console.log('🔄 GHL Workflow webhook received:', JSON.stringify(req.body, null, 2));
+    
+    const { 
+      event_type, 
+      contact_id, 
+      contact_name, 
+      contact_phone, 
+      last_message, 
+      assigned_user, 
+      location_id,
+      conversation_id,
+      workflow_id,
+      team_members 
+    } = req.body;
+    
+    // Handle different workflow events
+    switch (event_type) {
+      case 'customer_replied':
+        console.log('🔔 Customer replied workflow triggered');
+        
+        // Get team members from workflow data or assigned user
+        let notificationRecipients = [];
+        
+        if (team_members && Array.isArray(team_members)) {
+          notificationRecipients = team_members;
+        } else if (assigned_user) {
+          notificationRecipients = [assigned_user];
+        }
+        
+        if (notificationRecipients.length > 0) {
+          console.log(`📱 Sending notifications to: ${notificationRecipients.join(', ')}`);
+          
+          // Find available WhatsApp client
+          const availableClients = waManager.getAllClients().filter(client => 
+            client.status === 'connected' || client.status === 'ready'
+          );
+          
+          if (availableClients.length > 0) {
+            const notificationClient = availableClients[0];
+            const clientKey = notificationClient.sessionId;
+            
+            // Format notification message
+            let notificationMessage = `🔔 *Customer Replied*\n\n`;
+            if (contact_name) {
+              notificationMessage += `👤 Customer: ${contact_name}\n`;
+            }
+            if (contact_phone) {
+              notificationMessage += `📞 Phone: ${contact_phone}\n`;
+            }
+            if (last_message) {
+              notificationMessage += `💬 Message: ${last_message}`;
+            }
+            
+            // Send notifications
+            const results = [];
+            for (const recipient of notificationRecipients) {
+              try {
+                await waManager.sendMessage(
+                  clientKey,
+                  recipient,
+                  notificationMessage,
+                  'text'
+                );
+                console.log(`✅ Notification sent to: ${recipient}`);
+                results.push({ phone: recipient, status: 'success' });
+              } catch (error) {
+                console.error(`❌ Failed to send notification to ${recipient}:`, error.message);
+                results.push({ phone: recipient, status: 'failed', error: error.message });
+              }
+            }
+            
+            res.json({
+              status: 'success',
+              message: `Notifications sent to ${results.filter(r => r.status === 'success').length}/${notificationRecipients.length} recipients`,
+              results
+            });
+          } else {
+            res.status(503).json({ 
+              status: 'error', 
+              message: 'No WhatsApp clients available for notifications' 
+            });
+          }
+        } else {
+          res.json({
+            status: 'success',
+            message: 'No team members to notify'
+          });
+        }
+        break;
+        
+      case 'new_lead':
+        console.log('🆕 New lead workflow triggered');
+        // Handle new lead logic here
+        res.json({ status: 'success', message: 'New lead workflow processed' });
+        break;
+        
+      case 'follow_up':
+        console.log('📞 Follow up workflow triggered');
+        // Handle follow up logic here
+        res.json({ status: 'success', message: 'Follow up workflow processed' });
+        break;
+        
+      default:
+        console.log(`ℹ️ Unknown workflow event: ${event_type}`);
+        res.json({ status: 'success', message: 'Workflow event logged' });
+    }
+    
+  } catch (error) {
+    console.error('❌ GHL Workflow webhook error:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: 'Workflow processing failed',
+      error: error.message 
+    });
+  }
+});
+
 // Team notification webhook endpoint for GHL workflow
 app.post('/api/team-notification', async (req, res) => {
   try {
@@ -3614,6 +3877,37 @@ app.post('/api/test-team-notification', async (req, res) => {
   } catch (error) {
     console.error('Test team notification error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Get messages for a session
+app.get('/messages/session/:sessionId', requireAuth, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { limit = 50 } = req.query;
+    
+    console.log(`📨 Fetching messages for session: ${sessionId}, limit: ${limit}`);
+    
+    // Get messages from database
+    const { data: messages, error } = await supabaseAdmin
+      .from('messages')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('user_id', req.user.id) // Ensure user can only access their own messages
+      .order('created_at', { ascending: true })
+      .limit(parseInt(limit));
+    
+    if (error) {
+      console.error('❌ Error fetching messages:', error);
+      return res.status(500).json({ error: 'Failed to fetch messages' });
+    }
+    
+    console.log(`✅ Found ${messages?.length || 0} messages for session: ${sessionId}`);
+    
+    res.json(messages || []);
+  } catch (error) {
+    console.error('❌ Error in messages endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
