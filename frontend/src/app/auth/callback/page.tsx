@@ -14,6 +14,8 @@ function CallbackContent() {
         const error = searchParams.get('error')
         const ghlConnected = searchParams.get('ghl')
         const userParam = searchParams.get('user')
+        const isAgency = searchParams.get('agency')
+        const locationsCount = searchParams.get('locations')
 
         if (error) {
           setStatus('Authentication failed. Redirecting to login...')
@@ -26,8 +28,15 @@ function CallbackContent() {
           try {
             const userData = JSON.parse(decodeURIComponent(userParam))
             localStorage.setItem('user', JSON.stringify(userData))
-            setStatus('GHL account connected! Redirecting to dashboard...')
-            setTimeout(() => router.push('/dashboard'), 1000)
+            
+            // Show different message for agency vs single location
+            if (isAgency === 'true' && locationsCount) {
+              setStatus(`🏢 Agency connected successfully! ${locationsCount} locations imported. Redirecting...`)
+            } else {
+              setStatus('✅ GHL account connected! Redirecting to dashboard...')
+            }
+            
+            setTimeout(() => router.push('/dashboard'), 2000)
             return
           } catch (e) {
             console.error('Error parsing user data:', e)

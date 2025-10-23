@@ -395,8 +395,26 @@ app.get('/whatsapp/webhook', (req, res) => {
 });
 
 // GHL OAuth Routes
+
+// Location-level OAuth (single location)
 app.get('/auth/ghl/connect', (req, res) => {
-  const authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`;
+  const { userId } = req.query;
+  
+  // Use state parameter to pass userId
+  const state = userId ? userId : '';
+  
+  const authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}&state=${encodeURIComponent(state)}`;
+    res.redirect(authUrl);
+});
+
+// Agency-level OAuth (all locations at once)
+app.get('/auth/ghl/connect-agency', (req, res) => {
+  const { userId } = req.query;
+  
+  // Use state parameter to pass userId through OAuth flow
+  const state = userId ? JSON.stringify({ userId, type: 'agency' }) : JSON.stringify({ type: 'agency' });
+  
+  const authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}&state=${encodeURIComponent(state)}`;
     res.redirect(authUrl);
 });
 
@@ -427,7 +445,7 @@ app.get('/oauth/callback', async (req, res) => {
         client_secret: GHL_CLIENT_SECRET,
         grant_type: 'authorization_code',
         code: code,
-        user_type: 'Location', // Required by GHL OAuth 2.0
+        user_type: 'Location', // GHL standard - use Location for sub-account access
         redirect_uri: GHL_REDIRECT_URI
       })
     });
@@ -455,14 +473,19 @@ app.get('/oauth/callback', async (req, res) => {
       userId: tokenData.userId 
     });
 
-    // Use state as target user ID (passed from frontend)
+    // Parse state parameter
     let targetUserId = null;
+    let isAgencyFlow = false;
+    
     if (state) {
       try {
-        targetUserId = decodeURIComponent(state);
-        console.log('Using target user ID from state:', targetUserId);
+        const stateData = JSON.parse(decodeURIComponent(state));
+        targetUserId = stateData.userId;
+        isAgencyFlow = stateData.type === 'agency';
         
-        // Check if user exists (must be existing user from login)
+        console.log('State parsed:', { targetUserId, isAgencyFlow });
+        
+        // Check if user exists
         const { data: existingUser, error: userCheckError } = await supabaseAdmin
           .from('users')
           .select('id, name, email')
@@ -482,21 +505,95 @@ app.get('/oauth/callback', async (req, res) => {
         console.log('✅ Existing user found:', existingUser);
         
       } catch (e) {
-        console.error('Error decoding state:', e);
-        return res.status(400).json({ error: 'Invalid state parameter' });
+        // Fallback to old format (simple userId string)
+        targetUserId = decodeURIComponent(state);
+        console.log('Using legacy state format, user ID:', targetUserId);
       }
       } else {
       return res.status(400).json({ error: 'State parameter missing - user ID required' });
     }
 
-    // Store GHL account information - use locationId from token response
+    const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
+
+    // Check if this is an agency flow - fetch all locations
+    if (isAgencyFlow && tokenData.access_token) {
+      console.log('🏢 Agency flow detected! Fetching all locations...');
+      
+      try {
+        const locationsResponse = await fetch('https://services.leadconnectorhq.com/locations/', {
+          headers: {
+            'Authorization': `Bearer ${tokenData.access_token}`,
+            'Version': '2021-07-28'
+          }
+        });
+        
+        if (locationsResponse.ok) {
+          const locationsData = await locationsResponse.json();
+          const locations = locationsData.locations || [];
+          
+          console.log(`✅ Fetched ${locations.length} locations from agency`);
+          
+          // Add all locations to database
+          let successCount = 0;
+          let errorCount = 0;
+          
+          for (const location of locations) {
+            try {
+              const { error: insertError } = await supabaseAdmin
+                .from('ghl_accounts')
+                .upsert({
+                  user_id: targetUserId,
+                  company_id: tokenData.companyId,
+                  access_token: tokenData.access_token,
+                  refresh_token: tokenData.refresh_token,
+                  location_id: location.id,
+                  expires_at: expiryTimestamp,
+                  token_expires_at: expiryTimestamp
+                }, {
+                  onConflict: 'user_id,location_id'
+                });
+              
+              if (insertError) {
+                console.error(`❌ Failed to add location ${location.id}:`, insertError.message);
+                errorCount++;
+              } else {
+                console.log(`✅ Added location: ${location.name} (${location.id})`);
+                successCount++;
+              }
+            } catch (err) {
+              console.error(`❌ Error adding location ${location.id}:`, err);
+              errorCount++;
+            }
+          }
+          
+          console.log(`🎉 Agency import complete! Success: ${successCount}, Errors: ${errorCount}`);
+          
+          const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+          const { data: userData } = await supabaseAdmin
+            .from('users')
+            .select('id, name, email')
+            .eq('id', targetUserId)
+            .single();
+          
+          if (userData) {
+            res.redirect(`${frontendUrl}/auth/callback?ghl=connected&agency=true&locations=${successCount}&user=${encodeURIComponent(JSON.stringify(userData))}`);
+          } else {
+            res.redirect(`${frontendUrl}/dashboard?ghl=connected&agency=true&locations=${successCount}`);
+          }
+          return;
+        } else {
+          console.log('⚠️ Failed to fetch agency locations, falling back to single location');
+        }
+      } catch (error) {
+        console.error('❌ Error fetching agency locations:', error);
+      }
+    }
+    
+    // Single location flow (default)
     const finalLocationId = tokenData.locationId || locationId;
     console.log('Using location ID:', finalLocationId);
     
-    const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
-    
     // User already verified above, proceed with GHL account storage
-    
     const { error: ghlError } = await supabaseAdmin
       .from('ghl_accounts')
       .upsert({
@@ -2160,7 +2257,7 @@ app.get('/ghl/provider', async (req, res) => {
                   statusEl.innerHTML = '📱 <strong>Ready to Scan</strong><br><small>Please scan the QR code with your WhatsApp app</small>';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
-                  qrEl.style.display = 'block';
+                    qrEl.style.display = 'block';
                   break;
                   
                 case 'ready':
@@ -2317,10 +2414,10 @@ app.get('/admin/ghl/locations', async (req, res) => {
     const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
     let userId = null;
     
-    try {
+      try {
       const decoded = jwt.verify(token, jwtSecret);
       userId = decoded.userId;
-    } catch (e) {
+      } catch (e) {
       console.log('JWT validation failed:', e.message);
       return res.status(401).json({ error: 'Invalid token' });
     }
@@ -2352,16 +2449,16 @@ app.get('/admin/ghl/locations', async (req, res) => {
         // Agency level - fetch all locations under this company
         console.log(`🏢 Agency account detected for company: ${account.company_id}`);
         
-        try {
-          const ghlResponse = await fetch('https://services.leadconnectorhq.com/locations/', {
-            headers: {
+    try {
+      const ghlResponse = await fetch('https://services.leadconnectorhq.com/locations/', {
+        headers: {
               'Authorization': `Bearer ${account.access_token}`,
-              'Version': '2021-07-28'
-            }
-          });
-          
-          if (ghlResponse.ok) {
-            const ghlData = await ghlResponse.json();
+          'Version': '2021-07-28'
+        }
+      });
+      
+      if (ghlResponse.ok) {
+        const ghlData = await ghlResponse.json();
             console.log(`✅ Fetched ${ghlData.locations?.length || 0} locations from agency account`);
             
             if (ghlData.locations && Array.isArray(ghlData.locations)) {
@@ -2373,7 +2470,7 @@ app.get('/admin/ghl/locations', async (req, res) => {
               }));
               allLocations.push(...locationsWithSource);
             }
-          } else {
+    } else {
             console.log(`⚠️ Failed to fetch agency locations: ${ghlResponse.status}`);
           }
         } catch (error) {
@@ -2413,9 +2510,9 @@ app.get('/admin/ghl/locations', async (req, res) => {
                 name: `Location ${account.location_id}`,
                 source: 'subaccount',
                 companyId: account.company_id
-              });
-            }
-          } catch (error) {
+        });
+      }
+    } catch (error) {
             console.error('❌ Error fetching location details:', error);
             // Add basic location info as fallback
             allLocations.push({
@@ -2837,8 +2934,8 @@ app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
       for (const session of sessions) {
         try {
           const sessionName = `subaccount_${ghlAccount.id}_${session.id}`;
-          await waManager.disconnectClient(sessionName);
-          waManager.clearSessionData(sessionName);
+        await waManager.disconnectClient(sessionName);
+        waManager.clearSessionData(sessionName);
           console.log(`✅ Cleaned up session: ${sessionName}`);
         } catch (sessionError) {
           console.error(`⚠️ Error cleaning session ${session.id}:`, sessionError.message);
