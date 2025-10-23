@@ -345,40 +345,70 @@ app.use(cookieParser()); // Parse cookies from requests
 app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-User-ID');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.sendStatus(200);
 });
 
-// Auth middleware - JWT based with fallback to Supabase
+// Auth middleware - supports multiple auth methods
 const requireAuth = async (req, res, next) => {
   try {
-    // Try 1: Get JWT from cookie (for same-domain requests)
+    let userId = null;
+    let userEmail = null;
+    let userName = null;
+    
+    // Method 1: Custom header X-User-ID (for custom auth system)
+    if (req.headers['x-user-id']) {
+      userId = req.headers['x-user-id'];
+      console.log('🔑 Using X-User-ID header:', userId);
+      
+      // Verify user exists in database
+      const { data: user, error } = await supabaseAdmin
+        .from('users')
+        .select('id, email, name')
+        .eq('id', userId)
+        .single();
+      
+      if (error || !user) {
+        console.log('❌ User not found in database:', userId);
+        return res.status(401).json({ error: 'User not found' });
+      }
+      
+      console.log('✅ User verified from database:', user.email);
+      req.user = {
+        id: user.id,
+        email: user.email,
+        name: user.name
+      };
+      return next();
+    }
+    
+    // Method 2: JWT from cookie
     let token = req.cookies?.auth_token;
     
-    // Try 2: Get from Authorization header (for cross-domain requests)
+    // Method 3: Authorization header
     if (!token && req.headers.authorization) {
       token = req.headers.authorization.replace('Bearer ', '');
     }
     
-    // Try 3: Get from query parameter (as fallback)
+    // Method 4: Query parameter
     if (!token && req.query.token) {
       token = req.query.token;
     }
     
     if (!token) {
-      console.log('❌ No auth token found in cookie, header, or query');
+      console.log('❌ No authentication provided (no X-User-ID header, cookie, or token)');
       return res.status(401).json({ error: 'No authentication token provided' });
     }
 
-    // Check if it's a Supabase JWT or our custom JWT
+    // Verify JWT token
     if (token.startsWith('eyJ') && token.includes('.')) {
-      // Try Supabase verification first
+      // Try Supabase JWT first
       try {
         const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
         
         if (user && !error) {
-          console.log('✅ Supabase auth verified for user:', user.id);
+          console.log('✅ Supabase JWT verified for user:', user.id);
           req.user = {
             id: user.id,
             email: user.email,
@@ -387,33 +417,33 @@ const requireAuth = async (req, res, next) => {
           return next();
         }
       } catch (supabaseError) {
-        console.log('Supabase auth failed, trying custom JWT:', supabaseError.message);
+        console.log('Supabase JWT failed, trying custom JWT:', supabaseError.message);
       }
       
-      // Fallback to custom JWT verification
+      // Try custom JWT
       try {
-        const jwt = require('jsonwebtoken');
-        const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
-        const decoded = jwt.verify(token, jwtSecret);
-        
+    const jwt = require('jsonwebtoken');
+    const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+    const decoded = jwt.verify(token, jwtSecret);
+    
         if (decoded && decoded.userId) {
           console.log('✅ Custom JWT verified for user:', decoded.userId);
-          req.user = {
-            id: decoded.userId,
-            email: decoded.email,
-            name: decoded.name
-          };
+    req.user = {
+      id: decoded.userId,
+      email: decoded.email,
+      name: decoded.name
+    };
           return next();
         }
       } catch (jwtError) {
-        console.log('Custom JWT verification failed:', jwtError.message);
+        console.log('Custom JWT failed:', jwtError.message);
       }
     }
     
     return res.status(401).json({ error: 'Invalid authentication token' });
     
   } catch (error) {
-    console.error('Auth middleware error:', error);
+    console.error('❌ Auth middleware error:', error);
     res.status(401).json({ error: 'Authentication failed' });
   }
 };
