@@ -202,31 +202,37 @@ export default function Dashboard() {
         return
       }
       
-      // First, find the subaccount to get its ID
-      console.log('🔍 Searching for subaccount...')
-      const { data: subaccount, error: subaccountFetchError } = await supabase
-        .from('subaccounts')
-        .select('id, name, ghl_location_id, user_id')
-        .eq('ghl_location_id', locationId)
+      // Delete from ghl_accounts table (correct table!)
+      console.log('🔍 Searching for GHL account...')
+      const { data: ghlAccount, error: ghlAccountFetchError } = await supabase
+        .from('ghl_accounts')
+        .select('id, location_id, user_id')
+        .eq('location_id', locationId)
         .eq('user_id', user.id)
         .maybeSingle()
       
-      console.log('📋 Subaccount search result:', { subaccount, error: subaccountFetchError })
+      console.log('📋 GHL Account search result:', { ghlAccount, error: ghlAccountFetchError })
       
-      if (subaccountFetchError || !subaccount) {
-        console.error('Error finding subaccount:', subaccountFetchError)
-        setNotification({ type: 'error', message: `❌ Subaccount not found: ${subaccountFetchError?.message || 'No subaccount found'}` })
+      if (ghlAccountFetchError) {
+        console.error('Error finding GHL account:', ghlAccountFetchError)
+        setNotification({ type: 'error', message: `❌ Error finding account: ${ghlAccountFetchError.message}` })
         return
       }
       
-      console.log('📋 Found subaccount ID:', subaccount.id)
+      if (!ghlAccount) {
+        console.log('❌ No GHL account found for this location')
+        setNotification({ type: 'error', message: '❌ Account not found' })
+        return
+      }
       
-      // Delete sessions using subaccount_id (correct column)
+      console.log('📋 Found GHL account ID:', ghlAccount.id)
+      
+      // Delete sessions first (if any exist)
       console.log('🗑️ Deleting sessions...')
       const { error: sessionsError } = await supabase
         .from('sessions')
         .delete()
-        .eq('subaccount_id', subaccount.id) // Use subaccount_id, not ghl_location_id
+        .eq('ghl_location_id', locationId) // Sessions might reference location_id directly
       
       if (sessionsError) {
         console.error('Error deleting sessions:', sessionsError)
@@ -235,26 +241,26 @@ export default function Dashboard() {
         console.log('✅ Sessions deleted successfully')
       }
       
-      // Delete subaccount
-      console.log('🗑️ Deleting subaccount...')
-      const { error: subaccountError } = await supabase
-        .from('subaccounts')
+      // Delete GHL account
+      console.log('🗑️ Deleting GHL account...')
+      const { error: ghlAccountError } = await supabase
+        .from('ghl_accounts')
         .delete()
-        .eq('id', subaccount.id) // Use subaccount ID
+        .eq('id', ghlAccount.id)
       
-      if (subaccountError) {
-        console.error('Error deleting subaccount:', subaccountError)
-        setNotification({ type: 'error', message: `❌ Failed to delete: ${subaccountError.message}` })
+      if (ghlAccountError) {
+        console.error('Error deleting GHL account:', ghlAccountError)
+        setNotification({ type: 'error', message: `❌ Failed to delete: ${ghlAccountError.message}` })
         return
       }
       
-      console.log('✅ Subaccount deleted successfully')
-      setNotification({ type: 'success', message: '✅ Subaccount deleted successfully!' })
+      console.log('✅ GHL account deleted successfully')
+      setNotification({ type: 'success', message: '✅ Account deleted successfully!' })
       await fetchGHLLocations(false)
       
     } catch (error) {
-      console.error('Error deleting subaccount:', error)
-      setNotification({ type: 'error', message: '❌ Failed to delete subaccount. Please try again.' })
+      console.error('Error deleting account:', error)
+      setNotification({ type: 'error', message: '❌ Failed to delete account. Please try again.' })
     }
   }
   
