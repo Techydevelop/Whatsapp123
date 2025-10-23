@@ -944,27 +944,9 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     try {
       let sendResult;
       
-      if (attachments && attachments.length > 0) {
-        // Handle media message
-        const attachment = attachments[0]; // Take first attachment
-        const mediaUrl = attachment;
-        
-        // Detect media type from URL
-        let mediaType = 'image'; // default
-        if (mediaUrl.includes('.mp4') || mediaUrl.includes('.mov') || mediaUrl.includes('.avi')) {
-          mediaType = 'video';
-        } else if (mediaUrl.includes('.mp3') || mediaUrl.includes('.wav') || mediaUrl.includes('.ogg')) {
-          mediaType = 'audio';
-        } else if (mediaUrl.includes('.pdf') || mediaUrl.includes('.doc')) {
-          mediaType = 'document';
-        }
-        
-        console.log(`📎 Sending ${mediaType} with URL: ${mediaUrl}`);
-        sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '', mediaType, mediaUrl);
-      } else {
-        // Send text message
-        sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '');
-      }
+      // Only send text messages - skip media processing to avoid "unsuccessful" messages
+      console.log(`📤 Sending text message only: ${message}`);
+      sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '');
       
       // Check if message was skipped (no WhatsApp)
       if (sendResult && sendResult.status === 'skipped') {
@@ -1356,7 +1338,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
               console.log(`✅ Media uploaded to GHL successfully:`, ghlResponse);
               
               // Get the accessible media URL from GHL response
-              const accessibleUrl = ghlResponse.url || 'Media uploaded successfully';
+              const accessibleUrl = ghlResponse.url || 'Media URL not available';
               
               // Send accessible URL in message content
               finalMessage = `📎 ${getMediaMessageText(messageType)}\n\n🔗 Media URL: ${accessibleUrl}`;
@@ -1448,6 +1430,43 @@ app.post('/whatsapp/webhook', async (req, res) => {
         const responseData = await inboundRes.json();
         console.log(`✅ Inbound message added to GHL conversation for contact: ${contactId}`);
         console.log(`📊 GHL Response:`, JSON.stringify(responseData, null, 2));
+        
+        // Trigger customer_replied workflow via webhook
+        try {
+          console.log(`🔄 Triggering customer_replied workflow via webhook...`);
+          
+          const workflowPayload = {
+            event_type: "customer_replied",
+            contact_id: contactId,
+            contact_name: "Customer",
+            contact_phone: phone,
+            last_message: finalMessage,
+            location_id: locationId,
+            channel: "sms",
+            conversation_provider_id: providerId,
+            timestamp: new Date().toISOString()
+          };
+          
+          // Call our workflow webhook endpoint
+          const workflowRes = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/api/ghl-workflow`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(workflowPayload)
+          });
+          
+          if (workflowRes.ok) {
+            const workflowData = await workflowRes.json();
+            console.log(`✅ Customer replied workflow triggered successfully`);
+            console.log(`📊 Workflow Response:`, JSON.stringify(workflowData, null, 2));
+          } else {
+            const errorText = await workflowRes.text();
+            console.log(`⚠️ Customer replied workflow trigger failed:`, errorText);
+          }
+        } catch (workflowError) {
+          console.error(`❌ Error triggering customer_replied workflow:`, workflowError.message);
+        }
         console.log(`📊 Response Status:`, inboundRes.status);
         console.log(`📊 Response Headers:`, Object.fromEntries(inboundRes.headers.entries()));
         
@@ -1544,7 +1563,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
 
         // Note: Team notifications are now handled by GHL workflows
         // The workflow will call /api/team-notification endpoint with proper team members
-
+        
         // Track this message to prevent echo
         if (!global.recentInboundMessages) {
           global.recentInboundMessages = new Set();
