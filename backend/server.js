@@ -466,61 +466,50 @@ app.get('/oauth/callback', async (req, res) => {
       userId: tokenData.userId 
     });
 
-    // Use state as target user ID (passed from frontend) or create simple user
+    // Use state as target user ID (passed from frontend)
+    // Only logged-in users can add subaccounts
     let targetUserId = null;
-    if (state) {
-      try {
-        targetUserId = decodeURIComponent(state);
-        console.log('Using target user ID from state:', targetUserId);
-        
-        // Check if user exists (must be existing user from login)
-        const { data: existingUser, error: userCheckError } = await supabaseAdmin
-          .from('users')
-          .select('id, name, email')
-          .eq('id', targetUserId)
-          .maybeSingle();
-          
-        if (userCheckError) {
-          console.error('Error checking user:', userCheckError);
-          return res.status(500).json({ error: 'Database error checking user' });
-        }
-        
-        if (!existingUser) {
-          console.error('❌ User not found! Only existing users can connect GHL accounts.');
-          return res.status(400).json({ error: 'User not found. Please login first.' });
-        }
-        
-        console.log('✅ Existing user found:', existingUser);
-        
-      } catch (e) {
-        console.error('Error decoding state:', e);
-        return res.status(400).json({ error: 'Invalid state parameter' });
-      }
-    } else {
-      // No state parameter - create a simple user automatically
-      console.log('⚠️ No state parameter - creating simple user');
-      const simpleUserId = 'simple-user-' + Date.now();
+    
+    if (!state) {
+      console.error('❌ State parameter missing - user must be logged in');
+      return res.status(400).json({ 
+        error: 'Authentication required. Please login to add GHL accounts.',
+        code: 'AUTH_REQUIRED'
+      });
+    }
+    
+    try {
+      targetUserId = decodeURIComponent(state);
+      console.log('Using target user ID from state:', targetUserId);
       
-      // Store simple user in database
-      const { data: simpleUser, error: userError } = await supabaseAdmin
+      // Check if user exists (must be existing user from login)
+      const { data: existingUser, error: userCheckError } = await supabaseAdmin
         .from('users')
-        .insert({
-          id: simpleUserId,
-          name: 'GHL User',
-          email: `ghl-${Date.now()}@example.com`,
-          password: 'temp-password',
-          is_verified: true
-        })
-        .select()
-        .single();
+        .select('id, name, email')
+        .eq('id', targetUserId)
+        .maybeSingle();
         
-      if (userError) {
-        console.error('Error creating simple user:', userError);
-        return res.status(500).json({ error: 'Failed to create user session' });
+      if (userCheckError) {
+        console.error('Error checking user:', userCheckError);
+        return res.status(500).json({ error: 'Database error checking user' });
       }
       
-      targetUserId = simpleUserId;
-      console.log('✅ Created simple user:', targetUserId);
+      if (!existingUser) {
+        console.error('❌ User not found! Only existing users can connect GHL accounts.');
+        return res.status(400).json({ 
+          error: 'User not found. Please login first.',
+          code: 'USER_NOT_FOUND'
+        });
+      }
+      
+      console.log('✅ Existing user found:', existingUser);
+      
+    } catch (e) {
+      console.error('Error decoding state:', e);
+      return res.status(400).json({ 
+        error: 'Invalid authentication. Please login again.',
+        code: 'INVALID_STATE'
+      });
     }
 
     // Store GHL account information - use locationId from token response
