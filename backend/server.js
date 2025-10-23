@@ -999,64 +999,8 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       
       // Store outgoing message in local database
       try {
-        // Get session info for database storage
-        let sessionData = null;
-        if (sessionId) {
-          const { data: session } = await supabaseAdmin
-            .from('sessions')
-            .select('*, subaccounts(*)')
-            .eq('id', sessionId)
-            .maybeSingle();
-          
-          if (session) {
-            sessionData = session;
-          }
-        }
-        
-        // If no session found, try to find by GHL account
-        if (!sessionData && ghlAccount) {
-          const { data: session } = await supabaseAdmin
-            .from('sessions')
-            .select('*, subaccounts(*)')
-            .eq('subaccount_id', ghlAccount.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          
-          if (session) {
-            sessionData = session;
-          }
-        }
-        
-        if (sessionData) {
-          // Extract phone numbers
-          const fromNumber = sessionData.phone_number || 'unknown';
-          const toNumber = phoneNumber.replace('+', '');
-          
-          // Store in local messages table
-          const { error: insertError } = await supabaseAdmin
-            .from('messages')
-            .insert({
-              session_id: sessionData.id,
-              user_id: sessionData.user_id,
-              subaccount_id: sessionData.subaccount_id,
-              from_number: fromNumber,
-              to_number: toNumber,
-              body: message || '',
-              media_url: mediaUrl,
-              media_mime: mediaType,
-              direction: 'out',
-              created_at: new Date().toISOString()
-            });
-          
-          if (insertError) {
-            console.error('❌ Failed to store outgoing message in local database:', insertError);
-          } else {
-            console.log('✅ Outgoing message stored in local database');
-          }
-        } else {
-          console.log('⚠️ No session found for outgoing message storage');
-        }
+        // Note: sessionId is not available in outgoing message context, skip local storage for now
+        console.log('⚠️ Skipping outgoing message local storage - sessionId not available in this context');
       } catch (dbError) {
         console.error('❌ Error storing outgoing message in local database:', dbError);
       }
@@ -1476,26 +1420,16 @@ app.post('/whatsapp/webhook', async (req, res) => {
       console.log(`📏 Message Length:`, message.length);
       console.log(`📎 Attachments Count:`, attachments.length);
       
-      // Send message to GHL via SMS provider webhook (this will trigger workflows)
-      const smsProviderPayload = {
-        locationId: locationId,
-        message: finalMessage,
-        contactId: contactId,
-        phone: phone,
-        attachments: attachments,
-        messageType: messageType,
-        mediaUrl: mediaUrl,
-        altId: whatsappMsgId || `wa_${Date.now()}`
-      };
-      
-      // Call SMS provider webhook endpoint
-      const inboundRes = await fetch(`${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/ghl/provider/webhook`, {
+      // Send message directly to GHL (working approach)
+      const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${validToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json"
         },
-        body: JSON.stringify(smsProviderPayload)
-      });
+        body: JSON.stringify(payload)
+      }, ghlAccount);
       
       if (inboundRes.ok) {
         const responseData = await inboundRes.json();
