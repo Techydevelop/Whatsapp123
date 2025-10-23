@@ -1403,8 +1403,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
           message: finalMessage,
           direction: "inbound",
           status: "delivered",
-          altId: whatsappMsgId || `wa_${Date.now()}`, // idempotency
-          conversationProviderId: providerId
+          altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
         };
         
         // Only add attachments if we have them
