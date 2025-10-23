@@ -315,16 +315,15 @@ app.use(cors({
     'https://whatsapp123-frontend.vercel.app',
     'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
     'https://whatsappghl.vercel.app',
-    'https://whatsappgh1.vercel.app',
+    'https://whatsappgh1.vercel.app',  // Added the actual frontend URL
     'https://whatsapghl.vercel.app',
-    'https://whatsanghl.vercel.app',  // Fixed typo - added missing domain
     'https://*.vercel.app',
     'https://app.gohighlevel.com',
     'https://*.onrender.com'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-User-ID']  // Added X-User-ID header
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 
 // Add CSP headers for iframe embedding
@@ -346,105 +345,41 @@ app.use(cookieParser()); // Parse cookies from requests
 app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-User-ID');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.sendStatus(200);
 });
 
-// Auth middleware - supports multiple auth methods
+// Auth middleware - JWT based
 const requireAuth = async (req, res, next) => {
   try {
-    let userId = null;
-    let userEmail = null;
-    let userName = null;
-    
-    // Method 1: Custom header X-User-ID (for custom auth system)
-    if (req.headers['x-user-id']) {
-      userId = req.headers['x-user-id'];
-      console.log('🔑 Using X-User-ID header:', userId);
-      
-      // Verify user exists in database
-      const { data: user, error } = await supabaseAdmin
-        .from('users')
-        .select('id, email, name')
-        .eq('id', userId)
-        .single();
-      
-      if (error || !user) {
-        console.log('❌ User not found in database:', userId);
-        return res.status(401).json({ error: 'User not found' });
-      }
-      
-      console.log('✅ User verified from database:', user.email);
-      req.user = {
-        id: user.id,
-        email: user.email,
-        name: user.name
-      };
-      return next();
-    }
-    
-    // Method 2: JWT from cookie
-    let token = req.cookies?.auth_token;
-    
-    // Method 3: Authorization header
-    if (!token && req.headers.authorization) {
-      token = req.headers.authorization.replace('Bearer ', '');
-    }
-    
-    // Method 4: Query parameter
-    if (!token && req.query.token) {
-      token = req.query.token;
-    }
+    // Get JWT from cookie
+    const token = req.cookies?.auth_token;
     
     if (!token) {
-      console.log('❌ No authentication provided (no X-User-ID header, cookie, or token)');
       return res.status(401).json({ error: 'No authentication token provided' });
     }
 
-    // Verify JWT token
-    if (token.startsWith('eyJ') && token.includes('.')) {
-      // Try Supabase JWT first
-      try {
-        const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
-        
-        if (user && !error) {
-          console.log('✅ Supabase JWT verified for user:', user.id);
-          req.user = {
-            id: user.id,
-            email: user.email,
-            name: user.user_metadata?.name || user.email
-          };
-          return next();
-        }
-      } catch (supabaseError) {
-        console.log('Supabase JWT failed, trying custom JWT:', supabaseError.message);
-      }
-      
-      // Try custom JWT
-      try {
+    // Verify JWT
     const jwt = require('jsonwebtoken');
     const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+    
     const decoded = jwt.verify(token, jwtSecret);
     
-        if (decoded && decoded.userId) {
-          console.log('✅ Custom JWT verified for user:', decoded.userId);
+    if (!decoded || !decoded.userId) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Set user info in request (same format as before for compatibility)
     req.user = {
       id: decoded.userId,
       email: decoded.email,
       name: decoded.name
     };
-          return next();
-        }
-      } catch (jwtError) {
-        console.log('Custom JWT failed:', jwtError.message);
-      }
-    }
     
-    return res.status(401).json({ error: 'Invalid authentication token' });
-    
+    next();
   } catch (error) {
-    console.error('❌ Auth middleware error:', error);
+    console.error('Auth middleware error:', error);
     res.status(401).json({ error: 'Authentication failed' });
   }
 };
@@ -462,29 +397,30 @@ app.get('/whatsapp/webhook', (req, res) => {
 // GHL OAuth Routes
 app.get('/auth/ghl/connect', (req, res) => {
   const authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`;
-  res.redirect(authUrl);
+    res.redirect(authUrl);
 });
 
 // OAuth callback - handles GHL OAuth 2.0 flow
 app.get('/oauth/callback', async (req, res) => {
   try {
     const { code, state, locationId } = req.query;
+    
     console.log('OAuth Callback received - ALL PARAMS:', req.query);
     console.log('Specific params:', { code: !!code, locationId, state });
     
     if (!code) {
       return res.status(400).json({ error: 'Authorization code not provided' });
     }
-    
+
     // Don't require locationId in query - GHL may provide it in token response
     console.log('Proceeding with token exchange...');
-    
+
     // Exchange code for access token
     const tokenResponse = await fetch('https://services.leadconnectorhq.com/oauth/token', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json'
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
       },
       body: new URLSearchParams({
         client_id: GHL_CLIENT_ID,
@@ -549,31 +485,8 @@ app.get('/oauth/callback', async (req, res) => {
         console.error('Error decoding state:', e);
         return res.status(400).json({ error: 'Invalid state parameter' });
       }
-    } else {
-      console.log('⚠️ No state parameter - creating simple user');
-      // Create a simple user for this session
-      const simpleUserId = 'simple-user-' + Date.now();
-      
-      // Store simple user in database
-      const { data: simpleUser, error: userError } = await supabaseAdmin
-        .from('users')
-        .insert({
-          id: simpleUserId,
-          name: 'GHL User',
-          email: 'ghl@example.com',
-          password: 'temp-password',
-          is_verified: true
-        })
-        .select()
-        .single();
-        
-      if (userError) {
-        console.error('Error creating simple user:', userError);
-        return res.status(500).json({ error: 'Failed to create user session' });
-      }
-      
-      targetUserId = simpleUserId;
-      console.log('✅ Created simple user:', targetUserId);
+      } else {
+      return res.status(400).json({ error: 'State parameter missing - user ID required' });
     }
 
     // Store GHL account information - use locationId from token response
@@ -583,6 +496,7 @@ app.get('/oauth/callback', async (req, res) => {
     const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
     
     // User already verified above, proceed with GHL account storage
+    
     const { error: ghlError } = await supabaseAdmin
       .from('ghl_accounts')
       .upsert({
@@ -2246,7 +2160,7 @@ app.get('/ghl/provider', async (req, res) => {
                   statusEl.innerHTML = '📱 <strong>Ready to Scan</strong><br><small>Please scan the QR code with your WhatsApp app</small>';
                   phoneRowEl.style.display = 'none';
                   closeBtn.style.display = 'none';
-                    qrEl.style.display = 'block';
+                  qrEl.style.display = 'block';
                   break;
                   
                 case 'ready':
@@ -2403,15 +2317,15 @@ app.get('/admin/ghl/locations', async (req, res) => {
     const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
     let userId = null;
     
-      try {
+    try {
       const decoded = jwt.verify(token, jwtSecret);
       userId = decoded.userId;
-      } catch (e) {
+    } catch (e) {
       console.log('JWT validation failed:', e.message);
       return res.status(401).json({ error: 'Invalid token' });
     }
     
-    // Get GHL accounts for this user
+    // Get ALL GHL accounts for this user (agency + subaccounts)
     const { data: ghlAccounts, error: ghlError } = await supabaseAdmin
       .from('ghl_accounts')
       .select('*')
@@ -2431,11 +2345,45 @@ app.get('/admin/ghl/locations', async (req, res) => {
     for (const account of ghlAccounts) {
       console.log(`🔍 Processing account - Location ID: ${account.location_id}, Company ID: ${account.company_id}`);
       
-      if (account.location_id) {
+      // Check if this is an agency-level account (has company_id but no specific location_id, or location_id matches company_id)
+      const isAgencyAccount = account.company_id && (!account.location_id || account.location_id === account.company_id);
+      
+      if (isAgencyAccount) {
+        // Agency level - fetch all locations under this company
+        console.log(`🏢 Agency account detected for company: ${account.company_id}`);
+        
+        try {
+          const ghlResponse = await fetch('https://services.leadconnectorhq.com/locations/', {
+            headers: {
+              'Authorization': `Bearer ${account.access_token}`,
+              'Version': '2021-07-28'
+            }
+          });
+          
+          if (ghlResponse.ok) {
+            const ghlData = await ghlResponse.json();
+            console.log(`✅ Fetched ${ghlData.locations?.length || 0} locations from agency account`);
+            
+            if (ghlData.locations && Array.isArray(ghlData.locations)) {
+              // Add source info to each location
+              const locationsWithSource = ghlData.locations.map(loc => ({
+                ...loc,
+                source: 'agency',
+                companyId: account.company_id
+              }));
+              allLocations.push(...locationsWithSource);
+            }
+          } else {
+            console.log(`⚠️ Failed to fetch agency locations: ${ghlResponse.status}`);
+          }
+        } catch (error) {
+          console.error('❌ Error fetching agency locations:', error);
+        }
+      } else if (account.location_id) {
         // Specific location/subaccount
         console.log(`📍 Subaccount detected for location: ${account.location_id}`);
         
-        // Check if this location is already in the list
+        // Check if this location is already in the list (might be from agency fetch)
         const existingLocation = allLocations.find(loc => loc.id === account.location_id);
         
         if (!existingLocation) {
@@ -2465,9 +2413,9 @@ app.get('/admin/ghl/locations', async (req, res) => {
                 name: `Location ${account.location_id}`,
                 source: 'subaccount',
                 companyId: account.company_id
-        });
-      }
-    } catch (error) {
+              });
+            }
+          } catch (error) {
             console.error('❌ Error fetching location details:', error);
             // Add basic location info as fallback
             allLocations.push({
@@ -2864,25 +2812,23 @@ app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
 
     console.log(`🗑️ Deleting subaccount for location: ${locationId} by user: ${req.user?.id}`);
 
-    // Get subaccount from subaccounts table and verify ownership
-    const { data: subaccount } = await supabaseAdmin
-      .from('subaccounts')
+    // Get GHL account and verify ownership
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
       .select('*')
-      .eq('ghl_location_id', locationId)
-      .eq('user_id', req.user?.id) // Verify user owns this subaccount
+      .eq('location_id', locationId)
+      .eq('user_id', req.user?.id) // Verify user owns this account
       .maybeSingle();
 
-    if (!subaccount) {
-      return res.status(404).json({ error: 'Subaccount not found or you do not have permission to delete it' });
+    if (!ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found or you do not have permission to delete it' });
     }
-
-    console.log(`📋 Found subaccount: ${subaccount.name} (ID: ${subaccount.id})`);
 
     // Get all sessions for this subaccount
     const { data: sessions } = await supabaseAdmin
       .from('sessions')
       .select('*')
-      .eq('subaccount_id', subaccount.id); // Use correct subaccount ID
+      .eq('subaccount_id', ghlAccount.id);
 
     console.log(`📋 Found ${sessions?.length || 0} session(s) to cleanup`);
 
@@ -2890,10 +2836,10 @@ app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
     if (sessions && sessions.length > 0) {
       for (const session of sessions) {
         try {
-          const sessionName = `subaccount_${subaccount.id}_${session.id}`;
+          const sessionName = `subaccount_${ghlAccount.id}_${session.id}`;
           await waManager.disconnectClient(sessionName);
           waManager.clearSessionData(sessionName);
-          console.log(`✅ Cleaned up WhatsApp session: ${sessionName}`);
+          console.log(`✅ Cleaned up session: ${sessionName}`);
         } catch (sessionError) {
           console.error(`⚠️ Error cleaning session ${session.id}:`, sessionError.message);
           // Continue with other sessions
@@ -2901,42 +2847,29 @@ app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
       }
     }
 
-    // Delete all sessions (CASCADE should handle this, but let's be explicit)
+    // Delete all sessions
     const { error: sessionsDeleteError } = await supabaseAdmin
       .from('sessions')
       .delete()
-      .eq('subaccount_id', subaccount.id);
+      .eq('subaccount_id', ghlAccount.id);
 
     if (sessionsDeleteError) {
       console.error('Error deleting sessions:', sessionsDeleteError);
-      // Continue anyway
     }
 
-    // Delete subaccount from subaccounts table
-    const { error: subaccountDeleteError } = await supabaseAdmin
-      .from('subaccounts')
-      .delete()
-      .eq('id', subaccount.id);
-
-    if (subaccountDeleteError) {
-      console.error('Error deleting subaccount:', subaccountDeleteError);
-      return res.status(500).json({ error: 'Failed to delete subaccount from database', details: subaccountDeleteError.message });
-    }
-
-    // Also delete the GHL account (OAuth tokens) if it exists
-    const { error: ghlAccountDeleteError } = await supabaseAdmin
+    // Delete GHL account
+    const { error: accountDeleteError } = await supabaseAdmin
       .from('ghl_accounts')
       .delete()
-      .eq('location_id', locationId)
-      .eq('user_id', req.user?.id);
+      .eq('id', ghlAccount.id);
 
-    if (ghlAccountDeleteError) {
-      console.log('⚠️ Note: GHL account not deleted (might not exist):', ghlAccountDeleteError.message);
-      // Don't fail the request, as subaccount is already deleted
+    if (accountDeleteError) {
+      console.error('Error deleting GHL account:', accountDeleteError);
+      return res.status(500).json({ error: 'Failed to delete account from database' });
     }
 
     console.log(`✅ Subaccount deleted successfully for location: ${locationId}`);
-    res.json({ status: 'success', message: 'Subaccount and all associated data deleted successfully' });
+    res.json({ status: 'success', message: 'Subaccount deleted successfully' });
   } catch (error) {
     console.error('Delete subaccount error:', error);
     res.status(500).json({ error: 'Failed to delete subaccount', details: error.message });
@@ -3641,15 +3574,6 @@ app.post('/api/test-team-notification', async (req, res) => {
   } catch (error) {
     console.error('Test team notification error:', error);
     res.status(500).json({ error: error.message });
-  }
-});
-
-// Force HTTPS redirect for production
-app.use((req, res, next) => {
-  if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') {
-    res.redirect(`https://${req.header('host')}${req.url}`);
-  } else {
-    next();
   }
 });
 
