@@ -2973,23 +2973,25 @@ app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
 
     console.log(`🗑️ Deleting subaccount for location: ${locationId} by user: ${req.user?.id}`);
 
-    // Get GHL account and verify ownership
-    const { data: ghlAccount } = await supabaseAdmin
-      .from('ghl_accounts')
+    // Get subaccount from subaccounts table and verify ownership
+    const { data: subaccount } = await supabaseAdmin
+      .from('subaccounts')
       .select('*')
-      .eq('location_id', locationId)
-      .eq('user_id', req.user?.id) // Verify user owns this account
+      .eq('ghl_location_id', locationId)
+      .eq('user_id', req.user?.id) // Verify user owns this subaccount
       .maybeSingle();
 
-    if (!ghlAccount) {
-      return res.status(404).json({ error: 'GHL account not found or you do not have permission to delete it' });
+    if (!subaccount) {
+      return res.status(404).json({ error: 'Subaccount not found or you do not have permission to delete it' });
     }
+
+    console.log(`📋 Found subaccount: ${subaccount.name} (ID: ${subaccount.id})`);
 
     // Get all sessions for this subaccount
     const { data: sessions } = await supabaseAdmin
       .from('sessions')
       .select('*')
-      .eq('subaccount_id', ghlAccount.id);
+      .eq('subaccount_id', subaccount.id); // Use correct subaccount ID
 
     console.log(`📋 Found ${sessions?.length || 0} session(s) to cleanup`);
 
@@ -2997,10 +2999,10 @@ app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
     if (sessions && sessions.length > 0) {
       for (const session of sessions) {
         try {
-          const sessionName = `subaccount_${ghlAccount.id}_${session.id}`;
-        await waManager.disconnectClient(sessionName);
-        waManager.clearSessionData(sessionName);
-          console.log(`✅ Cleaned up session: ${sessionName}`);
+          const sessionName = `subaccount_${subaccount.id}_${session.id}`;
+          await waManager.disconnectClient(sessionName);
+          waManager.clearSessionData(sessionName);
+          console.log(`✅ Cleaned up WhatsApp session: ${sessionName}`);
         } catch (sessionError) {
           console.error(`⚠️ Error cleaning session ${session.id}:`, sessionError.message);
           // Continue with other sessions
@@ -3008,29 +3010,42 @@ app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
       }
     }
 
-    // Delete all sessions
+    // Delete all sessions (CASCADE should handle this, but let's be explicit)
     const { error: sessionsDeleteError } = await supabaseAdmin
       .from('sessions')
       .delete()
-      .eq('subaccount_id', ghlAccount.id);
+      .eq('subaccount_id', subaccount.id);
 
     if (sessionsDeleteError) {
       console.error('Error deleting sessions:', sessionsDeleteError);
+      // Continue anyway
     }
 
-    // Delete GHL account
-    const { error: accountDeleteError } = await supabaseAdmin
+    // Delete subaccount from subaccounts table
+    const { error: subaccountDeleteError } = await supabaseAdmin
+      .from('subaccounts')
+      .delete()
+      .eq('id', subaccount.id);
+
+    if (subaccountDeleteError) {
+      console.error('Error deleting subaccount:', subaccountDeleteError);
+      return res.status(500).json({ error: 'Failed to delete subaccount from database', details: subaccountDeleteError.message });
+    }
+
+    // Also delete the GHL account (OAuth tokens) if it exists
+    const { error: ghlAccountDeleteError } = await supabaseAdmin
       .from('ghl_accounts')
       .delete()
-      .eq('id', ghlAccount.id);
+      .eq('location_id', locationId)
+      .eq('user_id', req.user?.id);
 
-    if (accountDeleteError) {
-      console.error('Error deleting GHL account:', accountDeleteError);
-      return res.status(500).json({ error: 'Failed to delete account from database' });
+    if (ghlAccountDeleteError) {
+      console.log('⚠️ Note: GHL account not deleted (might not exist):', ghlAccountDeleteError.message);
+      // Don't fail the request, as subaccount is already deleted
     }
 
     console.log(`✅ Subaccount deleted successfully for location: ${locationId}`);
-    res.json({ status: 'success', message: 'Subaccount deleted successfully' });
+    res.json({ status: 'success', message: 'Subaccount and all associated data deleted successfully' });
   } catch (error) {
     console.error('Delete subaccount error:', error);
     res.status(500).json({ error: 'Failed to delete subaccount', details: error.message });
