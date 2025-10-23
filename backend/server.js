@@ -315,15 +315,16 @@ app.use(cors({
     'https://whatsapp123-frontend.vercel.app',
     'https://whatsapp123-frontend-git-main-abjandal19s-projects.vercel.app',
     'https://whatsappghl.vercel.app',
-    'https://whatsappgh1.vercel.app',  // Added the actual frontend URL
+    'https://whatsappgh1.vercel.app',
     'https://whatsapghl.vercel.app',
+    'https://whatsanghl.vercel.app',  // Fixed typo - added missing domain
     'https://*.vercel.app',
     'https://app.gohighlevel.com',
     'https://*.onrender.com'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-User-ID']  // Added X-User-ID header
 }));
 
 // Add CSP headers for iframe embedding
