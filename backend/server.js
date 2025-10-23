@@ -396,8 +396,19 @@ app.get('/whatsapp/webhook', (req, res) => {
 
 // GHL OAuth Routes
 app.get('/auth/ghl/connect', (req, res) => {
-  const authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`;
-    res.redirect(authUrl);
+  const { userId } = req.query;
+  
+  // If userId provided, pass it in state parameter
+  let authUrl;
+  if (userId) {
+    authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}&state=${encodeURIComponent(userId)}`;
+  } else {
+    // No state parameter - backend will create simple user
+    authUrl = `https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&client_id=${GHL_CLIENT_ID}&redirect_uri=${encodeURIComponent(GHL_REDIRECT_URI)}&scope=${encodeURIComponent(GHL_SCOPES)}`;
+  }
+  
+  console.log('🔗 GHL OAuth redirect:', { userId, hasState: !!userId });
+  res.redirect(authUrl);
 });
 
 // OAuth callback - handles GHL OAuth 2.0 flow
@@ -455,7 +466,7 @@ app.get('/oauth/callback', async (req, res) => {
       userId: tokenData.userId 
     });
 
-    // Use state as target user ID (passed from frontend)
+    // Use state as target user ID (passed from frontend) or create simple user
     let targetUserId = null;
     if (state) {
       try {
@@ -485,8 +496,31 @@ app.get('/oauth/callback', async (req, res) => {
         console.error('Error decoding state:', e);
         return res.status(400).json({ error: 'Invalid state parameter' });
       }
-      } else {
-      return res.status(400).json({ error: 'State parameter missing - user ID required' });
+    } else {
+      // No state parameter - create a simple user automatically
+      console.log('⚠️ No state parameter - creating simple user');
+      const simpleUserId = 'simple-user-' + Date.now();
+      
+      // Store simple user in database
+      const { data: simpleUser, error: userError } = await supabaseAdmin
+        .from('users')
+        .insert({
+          id: simpleUserId,
+          name: 'GHL User',
+          email: `ghl-${Date.now()}@example.com`,
+          password: 'temp-password',
+          is_verified: true
+        })
+        .select()
+        .single();
+        
+      if (userError) {
+        console.error('Error creating simple user:', userError);
+        return res.status(500).json({ error: 'Failed to create user session' });
+      }
+      
+      targetUserId = simpleUserId;
+      console.log('✅ Created simple user:', targetUserId);
     }
 
     // Store GHL account information - use locationId from token response
