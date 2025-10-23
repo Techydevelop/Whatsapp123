@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
 import { API_ENDPOINTS, API_BASE_URL, apiCall } from '@/lib/config'
-// import Modal from '@/components/ui/Modal'
+import Modal from '@/components/ui/Modal'
 
 type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
 
@@ -29,6 +29,7 @@ export default function Dashboard() {
   const [itemsPerPage] = useState(10)
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [refreshing, setRefreshing] = useState(false)
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   
   // Modal states
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; locationId: string; locationName: string }>({ 
@@ -42,7 +43,6 @@ export default function Dashboard() {
     locationName: '' 
   })
   const [actionLoading, setActionLoading] = useState(false)
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const fetchGHLLocations = useCallback(async (showLoading = true) => {
     try {
@@ -581,8 +581,8 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Delete Modal - Temporarily disabled, deploy to Vercel to enable */}
-      {/* <Modal
+      {/* Delete Modal */}
+      <Modal
         isOpen={deleteModal.isOpen}
         onClose={() => setDeleteModal({ isOpen: false, locationId: '', locationName: '' })}
         title="Delete Subaccount"
@@ -608,6 +608,7 @@ export default function Dashboard() {
         </p>
       </Modal>
 
+      {/* Logout Modal */}
       <Modal
         isOpen={logoutModal.isOpen}
         onClose={() => setLogoutModal({ isOpen: false, locationId: '', locationName: '' })}
@@ -624,7 +625,7 @@ export default function Dashboard() {
         <p className="mt-2">
           You will need to scan the QR code again to reconnect.
         </p>
-      </Modal> */}
+      </Modal>
 
       {/* Notification Toast */}
       {notification && (
