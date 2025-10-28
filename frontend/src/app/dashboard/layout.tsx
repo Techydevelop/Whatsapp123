@@ -49,16 +49,6 @@ export default function DashboardLayout({
       )
     },
     { 
-      name: 'Add Account', 
-      href: '/dashboard/add-subaccount', 
-      current: pathname === '/dashboard/add-subaccount',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-        </svg>
-      )
-    },
-    { 
       name: 'Subscription', 
       href: '/dashboard/subscription', 
       current: pathname === '/dashboard/subscription',
