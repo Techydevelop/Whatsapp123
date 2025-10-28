@@ -22,7 +22,7 @@ export default function AddSubAccount() {
 
       // GHL OAuth configuration
       const GHL_CLIENT_ID = process.env.NEXT_PUBLIC_GHL_CLIENT_ID || 'YOUR_CLIENT_ID'
-      const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://whatsapp123-dhn1.onrender.com'
+      const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.octendr.com'
       const REDIRECT_URI = `${BACKEND_URL}/oauth/callback`
       const SCOPES = 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write businesses.readonly users.readonly medias.write'
       

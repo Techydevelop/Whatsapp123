@@ -532,7 +532,7 @@ class BaileysWhatsAppManager {
             
             // Forward to GHL webhook
             try {
-              const webhookUrl = `${process.env.BACKEND_URL || 'https://whatsapp123-dhn1.onrender.com'}/whatsapp/webhook`;
+              const webhookUrl = `${process.env.BACKEND_URL || 'https://api.octendr.com'}/whatsapp/webhook`;
               console.log(`🔗 Calling webhook: ${webhookUrl}`);
               
               const webhookResponse = await fetch(webhookUrl, {

@@ -16,7 +16,7 @@ services:
       - key: PORT
         value: 3000
       # Backend URL used by the frontend (set this in Vercel as NEXT_PUBLIC_API_URL)
-      # Example after deploy: https://whatsapp123-dhn1.onrender.com
+      # Example after deploy: https://api.octendr.com
       - key: FRONTEND_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_URL
