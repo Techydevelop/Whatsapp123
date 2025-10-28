@@ -4,9 +4,18 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 
+interface Payment {
+  id: string
+  amount: number
+  currency: string
+  status: string
+  plan: string
+  created_at: string
+}
+
 export default function BillingPage() {
   const { user } = useAuth()
-  const [payments, setPayments] = useState([])
+  const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -66,7 +75,7 @@ export default function BillingPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {payments.map((payment: any) => (
+                {payments.map((payment) => (
                   <tr key={payment.id}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {new Date(payment.created_at).toLocaleDateString()}

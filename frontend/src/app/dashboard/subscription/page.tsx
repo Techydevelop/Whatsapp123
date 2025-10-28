@@ -4,9 +4,17 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 
+interface SubscriptionData {
+  subscription_status: string
+  subscription_plan: string
+  max_subaccounts: number
+  trial_ends_at?: string
+  stripe_subscription_id?: string
+}
+
 export default function SubscriptionPage() {
   const { user } = useAuth()
-  const [subscription, setSubscription] = useState<any>(null)
+  const [subscription, setSubscription] = useState<SubscriptionData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {

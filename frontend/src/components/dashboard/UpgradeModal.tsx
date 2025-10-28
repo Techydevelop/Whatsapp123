@@ -6,6 +6,7 @@ import { Dialog, Transition } from '@headlessui/react'
 interface UpgradeModalProps {
   isOpen: boolean
   onClose: () => void
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   currentPlan: string
   currentSubaccounts: number
   maxSubaccounts: number
@@ -14,7 +15,6 @@ interface UpgradeModalProps {
 export default function UpgradeModal({
   isOpen,
   onClose,
-  currentPlan,
   currentSubaccounts,
   maxSubaccounts
 }: UpgradeModalProps) {
@@ -76,9 +76,9 @@ export default function UpgradeModal({
                 {/* Content */}
                 <div className="p-6">
                   <div className="mb-6 text-center">
-                    <p className="text-gray-700 text-lg">
-                      Your current plan allows <strong>{maxSubaccounts} subaccount</strong>, and you're already using <strong>{currentSubaccounts}</strong>.
-                    </p>
+                      <p className="text-gray-700 text-lg">
+                        Your current plan allows <strong>{maxSubaccounts} subaccount</strong>, and you&apos;re already using <strong>{currentSubaccounts}</strong>.
+                      </p>
                     <p className="text-gray-600 text-sm mt-2">
                       Choose a plan to unlock more locations:
                     </p>
