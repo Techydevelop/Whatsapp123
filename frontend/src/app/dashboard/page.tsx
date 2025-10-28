@@ -5,6 +5,8 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
 import { API_ENDPOINTS, API_BASE_URL, apiCall } from '@/lib/config'
+import TrialBanner from '@/components/dashboard/TrialBanner'
+import UpgradeModal from '@/components/dashboard/UpgradeModal'
 // import Modal from '@/components/ui/Modal'
 
 type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
@@ -31,6 +33,15 @@ export default function Dashboard() {
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [refreshing, setRefreshing] = useState(false)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  
+  // Trial system state
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [userSubscription, setUserSubscription] = useState<{
+    status: string
+    maxSubaccounts: number
+    currentSubaccounts: number
+    trialEndsAt?: string
+  } | null>(null)
 
   const fetchGHLLocations = useCallback(async (showLoading = true) => {
     try {
@@ -110,10 +121,65 @@ export default function Dashboard() {
     }
   }, [user])
 
+  // Fetch user subscription data
+  useEffect(() => {
+    const fetchUserSubscription = async () => {
+      if (!user?.id) return
+
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('subscription_status, max_subaccounts, total_subaccounts, trial_ends_at')
+          .eq('id', user.id)
+          .single()
+
+        if (!error && data) {
+          const currentCount = subaccountStatuses.length
+          setUserSubscription({
+            status: data.subscription_status || 'trial',
+            maxSubaccounts: data.max_subaccounts || 1,
+            currentSubaccounts: currentCount,
+            trialEndsAt: data.trial_ends_at
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching user subscription:', error)
+      }
+    }
+
+    fetchUserSubscription()
+  }, [user, subaccountStatuses.length])
+
   useEffect(() => {
     console.log('🚀 Dashboard mounted, fetching locations...')
     fetchGHLLocations()
   }, [fetchGHLLocations])
+
+  // Handle URL error parameters (from OAuth redirect)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const error = urlParams.get('error')
+    
+    if (error === 'trial_limit_reached') {
+      const current = urlParams.get('current')
+      const max = urlParams.get('max')
+      setNotification({
+        type: 'error',
+        message: `Plan limit reached! You have ${current}/${max} subaccounts. Upgrade to add more.`
+      })
+      setShowUpgradeModal(true)
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard')
+    } else if (error === 'location_exists') {
+      const email = urlParams.get('email')
+      setNotification({
+        type: 'error',
+        message: `This location is already linked to ${email}. Please upgrade or contact support.`
+      })
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard')
+    }
+  }, [])
   
   // Separate effect for polling to avoid issues
   useEffect(() => {
@@ -319,6 +385,27 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Trial Banner */}
+      {userSubscription && (
+        <TrialBanner
+          subscriptionStatus={userSubscription.status}
+          trialEndsAt={userSubscription.trialEndsAt}
+          currentSubaccounts={userSubscription.currentSubaccounts}
+          maxSubaccounts={userSubscription.maxSubaccounts}
+        />
+      )}
+
+      {/* Upgrade Modal */}
+      {showUpgradeModal && userSubscription && (
+        <UpgradeModal
+          isOpen={showUpgradeModal}
+          onClose={() => setShowUpgradeModal(false)}
+          currentPlan={userSubscription.status}
+          currentSubaccounts={userSubscription.currentSubaccounts}
+          maxSubaccounts={userSubscription.maxSubaccounts}
+        />
+      )}
+
       {/* Header Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
@@ -404,15 +491,22 @@ export default function Dashboard() {
                 </svg>
                 Refresh
               </button>
-              <a
-                href="/dashboard/add-subaccount"
+              <button
+                onClick={() => {
+                  // Check trial limit before navigating
+                  if (userSubscription && userSubscription.currentSubaccounts >= userSubscription.maxSubaccounts) {
+                    setShowUpgradeModal(true)
+                  } else {
+                    window.location.href = '/dashboard/add-subaccount'
+                  }
+                }}
                 className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
               >
                 <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
                 Add Account
-              </a>
+              </button>
             </div>
           </div>
         </div>

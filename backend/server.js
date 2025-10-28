@@ -550,6 +550,92 @@ app.get('/oauth/callback', async (req, res) => {
     
     const expiryTimestamp = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
     
+    // ===========================================
+    // TRIAL SYSTEM CHECKS - Before storing GHL account
+    // ===========================================
+    
+    // 1. Get user subscription info
+    const { data: userInfo, error: userInfoError } = await supabaseAdmin
+      .from('users')
+      .select('subscription_status, max_subaccounts, total_subaccounts, email, trial_ends_at')
+      .eq('id', targetUserId)
+      .single();
+    
+    if (userInfoError || !userInfo) {
+      console.error('❌ Error fetching user subscription info:', userInfoError);
+      return res.status(500).json({ 
+        error: 'Failed to check subscription status',
+        requiresUpgrade: true
+      });
+    }
+    
+    console.log('📊 User subscription info:', {
+      status: userInfo.subscription_status,
+      current: userInfo.total_subaccounts,
+      max: userInfo.max_subaccounts
+    });
+    
+    // 2. Check if location already used by another user (anti-abuse)
+    const { data: existingLocation } = await supabaseAdmin
+      .from('used_locations')
+      .select('location_id, email, user_id, is_active')
+      .eq('location_id', finalLocationId)
+      .maybeSingle();
+    
+    // If location exists and is linked to different user
+    if (existingLocation && existingLocation.user_id !== targetUserId) {
+      console.log('⚠️ Location already linked to another user:', existingLocation);
+      
+      // Log the location conflict event
+      await supabaseAdmin.from('subscription_events').insert({
+        user_id: targetUserId,
+        event_type: 'location_blocked',
+        plan_name: userInfo.subscription_status,
+        metadata: {
+          blocked_location_id: finalLocationId,
+          original_owner_email: existingLocation.email,
+          reason: 'Location already linked to different account'
+        }
+      });
+      
+      const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+      return res.redirect(`${frontendUrl}/dashboard?error=location_exists&email=${encodeURIComponent(existingLocation.email)}`);
+    }
+    
+    // 3. Check subaccount limit for trial users
+    if (userInfo.subscription_status === 'trial' || userInfo.subscription_status === 'free') {
+      // Count current GHL accounts
+      const { data: currentAccounts, error: countError } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('id', { count: 'exact' })
+        .eq('user_id', targetUserId);
+      
+      const currentCount = currentAccounts?.length || 0;
+      console.log(`📊 Current subaccounts: ${currentCount}, Max allowed: ${userInfo.max_subaccounts}`);
+      
+      // If already at limit, block the addition
+      if (currentCount >= userInfo.max_subaccounts) {
+        console.log('❌ Subaccount limit reached for trial user');
+        
+        // Log the limit reached event
+        await supabaseAdmin.from('subscription_events').insert({
+          user_id: targetUserId,
+          event_type: 'subaccount_limit_reached',
+          plan_name: userInfo.subscription_status,
+          metadata: {
+            current_count: currentCount,
+            max_allowed: userInfo.max_subaccounts,
+            trial_ends_at: userInfo.trial_ends_at
+          }
+        });
+        
+        const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+        return res.redirect(`${frontendUrl}/dashboard?error=trial_limit_reached&current=${currentCount}&max=${userInfo.max_subaccounts}`);
+      }
+      
+      console.log('✅ Subaccount limit check passed');
+    }
+    
     // User already verified above, proceed with GHL account storage
     
     const { error: ghlError } = await supabaseAdmin
@@ -580,6 +666,53 @@ app.get('/oauth/callback', async (req, res) => {
     }
 
     console.log('GHL account stored successfully');
+    
+    // ===========================================
+    // SAVE LOCATION TO used_locations (ANTI-ABUSE)
+    // ===========================================
+    const { data: savedAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('id, location_id')
+      .eq('user_id', targetUserId)
+      .eq('location_id', finalLocationId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    
+    if (savedAccount) {
+      // Check if location already tracked
+      const { data: existingLocation } = await supabaseAdmin
+        .from('used_locations')
+        .select('id')
+        .eq('location_id', finalLocationId)
+        .maybeSingle();
+      
+      if (!existingLocation) {
+        // Save to used_locations for anti-abuse
+        await supabaseAdmin.from('used_locations').insert({
+          location_id: finalLocationId,
+          user_id: targetUserId,
+          email: userInfo.email,
+          ghl_account_id: savedAccount.id,
+          is_active: true,
+          first_used_at: new Date().toISOString(),
+          last_active_at: new Date().toISOString()
+        });
+        console.log('✅ Location saved to used_locations for anti-abuse');
+      } else {
+        // Update existing location to active
+        await supabaseAdmin
+          .from('used_locations')
+          .update({
+            is_active: true,
+            last_active_at: new Date().toISOString(),
+            user_id: targetUserId
+          })
+          .eq('id', existingLocation.id);
+        console.log('✅ Updated existing location in used_locations');
+      }
+    }
+    
     const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
     
     // Get user data for redirect - ensure we get the correct user

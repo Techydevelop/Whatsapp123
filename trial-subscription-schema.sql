@@ -5,15 +5,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAU
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_plan VARCHAR(50) DEFAULT 'free';
 -- Plan: 'free', 'starter', 'professional', 'business'
 
-ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMP;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_used BOOLEAN DEFAULT FALSE;
 
-ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMP;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMPTZ;
 
 -- Limits
 ALTER TABLE users ADD COLUMN IF NOT EXISTS max_subaccounts INTEGER DEFAULT 1;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS total_subaccounts INTEGER DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS max_messages_per_month INTEGER DEFAULT 999999; -- Unlimited for trial
 
 -- Stripe
@@ -31,7 +32,7 @@ CREATE TABLE IF NOT EXISTS usage_logs (
   event_type VARCHAR(50) NOT NULL, -- 'message_sent', 'message_received', 'subaccount_added'
   location_id VARCHAR(255),
   metadata JSONB,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_usage_logs_user_id ON usage_logs(user_id);
@@ -47,7 +48,7 @@ CREATE TABLE IF NOT EXISTS payments (
   plan VARCHAR(50) NOT NULL,
   stripe_payment_intent_id VARCHAR(255),
   stripe_invoice_id VARCHAR(255),
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
@@ -60,10 +61,10 @@ CREATE TABLE IF NOT EXISTS used_locations (
   email VARCHAR(255) NOT NULL,
   ghl_account_id UUID, -- Reference to ghl_accounts (can be null if deleted)
   is_active BOOLEAN DEFAULT TRUE,
-  first_used_at TIMESTAMP DEFAULT NOW(),
-  last_active_at TIMESTAMP,
+  first_used_at TIMESTAMPTZ DEFAULT NOW(),
+  last_active_at TIMESTAMPTZ,
   deletion_history JSONB DEFAULT '[]'::jsonb,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_used_locations_location_id ON used_locations(location_id);
@@ -73,12 +74,12 @@ CREATE INDEX IF NOT EXISTS idx_used_locations_is_active ON used_locations(is_act
 
 -- Add subscription events tracking
 CREATE TABLE IF NOT EXISTS subscription_events (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  event_type VARCHAR(50) NOT NULL, -- 'trial_started', 'trial_expired', 'upgrade', 'reminder_sent', 'location_blocked'
-  plan_name VARCHAR(50),
+  event_type TEXT NOT NULL, -- 'trial_started', 'trial_expired', 'upgrade', 'reminder_sent', 'location_blocked'
+  plan_name TEXT,
   metadata JSONB,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_subscription_events_user_id ON subscription_events(user_id);
