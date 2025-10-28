@@ -335,14 +335,17 @@ app.use(cors({
       'https://whatsappgh1.vercel.app',
       'https://whatsapghl.vercel.app',
       'https://whatsanghl.vercel.app',
-      'https://app.gohighlevel.com'
+      'https://app.gohighlevel.com',
+      'https://dashboard.octendr.com',
+      'https://api.octendr.com'
     ];
     
     // Check if origin is in allowed list OR matches pattern
     const isAllowed = allowedOrigins.includes(origin) || 
                       origin.endsWith('.vercel.app') || 
                       origin.endsWith('.onrender.com') ||
-                      origin.endsWith('.gohighlevel.com');
+                      origin.endsWith('.gohighlevel.com') ||
+                      origin.endsWith('.octendr.com');
     
     if (isAllowed) {
       callback(null, true);
