@@ -1723,8 +1723,11 @@ app.post('/whatsapp/webhook', async (req, res) => {
           altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
         };
         
-        // Always include attachments array (empty if no attachments)
-        payload.attachments = attachments || [];
+        // Only add attachments field if attachments exist and are not empty
+        // GHL rejects empty arrays, so don't include the field at all if empty
+        if (attachments && attachments.length > 0) {
+          payload.attachments = attachments;
+        }
       
       console.log(`📤 Sending to GHL SMS Provider:`, JSON.stringify(payload, null, 2));
       console.log(`🔑 Using Provider ID:`, providerId);
