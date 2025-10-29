@@ -970,6 +970,148 @@ async function downloadGHLMedia(mediaUrl, accessToken) {
 }
 
 /**
+ * Find or create a tag in GHL
+ * @param {string} tagName - Tag name to find/create
+ * @param {string} accessToken - GHL access token
+ * @param {string} locationId - GHL location ID
+ * @param {object} ghlAccount - GHL account object
+ * @returns {Promise<string|null>} - Tag ID or null if failed
+ */
+async function findOrCreateTag(tagName, accessToken, locationId, ghlAccount) {
+  try {
+    // Step 1: Search for existing tag
+    const searchRes = await makeGHLRequest(
+      `${BASE}/tags?locationId=${locationId}&name=${encodeURIComponent(tagName)}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json"
+        }
+      },
+      ghlAccount
+    );
+
+    if (searchRes.ok) {
+      const searchData = await searchRes.json();
+      if (searchData.tags && searchData.tags.length > 0) {
+        console.log(`✅ Tag found: ${tagName} (ID: ${searchData.tags[0].id})`);
+        return searchData.tags[0].id;
+      }
+    }
+
+    // Step 2: Create tag if doesn't exist
+    console.log(`📝 Creating new tag: ${tagName}`);
+    const createRes = await makeGHLRequest(
+      `${BASE}/tags`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: tagName,
+          color: "#10B981", // Green for success, will override for fail
+          locationId: locationId
+        })
+      },
+      ghlAccount
+    );
+
+    if (createRes.ok) {
+      const createData = await createRes.json();
+      const tagId = createData.tag?.id || createData.id;
+      if (tagId) {
+        console.log(`✅ Tag created: ${tagName} (ID: ${tagId})`);
+        return tagId;
+      }
+    }
+
+    console.warn(`⚠️ Could not create tag: ${tagName}`);
+    return null;
+  } catch (error) {
+    console.error(`❌ Error finding/creating tag ${tagName}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Add contact to a tag in GHL
+ * @param {string} contactId - GHL contact ID
+ * @param {string} tagId - GHL tag ID
+ * @param {string} accessToken - GHL access token
+ * @param {object} ghlAccount - GHL account object
+ */
+async function addContactToTag(contactId, tagId, accessToken, ghlAccount) {
+  try {
+    const tagRes = await makeGHLRequest(
+      `${BASE}/contacts/${contactId}/tags`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          tags: [tagId]
+        })
+      },
+      ghlAccount
+    );
+
+    if (tagRes.ok) {
+      console.log(`✅ Contact ${contactId} tagged successfully`);
+    } else {
+      const errorText = await tagRes.text();
+      console.warn(`⚠️ Failed to tag contact: ${errorText}`);
+    }
+  } catch (error) {
+    console.error(`❌ Error adding contact to tag:`, error.message);
+  }
+}
+
+/**
+ * Auto-tag contact based on message send status
+ * @param {string} contactId - GHL contact ID
+ * @param {boolean} messageSent - Whether message was sent successfully
+ * @param {string} accessToken - GHL access token
+ * @param {string} locationId - GHL location ID
+ * @param {object} ghlAccount - GHL account object
+ */
+async function autoTagContact(contactId, messageSent, accessToken, locationId, ghlAccount) {
+  // Don't block if tagging fails - make it silent
+  try {
+    if (!contactId) {
+      return; // No contact ID, skip tagging
+    }
+
+    const tagName = messageSent 
+      ? "✅ Message Sent" 
+      : "❌ Message Not Sent";
+    
+    console.log(`🏷️ Auto-tagging contact ${contactId} with: ${tagName}`);
+    
+    // Find or create tag
+    const tagId = await findOrCreateTag(tagName, accessToken, locationId, ghlAccount);
+    
+    if (tagId) {
+      // Add contact to tag
+      await addContactToTag(contactId, tagId, accessToken, ghlAccount);
+      console.log(`✅ Contact ${contactId} tagged as: ${tagName}`);
+    } else {
+      console.warn(`⚠️ Could not tag contact - tag creation failed`);
+    }
+  } catch (error) {
+    // Silent fail - don't break message flow
+    console.error(`❌ Auto-tagging failed (non-blocking):`, error.message);
+  }
+}
+
+/**
  * Detects media type from URL or content type
  * @param {string} url - Media URL
  * @param {string} contentType - Optional content type header
@@ -1235,6 +1377,24 @@ app.post('/ghl/provider/webhook', async (req, res) => {
             // If there was an error sending, log it but continue with other attachments
             if (sendResult && sendResult.status === 'skipped') {
               console.warn(`⚠️ Attachment ${i + 1} skipped: ${sendResult.reason}`);
+              
+              // Auto-tag: Message Not Sent (failed)
+              await autoTagContact(
+                contactId,
+                false, // messageSent = false
+                validToken,
+                ghlAccount.location_id,
+                ghlAccount
+              );
+            } else if (sendResult) {
+              // Auto-tag: Message Sent (success) - only if not skipped
+              await autoTagContact(
+                contactId,
+                true, // messageSent = true
+                validToken,
+                ghlAccount.location_id,
+                ghlAccount
+              );
             }
             
           } catch (attachError) {
@@ -1246,6 +1406,9 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         // If there were attachments but no text message, we're done
         if (!message) {
           console.log('✅ All attachments sent successfully');
+          
+          // Note: Tagging already done per attachment above
+          // If needed, can add overall success tagging here
           return res.json({ status: 'success' });
         }
         
@@ -1255,6 +1418,8 @@ app.post('/ghl/provider/webhook', async (req, res) => {
           // The message was likely sent as caption with first attachment
           // But if user wants separate text, we can add logic here
           console.log('✅ Media sent with caption');
+          
+          // Tagging already done per attachment above, no need to duplicate
         }
       }
       
@@ -1266,6 +1431,15 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       // Check if message was skipped (no WhatsApp)
       if (sendResult && sendResult.status === 'skipped') {
         console.warn(`⚠️ Message skipped: ${sendResult.reason} for ${phoneNumber}`);
+        
+        // Auto-tag: Message Not Sent (failed)
+        await autoTagContact(
+          contactId,
+          false, // messageSent = false
+          validToken,
+          ghlAccount.location_id,
+          ghlAccount
+        );
         
         // Send notification message back to GHL conversation
         try {
@@ -1305,6 +1479,15 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       }
       
       console.log('✅ Message sent successfully via Baileys');
+      
+      // Auto-tag: Message Sent (success)
+      await autoTagContact(
+        contactId,
+        true, // messageSent = true
+        validToken,
+        ghlAccount.location_id,
+        ghlAccount
+      );
       
       // Store outgoing message in local database
       try {
