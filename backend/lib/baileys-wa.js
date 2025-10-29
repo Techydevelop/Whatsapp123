@@ -655,7 +655,7 @@ class BaileysWhatsAppManager {
     }
   }
 
-  async sendMessage(sessionId, phoneNumber, message, messageType = 'text', mediaUrl = null) {
+  async sendMessage(sessionId, phoneNumber, message, messageType = 'text', mediaUrl = null, fileName = null) {
     try {
       const client = this.clients.get(sessionId);
       
@@ -687,42 +687,128 @@ class BaileysWhatsAppManager {
 
       let messageContent = {};
 
+      // Check if mediaUrl is a Buffer or string URL
+      const isBuffer = Buffer.isBuffer(mediaUrl);
+
       if (messageType === 'image' && mediaUrl) {
         // Send image
-        messageContent = {
-          image: { url: mediaUrl },
-          caption: message || ''
-        };
-        console.log(`🖼️ Sending image: ${mediaUrl}`);
+        if (isBuffer) {
+          messageContent = {
+            image: mediaUrl,
+            caption: message || ''
+          };
+          console.log(`🖼️ Sending image from buffer (${mediaUrl.length} bytes)`);
+        } else {
+          messageContent = {
+            image: { url: mediaUrl },
+            caption: message || ''
+          };
+          console.log(`🖼️ Sending image: ${mediaUrl}`);
+        }
       } else if (messageType === 'video' && mediaUrl) {
         // Send video
-        messageContent = {
-          video: { url: mediaUrl },
-          caption: message || ''
-        };
-        console.log(`🎥 Sending video: ${mediaUrl}`);
+        if (isBuffer) {
+          messageContent = {
+            video: mediaUrl,
+            caption: message || ''
+          };
+          console.log(`🎥 Sending video from buffer (${mediaUrl.length} bytes)`);
+        } else {
+          messageContent = {
+            video: { url: mediaUrl },
+            caption: message || ''
+          };
+          console.log(`🎥 Sending video: ${mediaUrl}`);
+        }
       } else if (messageType === 'voice' && mediaUrl) {
         // Send voice note
-        messageContent = {
-          audio: { url: mediaUrl },
-          ptt: true, // Push to talk (voice note)
-          mimetype: 'audio/ogg; codecs=opus'
-        };
-        console.log(`🎵 Sending voice note: ${mediaUrl}`);
+        if (isBuffer) {
+          messageContent = {
+            audio: mediaUrl,
+            ptt: true, // Push to talk (voice note)
+            mimetype: 'audio/ogg; codecs=opus'
+          };
+          console.log(`🎵 Sending voice note from buffer (${mediaUrl.length} bytes)`);
+        } else {
+          messageContent = {
+            audio: { url: mediaUrl },
+            ptt: true, // Push to talk (voice note)
+            mimetype: 'audio/ogg; codecs=opus'
+          };
+          console.log(`🎵 Sending voice note: ${mediaUrl}`);
+        }
+      } else if (messageType === 'audio' && mediaUrl) {
+        // Send audio file (not voice note)
+        if (isBuffer) {
+          messageContent = {
+            audio: mediaUrl,
+            mimetype: 'audio/mpeg'
+          };
+          console.log(`🎵 Sending audio from buffer (${mediaUrl.length} bytes)`);
+        } else {
+          messageContent = {
+            audio: { url: mediaUrl },
+            mimetype: 'audio/mpeg'
+          };
+          console.log(`🎵 Sending audio: ${mediaUrl}`);
+        }
       } else if (messageType === 'document' && mediaUrl) {
-        // Send document
-        messageContent = {
-          document: { url: mediaUrl },
-          mimetype: 'application/pdf',
-          fileName: 'document.pdf'
+        // Send document - use provided filename or detect from URL
+        const urlString = isBuffer ? '' : String(mediaUrl);
+        let docFileName = fileName || 'document.pdf';
+        let mimetype = 'application/pdf';
+        
+        // If filename was provided as parameter, use it; otherwise try to extract from URL
+        if (!fileName && urlString) {
+          // Try to extract filename from URL
+          const urlParts = urlString.split('/');
+          const lastPart = urlParts[urlParts.length - 1];
+          if (lastPart && lastPart.includes('.')) {
+            docFileName = lastPart.split('?')[0]; // Remove query params
+          }
+        }
+        
+        // Detect mimetype from extension
+        const ext = docFileName.split('.').pop().toLowerCase();
+        const mimeMap = {
+          'pdf': 'application/pdf',
+          'doc': 'application/msword',
+          'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'xls': 'application/vnd.ms-excel',
+          'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'txt': 'text/plain',
+          'csv': 'text/csv'
         };
-        console.log(`📄 Sending document: ${mediaUrl}`);
+        mimetype = mimeMap[ext] || 'application/octet-stream';
+        
+        if (isBuffer) {
+          messageContent = {
+            document: mediaUrl,
+            mimetype: mimetype,
+            fileName: docFileName
+          };
+          console.log(`📄 Sending document from buffer (${mediaUrl.length} bytes): ${docFileName}`);
+        } else {
+          messageContent = {
+            document: { url: mediaUrl },
+            mimetype: mimetype,
+            fileName: docFileName
+          };
+          console.log(`📄 Sending document: ${docFileName}`);
+        }
       } else if (messageType === 'sticker' && mediaUrl) {
         // Send sticker
-        messageContent = {
-          sticker: { url: mediaUrl }
-        };
-        console.log(`😊 Sending sticker: ${mediaUrl}`);
+        if (isBuffer) {
+          messageContent = {
+            sticker: mediaUrl
+          };
+          console.log(`😊 Sending sticker from buffer (${mediaUrl.length} bytes)`);
+        } else {
+          messageContent = {
+            sticker: { url: mediaUrl }
+          };
+          console.log(`😊 Sending sticker: ${mediaUrl}`);
+        }
       } else {
         // Send text message
         messageContent = { text: message };

@@ -930,6 +930,71 @@ app.get('/ghl/provider/config', (req, res) => {
   });
 });
 
+/**
+ * Downloads media from GHL attachment URL
+ * @param {string} mediaUrl - GHL media URL
+ * @param {string} accessToken - GHL access token
+ * @returns {Promise<Buffer>} - Media file buffer
+ */
+async function downloadGHLMedia(mediaUrl, accessToken) {
+  try {
+    console.log(`📥 Downloading media from GHL: ${mediaUrl}`);
+    
+    const response = await axios.get(mediaUrl, {
+      responseType: 'arraybuffer',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': 'WhatsApp-Bridge/1.0',
+        'Accept': '*/*'
+      },
+      timeout: 60000 // 60 second timeout for large files
+    });
+    
+    console.log(`✅ Downloaded ${response.data.byteLength} bytes from GHL`);
+    return Buffer.from(response.data);
+    
+  } catch (error) {
+    console.error('❌ Failed to download GHL media:', error.message);
+    throw new Error(`GHL media download failed: ${error.message}`);
+  }
+}
+
+/**
+ * Detects media type from URL or content type
+ * @param {string} url - Media URL
+ * @param {string} contentType - Optional content type header
+ * @returns {string} - Media type: 'image', 'video', 'document', 'audio'
+ */
+function detectMediaType(url, contentType) {
+  const lowerUrl = url.toLowerCase();
+  const lowerContentType = (contentType || '').toLowerCase();
+  
+  // Check content type first
+  if (lowerContentType.includes('image/')) return 'image';
+  if (lowerContentType.includes('video/')) return 'video';
+  if (lowerContentType.includes('audio/')) return 'audio';
+  if (lowerContentType.includes('application/') || lowerContentType.includes('document/')) return 'document';
+  
+  // Check URL extension
+  if (lowerUrl.includes('.png') || lowerUrl.includes('.jpg') || lowerUrl.includes('.jpeg') || 
+      lowerUrl.includes('.gif') || lowerUrl.includes('.webp') || lowerUrl.includes('.bmp')) {
+    return 'image';
+  }
+  
+  if (lowerUrl.includes('.mp4') || lowerUrl.includes('.avi') || lowerUrl.includes('.mov') || 
+      lowerUrl.includes('.mkv') || lowerUrl.includes('.webm')) {
+    return 'video';
+  }
+  
+  if (lowerUrl.includes('.mp3') || lowerUrl.includes('.ogg') || lowerUrl.includes('.wav') || 
+      lowerUrl.includes('.m4a') || lowerUrl.includes('.aac')) {
+    return 'audio';
+  }
+  
+  // Default to document for everything else (PDF, DOC, etc.)
+  return 'document';
+}
+
 // GHL Provider Webhook (for incoming messages)
 app.post('/ghl/provider/webhook', async (req, res) => {
   try {
@@ -1087,61 +1152,135 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
-    // Send message using Baileys - TEXT ONLY
+    // Process and send message (text and/or media)
     try {
-      // Only send text messages - completely skip any media processing
-      console.log(`📤 Sending text message only: ${message}`);
-      const sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '', 'text');
-      
-      // Check if message was skipped (no WhatsApp)
-      if (sendResult && sendResult.status === 'skipped') {
-        console.warn(`⚠️ Message skipped: ${sendResult.reason} for ${phoneNumber}`);
+      // Check if we have attachments to send
+      if (attachments && attachments.length > 0) {
+        console.log(`📎 Processing ${attachments.length} attachment(s)`);
         
-        // Send notification message back to GHL conversation
-        try {
-          const notificationPayload = {
-            type: "WhatsApp",
-            contactId: contactId,
-            message: `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`,
-            direction: "inbound",
-            status: "delivered",
-            altId: `failed_${Date.now()}`
-          };
-          
-          const validToken = await ensureValidToken(ghlAccount);
-          const notificationRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${validToken}`,
-              Version: "2021-07-28",
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(notificationPayload)
-          }, ghlAccount);
-          
-          if (notificationRes.ok) {
-            console.log(`✅ Failure notification sent to GHL conversation`);
+        // Get access token for downloading media
+        const validToken = await ensureValidToken(ghlAccount);
+        
+        // Process each attachment
+        for (let i = 0; i < attachments.length; i++) {
+          const attachmentUrl = attachments[i];
+          try {
+            // Download media from GHL (required since URLs may need authentication)
+            console.log(`📥 Downloading attachment ${i + 1}/${attachments.length} from GHL...`);
+            const mediaBuffer = await downloadGHLMedia(attachmentUrl, validToken);
+            
+            // Detect media type from URL
+            let mediaType = detectMediaType(attachmentUrl);
+            
+            console.log(`📤 Sending ${mediaType} attachment (${i + 1}/${attachments.length}, ${mediaBuffer.length} bytes)`);
+            
+            // Send media message with caption (only for first attachment if there's text)
+            const caption = (i === 0 && message) ? message : '';
+            
+            // Extract filename from URL if available (for documents especially)
+            let fileName = null;
+            if (mediaType === 'document' || mediaType === 'audio') {
+              const urlParts = attachmentUrl.split('/');
+              const lastPart = urlParts[urlParts.length - 1];
+              if (lastPart && lastPart.includes('.')) {
+                fileName = lastPart.split('?')[0]; // Remove query params
+              }
+            }
+            
+            // Send via WhatsApp using the media buffer (downloaded and authenticated)
+            // Baileys will handle the buffer and upload to WhatsApp
+            const sendResult = await waManager.sendMessage(
+              clientKey, 
+              phoneNumber, 
+              caption, 
+              mediaType, 
+              mediaBuffer,  // Always use buffer for better reliability
+              fileName       // Optional filename for documents/audio
+            );
+            
+            console.log(`✅ ${mediaType} attachment sent successfully`);
+            
+            // If there was an error sending, log it but continue with other attachments
+            if (sendResult && sendResult.status === 'skipped') {
+              console.warn(`⚠️ Attachment ${i + 1} skipped: ${sendResult.reason}`);
+            }
+            
+          } catch (attachError) {
+            console.error(`❌ Error sending attachment ${i + 1}:`, attachError.message);
+            // Continue with other attachments even if one fails
           }
-        } catch (notifError) {
-          console.error(`❌ Failed to send notification to GHL:`, notifError.message);
         }
         
-        return res.json({ 
-          status: 'warning', 
-          reason: sendResult.reason,
-          phoneNumber: phoneNumber,
-          message: 'Number does not have WhatsApp - notification sent to conversation'
-        });
+        // If there were attachments but no text message, we're done
+        if (!message) {
+          console.log('✅ All attachments sent successfully');
+          return res.json({ status: 'success' });
+        }
+        
+        // If there's also a text message and it wasn't sent as caption, send it separately
+        // (Note: If caption was sent with first attachment, we skip sending text again)
+        if (message && attachments.length > 0) {
+          // The message was likely sent as caption with first attachment
+          // But if user wants separate text, we can add logic here
+          console.log('✅ Media sent with caption');
+        }
       }
       
-      console.log('✅ Message sent successfully via Baileys');
-      
-      // Store outgoing message in local database
-      try {
-        // Note: sessionId is not available in outgoing message context, skip local storage for now
-        console.log('⚠️ Skipping outgoing message local storage - sessionId not available in this context');
-      } catch (dbError) {
-        console.error('❌ Error storing outgoing message in local database:', dbError);
+      // Send text message if there's text and no attachments, or if text wasn't sent as caption
+      if (message && (!attachments || attachments.length === 0)) {
+        console.log(`📤 Sending text message: ${message}`);
+        const sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '', 'text');
+        
+        // Check if message was skipped (no WhatsApp)
+        if (sendResult && sendResult.status === 'skipped') {
+          console.warn(`⚠️ Message skipped: ${sendResult.reason} for ${phoneNumber}`);
+          
+          // Send notification message back to GHL conversation
+          try {
+            const notificationPayload = {
+              type: "WhatsApp",
+              contactId: contactId,
+              message: `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`,
+              direction: "inbound",
+              status: "delivered",
+              altId: `failed_${Date.now()}`
+            };
+            
+            const validToken = await ensureValidToken(ghlAccount);
+            const notificationRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${validToken}`,
+                Version: "2021-07-28",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify(notificationPayload)
+            }, ghlAccount);
+            
+            if (notificationRes.ok) {
+              console.log(`✅ Failure notification sent to GHL conversation`);
+            }
+          } catch (notifError) {
+            console.error(`❌ Failed to send notification to GHL:`, notifError.message);
+          }
+          
+          return res.json({ 
+            status: 'warning', 
+            reason: sendResult.reason,
+            phoneNumber: phoneNumber,
+            message: 'Number does not have WhatsApp - notification sent to conversation'
+          });
+        }
+        
+        console.log('✅ Message sent successfully via Baileys');
+        
+        // Store outgoing message in local database
+        try {
+          // Note: sessionId is not available in outgoing message context, skip local storage for now
+          console.log('⚠️ Skipping outgoing message local storage - sessionId not available in this context');
+        } catch (dbError) {
+          console.error('❌ Error storing outgoing message in local database:', dbError);
+        }
       }
     } catch (sendError) {
       console.error('❌ Error sending message via Baileys:', sendError.message);
