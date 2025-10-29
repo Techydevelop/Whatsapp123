@@ -847,12 +847,38 @@ class BaileysWhatsAppManager {
     try {
       const client = this.clients.get(sessionId);
       if (client && client.socket) {
-        await client.socket.logout();
+        console.log(`🔌 Disconnecting WhatsApp session: ${sessionId}`);
+        
+        // Properly logout from WhatsApp (disconnects from mobile)
+        try {
+          await client.socket.logout();
+          console.log(`✅ Logged out from WhatsApp successfully`);
+        } catch (logoutError) {
+          console.warn(`⚠️ Logout error (may already be logged out): ${logoutError.message}`);
+        }
+        
+        // End socket connection
+        try {
+          if (client.socket.end) {
+            client.socket.end();
+          }
+        } catch (endError) {
+          console.warn(`⚠️ Error ending socket: ${endError.message}`);
+        }
+        
+        // Remove from clients map
         this.clients.delete(sessionId);
-        console.log(`🔌 Disconnected client for session: ${sessionId}`);
+        console.log(`✅ Client removed from memory for session: ${sessionId}`);
+      } else {
+        console.log(`⚠️ No client found for session: ${sessionId}`);
       }
     } catch (error) {
       console.error(`❌ Error disconnecting client for session ${sessionId}:`, error);
+      // Even if error, remove from clients map
+      if (this.clients.has(sessionId)) {
+        this.clients.delete(sessionId);
+        console.log(`🗑️ Removed client from memory despite error`);
+      }
     }
   }
   

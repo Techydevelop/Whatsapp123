@@ -236,20 +236,34 @@ export default function Dashboard() {
     }
     
     try {
+      console.log(`🔌 Logging out session for location: ${locationId}`)
       const response = await apiCall(`${API_BASE_URL}/ghl/location/${locationId}/session/logout`, {
         method: 'POST'
       })
 
       if (response.ok) {
-        setNotification({ type: 'success', message: '✅ WhatsApp session logged out successfully!' })
+        const data = await response.json()
+        console.log('✅ Logout response:', data)
+        setNotification({ type: 'success', message: data.message || '✅ WhatsApp session logged out successfully!' })
+        // Refresh the locations list to reflect the disconnected status
         await fetchGHLLocations(false)
       } else {
-        const errorData = await response.json()
-        setNotification({ type: 'error', message: `❌ Failed to logout: ${errorData.error || 'Unknown error'}` })
+        let errorMessage = 'Unknown error'
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorMessage
+        } catch (parseError) {
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        }
+        console.error('❌ Logout failed:', errorMessage)
+        setNotification({ type: 'error', message: `❌ Failed to logout: ${errorMessage}` })
       }
     } catch (error) {
-      console.error('Error logging out session:', error)
-      setNotification({ type: 'error', message: '❌ Failed to logout session. Please try again.' })
+      console.error('❌ Error logging out session:', error)
+      setNotification({ 
+        type: 'error', 
+        message: `❌ Failed to logout session: ${error instanceof Error ? error.message : 'Network error. Please try again.'}` 
+      })
     }
   }
 

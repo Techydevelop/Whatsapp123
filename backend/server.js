@@ -1010,6 +1010,18 @@ app.post('/ghl/provider/webhook', async (req, res) => {
   try {
     console.log('GHL Provider Webhook:', req.body);
     
+    // Change 3: Prevent duplicate processing - skip InboundMessage types
+    if (req.body.type === 'InboundMessage') {
+      console.log('⏭️ Skipping our own inbound message to prevent loops');
+      return res.json({ status: 'skipped', reason: 'inbound_message_echo' });
+    }
+    
+    // Continue processing only OutboundMessage types
+    if (req.body.type !== 'OutboundMessage' && req.body.type !== 'SMS') {
+      console.log(`⏭️ Skipping webhook type: ${req.body.type}`);
+      return res.json({ status: 'skipped', reason: `unsupported_type_${req.body.type}` });
+    }
+    
     const { locationId, message, contactId, phone, attachments = [] } = req.body;
     
     // Check if this is a duplicate message (prevent echo)
@@ -1644,10 +1656,12 @@ app.post('/whatsapp/webhook', async (req, res) => {
               // Get the accessible media URL from GHL response
               const accessibleUrl = ghlResponse.url || 'Media URL not available';
               
-              // Send ONLY the media URL as message content (no extra text)
-              finalMessage = accessibleUrl;
+              // Change 1: Send media as attachment, not as text message
+              // Use a descriptive message and put URL in attachments array
+              finalMessage = `🖼️ ${getMediaMessageText(messageType)}`;
+              attachments.push(accessibleUrl);
               
-              console.log(`📤 Sending media URL as message: ${accessibleUrl}`);
+              console.log(`📤 Sending ${messageType} as attachment: ${accessibleUrl}`);
               
             } catch (uploadError) {
               console.error(`❌ Media upload failed:`, uploadError.message);
@@ -1657,9 +1671,10 @@ app.post('/whatsapp/webhook', async (req, res) => {
                 console.log(`🔄 Sending media URL as attachment instead...`);
                 
       const payload = {
-        type: "WhatsApp",
+        type: "SMS",  // Changed to SMS for workflow triggers
+        conversationProviderId: providerId,  // Required for workflows
         contactId: contactId,
-        message: `${getMediaMessageText(messageType)}\n\nMedia URL: ${mediaUrl}`,
+        message: `🖼️ ${getMediaMessageText(messageType)}`,
         direction: "inbound",
         status: "delivered",
         altId: whatsappMsgId,
@@ -1697,8 +1712,10 @@ app.post('/whatsapp/webhook', async (req, res) => {
           }
         }
         
+        // Change 2: Fix inbound message payload - add conversationProviderId and change type to SMS
         const payload = {
-          type: "WhatsApp",
+          type: "SMS",  // Changed from "WhatsApp" to "SMS" for workflow triggers
+          conversationProviderId: providerId,  // Required for workflows
           contactId: contactId,
           message: finalMessage,
           direction: "inbound",
@@ -1706,10 +1723,8 @@ app.post('/whatsapp/webhook', async (req, res) => {
           altId: whatsappMsgId || `wa_${Date.now()}` // idempotency
         };
         
-        // Only add attachments if we have them
-        if (attachments.length > 0) {
-          payload.attachments = attachments;
-        }
+        // Always include attachments array (empty if no attachments)
+        payload.attachments = attachments || [];
       
       console.log(`📤 Sending to GHL SMS Provider:`, JSON.stringify(payload, null, 2));
       console.log(`🔑 Using Provider ID:`, providerId);
@@ -3231,22 +3246,45 @@ app.post('/ghl/location/:locationId/session/logout', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    // Disconnect WhatsApp client
+    // Disconnect WhatsApp client FIRST (this will logout from mobile)
     const cleanSubaccountId = ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const sessionName = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    await waManager.disconnectClient(sessionName);
     
-    // Clear session data (removes auth files)
-    waManager.clearSessionData(sessionName);
+    console.log(`🔌 Disconnecting WhatsApp session: ${sessionName}`);
     
-    // Delete session from database completely
+    // Step 1: Update database status to disconnected first
+    await supabaseAdmin
+      .from('sessions')
+      .update({ status: 'disconnected' })
+      .eq('id', session.id);
+    console.log(`📊 Database status updated to disconnected`);
+    
+    // Step 2: Disconnect from WhatsApp (this logs out from mobile)
+    try {
+      await waManager.disconnectClient(sessionName);
+      console.log(`✅ WhatsApp disconnected from mobile`);
+    } catch (disconnectError) {
+      console.error(`⚠️ Error disconnecting WhatsApp: ${disconnectError.message}`);
+      // Continue with cleanup even if disconnect fails
+    }
+    
+    // Step 3: Clear session data (removes auth files)
+    try {
+      waManager.clearSessionData(sessionName);
+      console.log(`🗑️ Session data cleared from disk`);
+    } catch (clearError) {
+      console.error(`⚠️ Error clearing session data: ${clearError.message}`);
+    }
+    
+    // Step 4: Delete session from database completely (after disconnect)
     await supabaseAdmin
       .from('sessions')
       .delete()
       .eq('id', session.id);
+    console.log(`🗑️ Session deleted from database`);
 
-    console.log(`✅ Session logged out for location: ${locationId}`);
-    res.json({ status: 'success', message: 'Session logged out successfully' });
+    console.log(`✅ Session logged out successfully for location: ${locationId}`);
+    res.json({ status: 'success', message: 'Session logged out successfully and disconnected from WhatsApp' });
   } catch (error) {
     console.error('Logout session error:', error);
     res.status(500).json({ error: 'Failed to logout session' });
