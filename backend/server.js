@@ -1277,8 +1277,10 @@ app.post('/ghl/provider/webhook', async (req, res) => {
         
         // Send notification message back to GHL conversation
         try {
+          const providerId = getProviderId();
           const notificationPayload = {
-            type: "WhatsApp",
+            type: "SMS",  // Changed to SMS for workflow triggers
+            conversationProviderId: providerId,  // Required for workflows
             contactId: contactId,
             message: `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`,
             direction: "inbound",
@@ -1327,8 +1329,10 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       
       // Send error notification to GHL conversation
       try {
+        const providerId = getProviderId();
         const errorPayload = {
-          type: "WhatsApp",
+          type: "SMS",  // Changed to SMS for workflow triggers
+          conversationProviderId: providerId,  // Required for workflows
           contactId: contactId,
           message: `⚠️ Message delivery failed\n\n❌ Error: ${sendError.message}\n\n💡 Please check the phone number and try again.`,
           direction: "inbound",
