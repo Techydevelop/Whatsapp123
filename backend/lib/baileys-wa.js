@@ -974,9 +974,23 @@ class BaileysWhatsAppManager {
     try {
       console.log(`📱 Requesting pairing code for ${phoneNumber} in session: ${sessionId}`);
       
-      const client = this.clients.get(sessionId);
+      // Ensure client exists, create if needed
+      let client = this.clients.get(sessionId);
       if (!client || !client.socket) {
-        throw new Error('Client not found or not connected');
+        console.log(`🔄 Client not found for ${sessionId}, creating new client...`);
+        await this.createClient(sessionId);
+        // Wait for client to initialize
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        client = this.clients.get(sessionId);
+      }
+
+      if (!client || !client.socket) {
+        throw new Error('Failed to create or initialize client');
+      }
+
+      // Check if requestPairingCode is available
+      if (typeof client.socket.requestPairingCode !== 'function') {
+        throw new Error('Pairing code not supported by this Baileys version. Please update Baileys.');
       }
 
       // Ensure phone number is in E.164 format without +
@@ -998,10 +1012,15 @@ class BaileysWhatsAppManager {
       
       // Wait for connection to be in connecting state or QR available
       const connectionStatus = this.getClientStatus(sessionId);
-      if (connectionStatus && connectionStatus.status !== 'connecting' && !this.qrCodes.has(sessionId)) {
+      if (connectionStatus && connectionStatus.status !== 'connecting' && !connectionStatus.hasQR) {
         console.log(`⏳ Waiting for connection state...`);
         // Wait a bit for connection to stabilize
         await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      // Verify socket is still available before calling
+      if (!client.socket || typeof client.socket.requestPairingCode !== 'function') {
+        throw new Error('Socket not ready for pairing code request');
       }
       
       const pairingCode = await client.socket.requestPairingCode(formattedPhoneNumber);
