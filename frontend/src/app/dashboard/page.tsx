@@ -530,45 +530,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Simple Analytics row like reference */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-          <h3 className="text-sm font-medium text-gray-900 mb-4">Project Analytics</h3>
-          <div className="grid grid-cols-7 gap-2 h-24 items-end">
-            {[12, 40, 28, 64, 52, 20, 36].map((h, i) => (
-              <div key={i} className="bg-emerald-200 rounded-md" style={{ height: `${h}%` }} />
-            ))}
-          </div>
-          <div className="mt-3 flex justify-between text-xs text-gray-400">
-            {['S','M','T','W','T','F','S'].map(d => (<span key={d}>{d}</span>))}
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-          <h3 className="text-sm font-medium text-gray-900 mb-4">Reminders</h3>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-gray-800 font-medium">Scan QR to connect WhatsApp</p>
-              <p className="text-xs text-gray-500">Time: 02:00 pm - 04:00 pm</p>
-            </div>
-            <button onClick={() => window.open('/dashboard/add-subaccount', '_self')} className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700">
-              Start
-            </button>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-          <h3 className="text-sm font-medium text-gray-900 mb-4">Project</h3>
-          <ul className="space-y-3 text-sm">
-            <li className="flex items-center justify-between">
-              <span className="text-gray-700">Connect new GHL location</span>
-              <span className="text-xs text-gray-400">Due: Soon</span>
-            </li>
-            <li className="flex items-center justify-between">
-              <span className="text-gray-700">Activate WhatsApp session</span>
-              <span className="text-xs text-gray-400">Pending</span>
-            </li>
-          </ul>
-        </div>
-      </div>
+      {/* Optional analytics row removed per request */}
 
       {/* Main Table Card */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200">

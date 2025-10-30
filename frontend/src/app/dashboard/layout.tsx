@@ -3,6 +3,8 @@
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
+import Image from 'next/image'
+import { useState } from 'react'
 
 export default function DashboardLayout({
   children,
@@ -11,6 +13,7 @@ export default function DashboardLayout({
 }) {
   const { user, loading, logout } = useAuth()
   const pathname = usePathname()
+  const [logoError, setLogoError] = useState(false)
 
   if (loading) {
     return (
@@ -88,7 +91,11 @@ export default function DashboardLayout({
           <div className="flex justify-between h-16">
             <div className="flex items-center">
               <div className="flex items-center space-x-3">
-                <img src="/octendr.png" alt="Octendr" className="h-8 w-8 rounded-lg shadow" />
+                {logoError ? (
+                  <div className="h-8 w-8 rounded-lg shadow bg-emerald-600 text-white flex items-center justify-center font-semibold">O</div>
+                ) : (
+                  <Image src="/octendr.png" alt="Octendr" width={32} height={32} className="h-8 w-8 rounded-lg shadow object-cover" priority onError={() => setLogoError(true)} />
+                )}
                 <div>
                   <h1 className="text-xl font-bold text-gray-900">Octendr</h1>
                   <p className="text-xs text-gray-500">WhatsApp GHL Integration</p>
