@@ -169,7 +169,26 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       {/* Left characters */}
-      <div className="relative hidden lg:flex flex-col justify-between bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-600 p-12 text-white">
+      <div className="relative hidden lg:flex flex-col justify-between bg-gradient-to-br from-emerald-700 via-emerald-600 to-cyan-600 p-12 text-white">
+        {/* Polished gradient backdrop with animated blob */}
+        <svg className="absolute inset-0 w-full h-full opacity-50" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#34d399" />
+              <stop offset="100%" stopColor="#06b6d4" />
+            </linearGradient>
+            <filter id="softBlur"><feGaussianBlur in="SourceGraphic" stdDeviation="40" /></filter>
+          </defs>
+          <path fill="url(#lg)" filter="url(#softBlur)">
+            <animate attributeName="d" dur="14s" repeatCount="indefinite"
+              values="M587,420Q581,500,520,560Q459,620,380,606Q301,592,244,540Q187,488,165,408Q143,328,189,259Q235,190,309,162Q383,134,454,165Q525,196,572,253Q619,310,587,420Z;
+                      M596,408Q559,500,492,568Q425,636,337,611Q249,586,212,506Q175,426,177,340Q179,254,246,201Q313,148,398,150Q483,152,543,208Q603,264,613,332Q623,400,596,408Z;
+                      M587,420Q581,500,520,560Q459,620,380,606Q301,592,244,540Q187,488,165,408Q143,328,189,259Q235,190,309,162Q383,134,454,165Q525,196,572,253Q619,310,587,420Z" />
+          </path>
+        </svg>
+        {/* Radial highlights */}
+        <div className="pointer-events-none absolute -top-10 -left-10 w-[420px] h-[420px] rounded-full bg-white/10 blur-3xl" />
+        <div className="pointer-events-none absolute bottom-10 right-10 w-[520px] h-[520px] rounded-full bg-cyan-200/10 blur-3xl" />
         <div className="relative z-20 flex items-end justify-center h-[500px]">
           <div className="relative" style={{ width: '550px', height: '400px' }}>
             {/* Purple */}
@@ -208,20 +227,26 @@ export default function LoginPage() {
 
       {/* Right login */}
       <div className="flex items-center justify-center p-8 bg-gray-50">
-        <div className="w-full max-w-[420px]">
+        <div className="w-full max-w-[440px] rounded-2xl bg-white/80 backdrop-blur shadow-xl ring-1 ring-gray-200 p-8">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold tracking-tight mb-2">Welcome back!</h1>
+            <h1 className="text-3xl font-extrabold tracking-tight mb-2 bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-cyan-600">Welcome back!</h1>
             <p className="text-gray-500 text-sm">Please enter your details</p>
+            <div className="mx-auto mt-3 h-1 w-16 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500" />
           </div>
-          <form onSubmit={handleLogin} className="space-y-5">
+          <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium">Email</label>
-              <input id="email" type="email" placeholder="you@example.com" value={email} autoComplete="off" onChange={(e) => setEmail(e.target.value)} onFocus={() => setIsTyping(true)} onBlur={() => setIsTyping(false)} required className="h-12 w-full rounded-md border border-gray-300 bg-white px-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              <label htmlFor="email" className="text-sm font-medium text-gray-700">Email</label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zM2 20a10 10 0 1120 0v1H2v-1z"/></svg>
+                </span>
+                <input id="email" type="email" placeholder="you@example.com" value={email} autoComplete="off" onChange={(e) => setEmail(e.target.value)} onFocus={() => setIsTyping(true)} onBlur={() => setIsTyping(false)} required className="h-12 w-full rounded-lg border-0 ring-1 ring-gray-300 bg-white pl-10 pr-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder:text-gray-400" />
+              </div>
             </div>
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium">Password</label>
+              <label htmlFor="password" className="text-sm font-medium text-gray-700">Password</label>
               <div className="relative">
-                <input id="password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required className="h-12 w-full rounded-md border border-gray-300 bg-white pr-10 px-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                <input id="password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required className="h-12 w-full rounded-lg border-0 ring-1 ring-gray-300 bg-white pr-10 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700">
                   {showPassword ? (
                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-5.523 0-10-5-10-7s4.477-7 10-7c1.01 0 1.99.143 2.91.41M3 3l18 18"/></svg>
@@ -232,7 +257,10 @@ export default function LoginPage() {
               </div>
             </div>
             {error && <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">{error}</div>}
-            <button type="submit" disabled={isLoading} className="w-full h-12 rounded-xl text-white font-semibold bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 shadow disabled:opacity-50">{isLoading ? 'Signing in...' : 'Log in'}</button>
+            <button type="submit" disabled={isLoading} className="group relative w-full h-12 rounded-xl text-white font-semibold bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 shadow-lg hover:shadow-emerald-500/30 hover:from-emerald-600 hover:via-teal-600 hover:to-cyan-700 transition-shadow disabled:opacity-50">
+              <span className="absolute inset-0 rounded-xl bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+              {isLoading ? 'Signing in...' : 'Log in'}
+            </button>
           </form>
         </div>
       </div>
