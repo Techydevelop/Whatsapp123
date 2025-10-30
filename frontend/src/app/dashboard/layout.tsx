@@ -40,6 +40,16 @@ export default function DashboardLayout({
       )
     },
     { 
+      name: 'Analytics', 
+      href: '/dashboard/analytics', 
+      current: pathname === '/dashboard/analytics',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3v18M6 13v8M16 8v13M21 5v16" />
+        </svg>
+      )
+    },
+    { 
       name: 'Accounts', 
       href: '/dashboard', 
       current: pathname === '/dashboard',
@@ -82,7 +92,7 @@ export default function DashboardLayout({
   ]
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen overflow-hidden bg-gray-50">
       {/* Top Navigation */}
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -100,13 +110,13 @@ export default function DashboardLayout({
             </div>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-3 px-3 py-2 bg-gray-50 rounded-lg">
-                <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-md">
+                <div className="w-9 h-9 bg-gradient-to-br from-emerald-500 to-indigo-600 rounded-full flex items-center justify-center shadow-md">
                   <span className="text-sm font-semibold text-white">
-                    {user?.email?.charAt(0).toUpperCase()}
-              </span>
+                    {(user?.name || user?.email)?.charAt(0).toUpperCase()}
+                  </span>
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">{user?.email}</p>
+                  <p className="text-sm font-semibold text-gray-900">{(user?.name && user.name.trim()) || (user?.email?.split('@')[0]) || 'User'} <span className="text-gray-400">·</span> <span className="text-gray-700">{user?.email}</span></p>
                   <p className="text-xs text-gray-500">Administrator</p>
                 </div>
               </div>
@@ -124,7 +134,7 @@ export default function DashboardLayout({
         </div>
       </nav>
 
-      <div className="flex h-[calc(100vh-64px)]">
+      <div className="flex h-[calc(100vh-64px)] overflow-hidden">
           {/* Sidebar */}
         <aside className="w-64 bg-white border-r border-gray-200 overflow-y-auto">
           <div className="p-4">

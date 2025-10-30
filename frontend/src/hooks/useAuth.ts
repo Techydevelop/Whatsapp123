@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
 
 interface User {
   id: string
   email: string
-  name: string
+  name?: string
 }
 
 export function useAuth() {
@@ -13,15 +14,38 @@ export function useAuth() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const userData = localStorage.getItem('user')
+    const init = async () => {
+      const userData = localStorage.getItem('user')
 
-    if (!userData) {
-      router.push('/login')
-      return
+      if (!userData) {
+        router.push('/login')
+        return
+      }
+
+      const parsed = JSON.parse(userData) as User
+      setUser(parsed)
+
+      // Fetch fresh profile from database to ensure we have latest name/email
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('id, name, email')
+          .eq('id', parsed.id)
+          .maybeSingle()
+
+        if (data) {
+          const refreshed: User = { id: data.id, name: (data as any).name, email: data.email }
+          setUser(refreshed)
+          localStorage.setItem('user', JSON.stringify(refreshed))
+        }
+      } catch {
+        // ignore; keep local values
+      } finally {
+        setLoading(false)
+      }
     }
 
-    setUser(JSON.parse(userData))
-    setLoading(false)
+    void init()
   }, [router])
 
   const logout = async () => {
