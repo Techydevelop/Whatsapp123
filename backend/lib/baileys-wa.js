@@ -302,13 +302,19 @@ class BaileysWhatsAppManager {
       socket.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr, isNewLogin, isOnline } = update;
         
+        // Check if this session is waiting for pairing code
+        const clientInfo = this.clients.get(sessionId);
+        const isWaitingForPairing = clientInfo?.pairingCodeRequested;
+        
         console.log(`🔄 Connection update for ${sessionId}:`, { 
           connection, 
           hasQR: !!qr, 
           isNewLogin, 
           isOnline,
           lastDisconnect: lastDisconnect?.error?.message,
-          stable: connectionStable
+          stable: connectionStable,
+          waitingForPairingCode: isWaitingForPairing,
+          pairingCode: clientInfo?.pairingCode
         });
         
       if (qr) {
@@ -399,6 +405,13 @@ class BaileysWhatsAppManager {
           
           // Immediate connection - no stability delay
           connectionStable = true;
+          
+          // Clear pairing code keepalive if it exists
+          if (existingClient?.pairingKeepAliveInterval) {
+            clearInterval(existingClient.pairingKeepAliveInterval);
+            console.log(`🧹 Cleared pairing code keepalive interval`);
+          }
+          
           this.clients.set(sessionId, {
             socket,
             qr: null,
@@ -426,12 +439,31 @@ class BaileysWhatsAppManager {
           }, 30000); // Update every 30 seconds
         } else if (connection === 'connecting') {
           console.log(`🔄 Connecting session: ${sessionId}`);
-          this.clients.set(sessionId, {
-            socket,
-            qr: null,
-            status: 'connecting',
-            lastUpdate: Date.now()
-          });
+          const currentClient = this.clients.get(sessionId);
+          
+          // If waiting for pairing code, preserve pairing code info
+          if (currentClient?.pairingCodeRequested) {
+            console.log(`⏳ Still connecting... waiting for pairing code completion`);
+            this.clients.set(sessionId, {
+              ...currentClient,
+              socket,
+              qr: null,
+              status: 'connecting',
+              lastUpdate: Date.now()
+            });
+          } else {
+            this.clients.set(sessionId, {
+              socket,
+              qr: null,
+              status: 'connecting',
+              lastUpdate: Date.now()
+            });
+          }
+        }
+        
+        // Log any connection state change when waiting for pairing code
+        if (isWaitingForPairing && connection) {
+          console.log(`🔔 Pairing code session state change: ${connection} (waiting for completion)`);
         }
       });
 
@@ -1039,18 +1071,65 @@ class BaileysWhatsAppManager {
       
       const pairingCode = await client.socket.requestPairingCode(formattedPhoneNumber);
       console.log(`✅ Pairing code generated: ${pairingCode}`);
+      console.log(`⏳ Waiting for user to enter pairing code in WhatsApp...`);
+      console.log(`📱 Socket connection state: ${client.socket?.user ? 'authenticated' : 'pending'}`);
+      console.log(`🔌 Socket connected: ${client.socket?.ws?.readyState === 1 ? 'yes' : 'no'}`);
       
       // Ensure client is in 'connecting' state so it can receive connection.open event
       if (this.clients.has(sessionId)) {
         const currentClient = this.clients.get(sessionId);
         this.clients.set(sessionId, {
           ...currentClient,
+          socket: client.socket, // Ensure socket reference is kept
           status: 'connecting',
           lastUpdate: Date.now(),
           pairingCodeRequested: true,
-          pairingCodePhone: formattedPhoneNumber
+          pairingCodePhone: formattedPhoneNumber,
+          pairingCode: pairingCode,
+          pairingCodeGeneratedAt: Date.now()
         });
         console.log(`📱 Client status set to 'connecting' and ready for pairing code completion`);
+        console.log(`⏰ Client will wait for connection.update event with connection === 'open'`);
+        
+        // Add explicit listener for pairing code completion (additional safety)
+        if (client.socket && client.socket.ev) {
+          console.log(`👂 Event listener is active, will catch connection.update events`);
+        }
+        
+        // Start a keepalive check for pairing code sessions (prevent timeout)
+        const pairingKeepAlive = setInterval(() => {
+          const checkClient = this.clients.get(sessionId);
+          if (checkClient?.pairingCodeRequested && checkClient.status === 'connecting') {
+            // Keep socket alive by updating lastUpdate
+            checkClient.lastUpdate = Date.now();
+            
+            // Verify socket is still connected
+            if (checkClient.socket?.ws) {
+              const wsState = checkClient.socket.ws.readyState;
+              if (wsState === 1) { // WebSocket.OPEN
+                console.log(`💓 Pairing code session keepalive: socket still connected`);
+              } else {
+                console.log(`⚠️ Pairing code session socket state: ${wsState} (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)`);
+              }
+            }
+            
+            // Check how long we've been waiting
+            const waitTime = Date.now() - (checkClient.pairingCodeGeneratedAt || Date.now());
+            if (waitTime > 300000) { // 5 minutes
+              console.log(`⏰ Pairing code session waiting for ${Math.round(waitTime/1000)}s - still active`);
+            }
+          } else {
+            // Stop keepalive if connected or no longer waiting
+            clearInterval(pairingKeepAlive);
+            console.log(`✅ Stopped pairing code keepalive - status changed`);
+          }
+        }, 10000); // Check every 10 seconds
+        
+        // Store interval ID for cleanup
+        if (!currentClient.pairingKeepAliveInterval) {
+          currentClient.pairingKeepAliveInterval = pairingKeepAlive;
+          this.clients.set(sessionId, currentClient);
+        }
       }
       
       return {
