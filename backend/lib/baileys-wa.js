@@ -371,17 +371,30 @@ class BaileysWhatsAppManager {
           }
         } else if (connection === 'open') {
           connectionOpenTime = Date.now();
-          console.log(`✅ WhatsApp connected for session: ${sessionId}`);
-          console.log(`📱 Phone number: ${socket.user?.id?.split(':')[0] || 'Unknown'}`);
+          const phoneNumber = socket.user?.id?.split(':')[0] || 'Unknown';
+          
+          // Check if this was a pairing code connection
+          const existingClient = this.clients.get(sessionId);
+          const isPairingCodeConnection = existingClient?.pairingCodeRequested;
+          
+          if (isPairingCodeConnection) {
+            console.log(`✅ WhatsApp connected via PAIRING CODE for session: ${sessionId}`);
+            console.log(`📱 Pairing code phone: ${existingClient.pairingCodePhone}`);
+          } else {
+            console.log(`✅ WhatsApp connected for session: ${sessionId}`);
+          }
+          console.log(`📱 Phone number: ${phoneNumber}`);
           
           // Set temporary status as 'connecting' until stable
           this.clients.set(sessionId, {
             socket,
             qr: null,
             status: 'connecting',
-            phoneNumber: socket.user?.id?.split(':')[0],
+            phoneNumber: phoneNumber,
             lastUpdate: Date.now(),
-            connectedAt: Date.now()
+            connectedAt: Date.now(),
+            pairingCodeRequested: isPairingCodeConnection || false,
+            pairingCodePhone: existingClient?.pairingCodePhone
           });
           
           // Immediate connection - no stability delay
@@ -390,7 +403,7 @@ class BaileysWhatsAppManager {
             socket,
             qr: null,
             status: 'connected',
-            phoneNumber: socket.user?.id?.split(':')[0],
+            phoneNumber: phoneNumber,
             lastUpdate: Date.now(),
             connectedAt: Date.now()
           });
@@ -399,7 +412,8 @@ class BaileysWhatsAppManager {
           console.log(`🔒 Status set to 'connected' for session: ${sessionId}`);
           
           // Update database status immediately
-          this.updateDatabaseStatus(sessionId, 'ready', socket.user?.id?.split(':')[0]);
+          console.log(`📊 Updating database status to 'ready' for session: ${sessionId}`);
+          this.updateDatabaseStatus(sessionId, 'ready', phoneNumber);
           
           // Update lastUpdate periodically to keep connection alive
           setInterval(() => {
@@ -1025,6 +1039,19 @@ class BaileysWhatsAppManager {
       
       const pairingCode = await client.socket.requestPairingCode(formattedPhoneNumber);
       console.log(`✅ Pairing code generated: ${pairingCode}`);
+      
+      // Ensure client is in 'connecting' state so it can receive connection.open event
+      if (this.clients.has(sessionId)) {
+        const currentClient = this.clients.get(sessionId);
+        this.clients.set(sessionId, {
+          ...currentClient,
+          status: 'connecting',
+          lastUpdate: Date.now(),
+          pairingCodeRequested: true,
+          pairingCodePhone: formattedPhoneNumber
+        });
+        console.log(`📱 Client status set to 'connecting' and ready for pairing code completion`);
+      }
       
       return {
         success: true,
