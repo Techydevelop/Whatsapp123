@@ -35,7 +35,7 @@ export default function SettingsPage() {
       const updated = { ...u, name }
       localStorage.setItem('user', JSON.stringify(updated))
       showToast({ type: 'success', title: 'Profile updated', message: 'Your display name was updated.' })
-    } catch (err) {
+    } catch {
       showToast({ type: 'error', title: 'Update failed', message: 'Could not update profile locally.' })
     } finally {
       setSavingProfile(false)
@@ -60,7 +60,7 @@ export default function SettingsPage() {
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
-    } catch (err) {
+    } catch {
       showToast({ type: 'error', title: 'Change failed', message: 'Could not change password.' })
     } finally {
       setSavingPassword(false)

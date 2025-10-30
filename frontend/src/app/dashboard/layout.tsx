@@ -68,6 +68,16 @@ export default function DashboardLayout({
         </svg>
       )
     },
+    { 
+      name: 'Settings', 
+      href: '/dashboard/settings', 
+      current: pathname === '/dashboard/settings',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-1.14 1.951-1.14 2.25 0a1.724 1.724 0 002.573 1.066c1.003-.59 2.18.588 1.59 1.59a1.724 1.724 0 001.066 2.573c1.14.3 1.14 1.951 0 2.25a1.724 1.724 0 00-1.066 2.573c.59 1.003-.588 2.18-1.59 1.59a1.724 1.724 0 00-2.573 1.066c-.3 1.14-1.951 1.14-2.25 0a1.724 1.724 0 00-2.573-1.066c-1.003.59-2.18-.588-1.59-1.59a1.724 1.724 0 00-1.066-2.573c-1.14-.3-1.14-1.951 0-2.25a1.724 1.724 0 001.066-2.573c-.59-1.003.588-2.18 1.59-1.59.94.553 2.12.09 2.573-1.066z" />
+        </svg>
+      )
+    },
   ]
 
   return (

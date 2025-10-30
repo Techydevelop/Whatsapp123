@@ -252,7 +252,7 @@ export default function Dashboard() {
         try {
           const errorData = await response.json()
           errorMessage = errorData.error || errorMessage
-        } catch (parseError) {
+        } catch {
           errorMessage = `HTTP ${response.status}: ${response.statusText}`
         }
         console.error('❌ Logout failed:', errorMessage)
@@ -399,6 +399,51 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
+      {/* Page Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-sm text-gray-500 mt-1">Plan, monitor, and manage your WhatsApp + GHL connections.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="relative w-72 hidden md:block">
+            <input
+              type="text"
+              placeholder="Search..."
+              className="w-full pl-10 pr-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+            <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          {/* Keep your existing buttons */}
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          >
+            <svg className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </button>
+          <button
+            onClick={() => {
+              if (userSubscription && userSubscription.currentSubaccounts >= userSubscription.maxSubaccounts) {
+                setShowUpgradeModal(true)
+              } else {
+                window.location.href = '/dashboard/add-subaccount'
+              }
+            }}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+          >
+            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Add Account
+          </button>
+        </div>
+      </div>
       {/* Trial Banner */}
       {userSubscription && (
         <TrialBanner
@@ -420,7 +465,7 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Header Stats */}
+      {/* Header Stats - reference style */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="rounded-2xl p-6 border border-transparent bg-gradient-to-br from-emerald-50 to-white shadow-sm">
           <div className="flex items-center justify-between">
@@ -482,6 +527,46 @@ export default function Dashboard() {
               </svg>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Simple Analytics row like reference */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+          <h3 className="text-sm font-medium text-gray-900 mb-4">Project Analytics</h3>
+          <div className="grid grid-cols-7 gap-2 h-24 items-end">
+            {[12, 40, 28, 64, 52, 20, 36].map((h, i) => (
+              <div key={i} className="bg-emerald-200 rounded-md" style={{ height: `${h}%` }} />
+            ))}
+          </div>
+          <div className="mt-3 flex justify-between text-xs text-gray-400">
+            {['S','M','T','W','T','F','S'].map(d => (<span key={d}>{d}</span>))}
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+          <h3 className="text-sm font-medium text-gray-900 mb-4">Reminders</h3>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-800 font-medium">Scan QR to connect WhatsApp</p>
+              <p className="text-xs text-gray-500">Time: 02:00 pm - 04:00 pm</p>
+            </div>
+            <button onClick={() => window.open('/dashboard/add-subaccount', '_self')} className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700">
+              Start
+            </button>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+          <h3 className="text-sm font-medium text-gray-900 mb-4">Project</h3>
+          <ul className="space-y-3 text-sm">
+            <li className="flex items-center justify-between">
+              <span className="text-gray-700">Connect new GHL location</span>
+              <span className="text-xs text-gray-400">Due: Soon</span>
+            </li>
+            <li className="flex items-center justify-between">
+              <span className="text-gray-700">Activate WhatsApp session</span>
+              <span className="text-xs text-gray-400">Pending</span>
+            </li>
+          </ul>
         </div>
       </div>
 

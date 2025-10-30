@@ -6,7 +6,6 @@ import { Dialog, Transition } from '@headlessui/react'
 interface UpgradeModalProps {
   isOpen: boolean
   onClose: () => void
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   currentPlan: string
   currentSubaccounts: number
   maxSubaccounts: number
@@ -15,6 +14,7 @@ interface UpgradeModalProps {
 export default function UpgradeModal({
   isOpen,
   onClose,
+  currentPlan,
   currentSubaccounts,
   maxSubaccounts
 }: UpgradeModalProps) {
@@ -59,7 +59,7 @@ export default function UpgradeModal({
                         ⚠️ Plan Limit Reached
                       </Dialog.Title>
                       <p className="text-green-100 text-sm mt-1">
-                        Upgrade to add more subaccounts
+                        Current plan: <span className="font-semibold">{currentPlan}</span> · Upgrade to add more subaccounts
                       </p>
                     </div>
                     <button
