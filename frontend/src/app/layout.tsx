@@ -17,9 +17,9 @@ export const metadata: Metadata = {
   title: "Octendr - WhatsApp GHL Integration",
   description: "Professional WhatsApp to GoHighLevel Integration Platform by Octendr",
   icons: {
-    icon: "/octendr.png",
-    shortcut: "/octendr.png",
-    apple: "/octendr.png",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/favicon.ico",
   },
 };
 
