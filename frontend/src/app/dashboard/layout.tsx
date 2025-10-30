@@ -95,7 +95,9 @@ export default function DashboardLayout({
                 {logoError ? (
                   <div className="h-8 w-8 rounded-lg shadow bg-emerald-600 text-white flex items-center justify-center font-semibold">O</div>
                 ) : (
-                  <Image src={octendrLogo} alt="Octendr" width={32} height={32} className="h-8 w-8 rounded-lg shadow object-cover" priority sizes="32px" onError={() => setLogoError(true)} />
+                  <div className="h-8 w-8 rounded-lg shadow bg-white ring-1 ring-gray-200 flex items-center justify-center overflow-hidden">
+                    <Image src={octendrLogo} alt="Octendr" width={24} height={24} className="object-contain" priority sizes="24px" onError={() => setLogoError(true)} />
+                  </div>
                 )}
                 <div>
                   <h1 className="text-xl font-bold text-gray-900">Octendr</h1>
