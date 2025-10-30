@@ -28,7 +28,7 @@ export function useAuth() {
       // Fetch fresh profile from database to ensure we have latest name/email
       try {
         const { data } = await supabase
-          .from<Database['public']['Tables']['users']['Row']>('users')
+          .from('users')
           .select('id, name, email')
           .eq('id', parsed.id)
           .maybeSingle()
