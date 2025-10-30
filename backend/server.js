@@ -2221,6 +2221,33 @@ app.get('/ghl/provider', async (req, res) => {
 
     const subaccountName = ghlAccount ? `Location ${locationId}` : `Location ${locationId}`;
     const connectedNumber = session?.phone_number || null;
+
+    // If mode=code render pairing form page (lightweight)
+    if (mode === 'code') {
+      const htmlPair = `<!DOCTYPE html>
+      <html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Pairing Code - ${subaccountName}</title>
+      <style>
+        body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:linear-gradient(135deg,#059669,#06b6d4);margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;color:#111}
+        .card{width:100%;max-width:460px;background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:24px}
+        .title{font-size:22px;font-weight:800;margin:0 0 8px;background:linear-gradient(90deg,#059669,#06b6d4);-webkit-background-clip:text;background-clip:text;color:transparent}
+        .muted{color:#6b7280;font-size:14px;margin:0 0 16px}
+        .input{width:100%;height:46px;border:1px solid #e5e7eb;border-radius:10px;padding:0 12px;font-size:14px;outline:none}
+        .input:focus{border-color:#06b6d4;box-shadow:0 0 0 3px rgba(6,182,212,.2)}
+        .btn{display:inline-flex;align-items:center;gap:8px;border:0;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer;color:#fff;background:linear-gradient(90deg,#059669,#06b6d4)}
+        .code{font-size:28px;font-weight:800;letter-spacing:3px;padding:16px;background:#f3f4f6;border-radius:12px;text-align:center}
+      </style></head>
+      <body><div class="card">
+      <h1 class="title">Pairing Code Login</h1>
+      <p class="muted">Enter your phone number in E.164 (no +). Example: +1 234 567 8901 → 12345678901</p>
+      <form method="POST" action="/ghl/provider/code">
+        <input type="hidden" name="locationId" value="${locationId}" />
+        <input class="input" name="phone" minlength="10" maxlength="15" pattern="\\d{10,15}" placeholder="12345678901" required />
+        <div style="margin-top:10px"><button class="btn" type="submit">Request Pairing Code</button></div>
+      </form>
+      </div></body></html>`;
+      return res.send(htmlPair);
+    }
     
     // Replace template variables in HTML
     const htmlContent = `<!DOCTYPE html>
@@ -2739,6 +2766,56 @@ app.get('/ghl/provider', async (req, res) => {
   } catch (error) {
     console.error('Provider UI error:', error);
     res.status(500).send('Failed to render provider');
+  }
+});
+
+// Pairing code submit handler
+app.post('/ghl/provider/code', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const { locationId, phone } = req.body || {};
+    if (!locationId || !phone) return res.status(400).send('Missing fields');
+
+    // Find latest session for this location
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('id')
+      .eq('location_id', locationId)
+      .maybeSingle();
+
+    if (!ghlAccount) return res.status(404).send('Account not found');
+
+    const { data: sessions } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', ghlAccount.id)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!sessions || sessions.length === 0) return res.status(404).send('No session');
+    const currentSession = sessions[0];
+    const cleanSubId = currentSession.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sessionName = `location_${cleanSubId}_${currentSession.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+
+    try {
+      const result = await waManager.requestPairingCode(sessionName, String(phone));
+      const html = `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>Pairing Code</title><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center}
+      .card{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.15);padding:24px;width:100%;max-width:420px}
+      .title{font-weight:800;font-size:22px;margin:0 0 10px;background:linear-gradient(90deg,#059669,#06b6d4);-webkit-background-clip:text;background-clip:text;color:transparent}
+      .code{font-size:32px;font-weight:800;letter-spacing:3px;padding:16px;background:#f3f4f6;border-radius:12px;text-align:center}
+      .muted{color:#6b7280;font-size:14px;margin:8px 0 0}</style></head><body>
+      <div class="card"><h1 class="title">Your Pairing Code</h1>
+      <div class="code">${result.pairingCode || '—'}</div>
+      <p class="muted">Enter this in WhatsApp → Linked devices → Link with phone number.</p>
+      </div></body></html>`;
+      return res.send(html);
+    } catch (err) {
+      console.error('Pairing code error:', err);
+      return res.status(500).send('Failed to generate pairing code');
+    }
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Pairing code handler error');
   }
 });
 
