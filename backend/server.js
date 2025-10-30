@@ -2245,6 +2245,14 @@ app.get('/ghl/provider', async (req, res) => {
         <input class="input" name="phone" minlength="10" maxlength="15" pattern="\\d{10,15}" placeholder="12345678901" required />
         <div style="margin-top:10px"><button class="btn" type="submit">Request Pairing Code</button></div>
       </form>
+      <script>
+        // ensure a session/client is created so pairing code can be requested
+        (async () => {
+          try {
+            await fetch('/ghl/location/${locationId}/session', { method: 'POST' });
+          } catch (e) { console.error('Pair-code page: create session failed', e); }
+        })();
+      </script>
       </div></body></html>`;
       return res.send(htmlPair);
     }
