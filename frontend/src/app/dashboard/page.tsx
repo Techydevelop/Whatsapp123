@@ -841,7 +841,6 @@ export default function Dashboard() {
           <ul className="list-disc pl-5 space-y-1">
             <li>All WhatsApp session data</li>
             <li>Connection settings</li>
-            <li>Chat history</li>
           </ul>
           <p className="mt-3 font-medium text-red-600">This action cannot be undone.</p>
         </div>
