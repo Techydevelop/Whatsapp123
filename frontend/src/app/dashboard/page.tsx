@@ -741,7 +741,7 @@ export default function Dashboard() {
 
       {/* Notification Toast */}
       {notification && (
-        <div className="fixed top-20 left-4 z-50 animate-in slide-in-from-top-5">
+        <div className="fixed top-20 right-4 z-50 animate-in slide-in-from-top-5">
           <div className={`max-w-md rounded-lg shadow-lg p-4 ${
             notification.type === 'success' 
               ? 'bg-green-50 border-l-4 border-green-500' 

@@ -51,7 +51,7 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
     <ToastContext.Provider value={value}>
       {children}
       {/* Toast Container */}
-      <div className="fixed top-20 left-4 z-[100] space-y-2 w-[22rem] max-w-[90vw]">
+      <div className="fixed top-20 right-4 z-[100] space-y-2 w-[22rem] max-w-[90vw]">
         {toasts.map(t => (
           <div key={t.id} className={`border-l-4 rounded-lg shadow p-3 animate-in slide-in-from-top-4 ${styleByType[t.type]}`}>
             {t.title && <p className="text-sm font-semibold">{t.title}</p>}

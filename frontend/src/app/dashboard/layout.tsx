@@ -39,16 +39,16 @@ export default function DashboardLayout({
         </svg>
       )
     },
-    { 
-      name: 'Analytics', 
-      href: '/dashboard/analytics', 
-      current: pathname === '/dashboard/analytics',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3v18M6 13v8M16 8v13M21 5v16" />
-        </svg>
-      )
-    },
+    // { 
+    //   name: 'Analytics', 
+    //   href: '/dashboard/analytics', 
+    //   current: pathname === '/dashboard/analytics',
+    //   icon: (
+    //     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    //       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3v18M6 13v8M16 8v13M21 5v16" />
+    //     </svg>
+    //   )
+    // },
     { 
       name: 'Accounts', 
       href: '/dashboard', 

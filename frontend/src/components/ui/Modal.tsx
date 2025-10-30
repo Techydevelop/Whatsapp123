@@ -99,42 +99,32 @@ export default function Modal({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-gradient-to-b from-white to-gray-50 ring-1 ring-gray-200 text-left align-middle shadow-xl transition-all">
-                {/* Top bar with close */}
-                <div className="relative">
-                  <div className="h-2 bg-gradient-to-r from-emerald-500 via-indigo-500 to-purple-500 opacity-70" />
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="absolute top-2 right-2 inline-flex items-center justify-center h-8 w-8 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                    aria-label="Close"
-                  >
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-
+              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-xl bg-white ring-1 ring-gray-200 text-left align-middle shadow-lg transition-all">
                 <div className="p-6">
                   <div className="flex items-start">
-                    <div className={`mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full ${config.bg} ring-8 ring-${'white'} sm:mx-0 sm:h-12 sm:w-12`}>
+                    <div className={`flex-shrink-0 flex items-center justify-center h-10 w-10 rounded-full ${config.bg}`}>
                       <div className={config.text}>
                         {config.icon}
                       </div>
                     </div>
-                    <div className="mt-0 ml-4 text-left flex-1">
-                      <Dialog.Title
-                        as="h3"
-                        className="text-lg font-semibold leading-6 text-gray-900"
-                      >
+                    <div className="ml-4 text-left flex-1">
+                      <Dialog.Title as="h3" className="text-[15px] font-semibold text-gray-900">
                         {title}
                       </Dialog.Title>
-                      <div className="mt-3">
-                        <div className="text-sm text-gray-600">
-                          {children}
-                        </div>
+                      <div className="mt-2 text-sm text-gray-600">
+                        {children}
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="ml-3 inline-flex items-center justify-center h-8 w-8 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                      aria-label="Close"
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
 
                   <div className="mt-6 flex justify-end space-x-3">
