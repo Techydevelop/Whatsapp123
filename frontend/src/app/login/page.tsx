@@ -40,11 +40,48 @@ export default function DashboardLoginPage() {
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2">
       {/* Left Illustration */}
-      <div className="hidden lg:flex relative bg-gradient-to-br from-emerald-500 to-emerald-600 items-center justify-center">
-        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-white via-transparent to-transparent" />
-        <div className="relative w-[320px] h-[560px] bg-emerald-50 rounded-[36px] shadow-2xl border-8 border-emerald-700 flex items-center justify-center">
-          <div className="w-[85%] h-[85%] bg-white rounded-2xl shadow-inner flex items-center justify-center">
-            <div className="w-28 h-28 bg-emerald-100 rounded-full" />
+      <div className="hidden lg:flex relative overflow-hidden items-center justify-center bg-gradient-to-b from-emerald-600 via-emerald-500 to-emerald-600">
+        {/* Animated SVG scene */}
+        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#34d399">
+                <animate attributeName="stop-color" values="#34d399; #10b981; #34d399" dur="8s" repeatCount="indefinite" />
+              </stop>
+              <stop offset="100%" stopColor="#22d3ee">
+                <animate attributeName="stop-color" values="#22d3ee; #60a5fa; #22d3ee" dur="8s" repeatCount="indefinite" />
+              </stop>
+            </linearGradient>
+            <radialGradient id="pulse" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+            </radialGradient>
+            <filter id="blur"><feGaussianBlur in="SourceGraphic" stdDeviation="30" /></filter>
+          </defs>
+          {/* Morphing blob */}
+          <path fill="url(#g1)" filter="url(#blur)">
+            <animate attributeName="d" dur="12s" repeatCount="indefinite"
+              values="M587,420Q581,500,520,560Q459,620,380,606Q301,592,244,540Q187,488,165,408Q143,328,189,259Q235,190,309,162Q383,134,454,165Q525,196,572,253Q619,310,587,420Z;
+                      M596,408Q559,500,492,568Q425,636,337,611Q249,586,212,506Q175,426,177,340Q179,254,246,201Q313,148,398,150Q483,152,543,208Q603,264,613,332Q623,400,596,408Z;
+                      M587,420Q581,500,520,560Q459,620,380,606Q301,592,244,540Q187,488,165,408Q143,328,189,259Q235,190,309,162Q383,134,454,165Q525,196,572,253Q619,310,587,420Z" />
+          </path>
+          {/* Floating circles */}
+          <g fill="url(#pulse)">
+            <circle cx="120" cy="120" r="60">
+              <animate attributeName="cy" values="120;80;120" dur="6s" repeatCount="indefinite" />
+            </circle>
+            <circle cx="700" cy="180" r="50">
+              <animate attributeName="cy" values="180;130;180" dur="7s" repeatCount="indefinite" />
+            </circle>
+            <circle cx="640" cy="640" r="70">
+              <animate attributeName="cy" values="640;600;640" dur="8s" repeatCount="indefinite" />
+            </circle>
+          </g>
+        </svg>
+        {/* Foreground card device */}
+        <div className="relative w-[340px] h-[600px] bg-white/20 rounded-[36px] shadow-[0_40px_120px_rgba(0,0,0,0.25)] ring-1 ring-white/40 backdrop-blur-md flex items-center justify-center">
+          <div className="w-[85%] h-[85%] bg-white rounded-2xl shadow-xl flex items-center justify-center">
+            <div className="w-28 h-28 bg-gradient-to-br from-emerald-400 to-cyan-400 rounded-full animate-pulse" />
           </div>
         </div>
       </div>
