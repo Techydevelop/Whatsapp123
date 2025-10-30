@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { supabase, Database } from '@/lib/supabase'
 
 interface User {
   id: string
@@ -28,13 +28,13 @@ export function useAuth() {
       // Fetch fresh profile from database to ensure we have latest name/email
       try {
         const { data } = await supabase
-          .from('users')
+          .from<Database['public']['Tables']['users']['Row']>('users')
           .select('id, name, email')
           .eq('id', parsed.id)
           .maybeSingle()
 
         if (data) {
-          const refreshed: User = { id: data.id, name: (data as any).name, email: data.email }
+          const refreshed: User = { id: data.id, name: data.name as unknown as string | undefined, email: data.email }
           setUser(refreshed)
           localStorage.setItem('user', JSON.stringify(refreshed))
         }

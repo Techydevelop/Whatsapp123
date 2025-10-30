@@ -1,13 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 
 export default function AddSubAccount() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
 
   const handleConnect = async () => {
     setLoading(true)

@@ -100,6 +100,7 @@ export default function DashboardLayout({
             <div className="flex items-center">
               <div className="flex items-center space-x-3">
                 <div className="h-8 w-8 rounded-lg shadow bg-white ring-1 ring-gray-200 flex items-center justify-center overflow-hidden">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src="/favicon.ico" alt="Octendr" width={32} height={32} className="object-contain" />
                 </div>
                 <div>
