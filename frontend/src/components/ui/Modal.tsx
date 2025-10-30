@@ -85,7 +85,7 @@ export default function Modal({
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-md" />
         </Transition.Child>
 
         <div className="fixed inset-0 overflow-y-auto">
@@ -99,7 +99,7 @@ export default function Modal({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white/95 ring-1 ring-gray-200 text-left align-middle shadow-xl transition-all">
+              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-gradient-to-b from-white to-gray-50 ring-1 ring-gray-200 text-left align-middle shadow-xl transition-all">
                 {/* Top bar with close */}
                 <div className="relative">
                   <div className="h-2 bg-gradient-to-r from-emerald-500 via-indigo-500 to-purple-500 opacity-70" />
