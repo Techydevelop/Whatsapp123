@@ -7,6 +7,7 @@ import { Database } from '@/lib/supabase'
 import { API_ENDPOINTS, API_BASE_URL, apiCall } from '@/lib/config'
 import TrialBanner from '@/components/dashboard/TrialBanner'
 import UpgradeModal from '@/components/dashboard/UpgradeModal'
+import Modal from '@/components/ui/Modal'
 // import Modal from '@/components/ui/Modal'
 
 type GhlAccount = Database['public']['Tables']['ghl_accounts']['Row']
@@ -33,6 +34,7 @@ export default function Dashboard() {
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [refreshing, setRefreshing] = useState(false)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; locationId?: string }>({ open: false })
   
   // Trial system state
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
@@ -267,11 +269,7 @@ export default function Dashboard() {
     }
   }
 
-  const deleteSubaccount = async (locationId: string) => {
-    if (!confirm('🗑️ Are you sure you want to delete this subaccount?\n\n⚠️ This will permanently remove:\n• All WhatsApp session data\n• Connection settings\n• Chat history\n\n❌ This action cannot be undone!')) {
-      return
-    }
-    
+  const doDelete = async (locationId: string) => {
     try {
       console.log('🗑️ Deleting subaccount with locationId:', locationId)
       console.log('👤 Current user:', user)
@@ -342,6 +340,10 @@ export default function Dashboard() {
       console.error('Error deleting account:', error)
       setNotification({ type: 'error', message: '❌ Failed to delete account. Please try again.' })
     }
+  }
+  
+  const deleteSubaccount = (locationId: string) => {
+    setConfirmDelete({ open: true, locationId })
   }
   
   // Auto-hide notification after 5 seconds
@@ -818,6 +820,32 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Delete confirmation modal */}
+      <Modal
+        isOpen={confirmDelete.open}
+        onClose={() => setConfirmDelete({ open: false })}
+        title="Delete subaccount?"
+        icon="danger"
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={async () => {
+          if (confirmDelete.locationId) {
+            await doDelete(confirmDelete.locationId)
+          }
+          setConfirmDelete({ open: false })
+        }}
+      >
+        <div>
+          <p className="mb-2">This will permanently remove:</p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>All WhatsApp session data</li>
+            <li>Connection settings</li>
+            <li>Chat history</li>
+          </ul>
+          <p className="mt-3 font-medium text-red-600">This action cannot be undone.</p>
+        </div>
+      </Modal>
     </div>
   )
 }
