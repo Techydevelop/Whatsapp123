@@ -189,6 +189,14 @@ export default function LoginPage() {
         {/* Radial highlights */}
         <div className="pointer-events-none absolute -top-10 -left-10 w-[420px] h-[420px] rounded-full bg-white/10 blur-3xl" />
         <div className="pointer-events-none absolute bottom-10 right-10 w-[520px] h-[520px] rounded-full bg-cyan-200/10 blur-3xl" />
+        {/* Floating gradient bubbles */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute left-16 top-24 size-8 rounded-full bg-white/30 animate-ping [animation-duration:3s]" />
+          <div className="absolute left-40 top-52 size-10 rounded-full bg-white/20 animate-pulse" />
+          <div className="absolute right-24 top-36 size-6 rounded-full bg-white/25 animate-bounce" />
+          <div className="absolute right-40 bottom-24 size-7 rounded-full bg-white/20 animate-ping [animation-duration:2.5s]" />
+          <div className="absolute left-24 bottom-28 size-9 rounded-full bg-white/20 animate-pulse" />
+        </div>
         <div className="relative z-20 flex items-end justify-center h-[500px]">
           <div className="relative" style={{ width: '550px', height: '400px' }}>
             {/* Purple */}
