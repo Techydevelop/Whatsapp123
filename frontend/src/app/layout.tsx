@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import ToastProvider from "@/components/ui/ToastProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,6 +16,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Octendr - WhatsApp GHL Integration",
   description: "Professional WhatsApp to GoHighLevel Integration Platform by Octendr",
+  icons: {
+    icon: "/octendr.png",
+    shortcut: "/octendr.png",
+    apple: "/octendr.png",
+  },
 };
 
 export default function RootLayout({
@@ -27,7 +33,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <ToastProvider>
+          {children}
+        </ToastProvider>
       </body>
     </html>
   );

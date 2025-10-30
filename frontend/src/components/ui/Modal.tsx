@@ -85,7 +85,7 @@ export default function Modal({
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-black bg-opacity-25 backdrop-blur-sm" />
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
         </Transition.Child>
 
         <div className="fixed inset-0 overflow-y-auto">
@@ -99,57 +99,74 @@ export default function Modal({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
-                <div className="flex items-start">
-                  <div className={`mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full ${config.bg} sm:mx-0 sm:h-10 sm:w-10`}>
-                    <div className={config.text}>
-                      {config.icon}
+              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white/95 ring-1 ring-gray-200 text-left align-middle shadow-xl transition-all">
+                {/* Top bar with close */}
+                <div className="relative">
+                  <div className="h-2 bg-gradient-to-r from-emerald-500 via-indigo-500 to-purple-500 opacity-70" />
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="absolute top-2 right-2 inline-flex items-center justify-center h-8 w-8 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                    aria-label="Close"
+                  >
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="p-6">
+                  <div className="flex items-start">
+                    <div className={`mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full ${config.bg} ring-8 ring-${'white'} sm:mx-0 sm:h-12 sm:w-12`}>
+                      <div className={config.text}>
+                        {config.icon}
+                      </div>
                     </div>
-                  </div>
-                  <div className="mt-0 ml-4 text-left flex-1">
-                    <Dialog.Title
-                      as="h3"
-                      className="text-lg font-semibold leading-6 text-gray-900"
-                    >
-                      {title}
-                    </Dialog.Title>
-                    <div className="mt-3">
-                      <div className="text-sm text-gray-500">
-                        {children}
+                    <div className="mt-0 ml-4 text-left flex-1">
+                      <Dialog.Title
+                        as="h3"
+                        className="text-lg font-semibold leading-6 text-gray-900"
+                      >
+                        {title}
+                      </Dialog.Title>
+                      <div className="mt-3">
+                        <div className="text-sm text-gray-600">
+                          {children}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="mt-6 flex justify-end space-x-3">
-                  <button
-                    type="button"
-                    disabled={loading}
-                    className="inline-flex justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 transition-colors"
-                    onClick={onClose}
-                  >
-                    {cancelText}
-                  </button>
-                  {onConfirm && (
+                  <div className="mt-6 flex justify-end space-x-3">
                     <button
                       type="button"
                       disabled={loading}
-                      className={`inline-flex justify-center items-center rounded-lg border border-transparent px-4 py-2 text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 transition-colors ${
-                        icon === 'danger'
-                          ? 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
-                          : 'bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500'
-                      }`}
-                      onClick={handleConfirm}
+                      className="inline-flex justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 transition-colors"
+                      onClick={onClose}
                     >
-                      {loading && (
-                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                      )}
-                      {loading ? 'Processing...' : confirmText}
+                      {cancelText}
                     </button>
-                  )}
+                    {onConfirm && (
+                      <button
+                        type="button"
+                        disabled={loading}
+                        className={`inline-flex justify-center items-center rounded-lg border border-transparent px-4 py-2 text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 transition-colors ${
+                          icon === 'danger'
+                            ? 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
+                            : 'bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500'
+                        }`}
+                        onClick={handleConfirm}
+                      >
+                        {loading && (
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        )}
+                        {loading ? 'Processing...' : confirmText}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </Dialog.Panel>
             </Transition.Child>
