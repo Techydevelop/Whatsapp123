@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
-import Image from 'next/image'
+// switched header logo to native <img> to avoid optimizer 400s
 import { useState } from 'react'
 
 export default function DashboardLayout({
@@ -99,7 +99,7 @@ export default function DashboardLayout({
                   </div>
                 ) : (
                   <div className="h-8 w-8 rounded-lg shadow bg-white ring-1 ring-gray-200 flex items-center justify-center overflow-hidden">
-                    <Image src="/octendr.png?v=2" alt="Octendr" width={32} height={32} className="object-contain" priority sizes="32px" onError={() => setLogoError(true)} />
+                    <img src="/octendr.png" alt="Octendr" width={32} height={32} className="object-contain" onError={() => setLogoError(true)} />
                   </div>
                 )}
                 <div>
