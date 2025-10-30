@@ -5,7 +5,6 @@ import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useState } from 'react'
-import octendrLogo from '../../../public/octendr.png'
 
 export default function DashboardLayout({
   children,
@@ -96,7 +95,7 @@ export default function DashboardLayout({
                   <div className="h-8 w-8 rounded-lg shadow bg-emerald-600 text-white flex items-center justify-center font-semibold">O</div>
                 ) : (
                   <div className="h-8 w-8 rounded-lg shadow bg-white ring-1 ring-gray-200 flex items-center justify-center overflow-hidden">
-                    <Image src={octendrLogo} alt="Octendr" width={24} height={24} className="object-contain" priority sizes="24px" onError={() => setLogoError(true)} />
+                    <Image src="/octendr.png" alt="Octendr" width={24} height={24} className="object-contain" priority sizes="24px" onError={() => setLogoError(true)} />
                   </div>
                 )}
                 <div>
