@@ -386,6 +386,12 @@ class BaileysWhatsAppManager {
             client.lastUpdate = Date.now();
           }
           
+          // Update database status to disconnected (even if we'll reconnect)
+          // This ensures dashboard shows real-time disconnect status
+          this.updateDatabaseStatus(sessionId, 'disconnected', null).catch(err => {
+            console.error(`❌ Failed to update database on disconnect: ${err.message}`);
+          });
+          
           if (shouldReconnect) {
             console.log(`🔄 Reconnecting session: ${sessionId} in 30 seconds...`);
             // Longer delay to prevent false reconnections and reduce server load
@@ -402,7 +408,15 @@ class BaileysWhatsAppManager {
               }
             }, 30000); // Increased to 30 seconds to reduce unnecessary checks
           } else {
-            // Only delete if logged out
+            // Logged out - update database and remove client
+            console.log(`📱 Mobile disconnected (logged out) for session: ${sessionId}`);
+            
+            // Update database status to disconnected
+            this.updateDatabaseStatus(sessionId, 'disconnected', null).catch(err => {
+              console.error(`❌ Failed to update database on logout: ${err.message}`);
+            });
+            
+            // Delete client from memory
             this.clients.delete(sessionId);
           }
         }

@@ -240,14 +240,14 @@ export default function Dashboard() {
     
     try {
       console.log(`🔌 Logging out session for location: ${locationId}`)
-      const response = await apiCall(`${API_BASE_URL}/ghl/location/${locationId}/session/logout`, {
+      const response = await apiCall(API_ENDPOINTS.logoutSession(locationId), {
         method: 'POST'
       })
 
       if (response.ok) {
         const data = await response.json()
         console.log('✅ Logout response:', data)
-        setNotification({ type: 'success', message: data.message || '✅ WhatsApp session logged out successfully!' })
+        setNotification({ type: 'success', message: data.message || '✅ WhatsApp session logged out successfully! Mobile will show disconnected.' })
         // Refresh the locations list to reflect the disconnected status
         await fetchGHLLocations(false)
       } else {
@@ -266,6 +266,46 @@ export default function Dashboard() {
       setNotification({ 
         type: 'error', 
         message: `❌ Failed to logout session: ${error instanceof Error ? error.message : 'Network error. Please try again.'}` 
+      })
+    }
+  }
+
+  const resetSession = async (locationId: string) => {
+    if (!confirm('🔄 Are you sure you want to reset this session?\n\nThis will:\n• Delete all session data from database\n• Clear WhatsApp connection\n• Prevent conflicts for new connections\n\nYou will need to scan QR code again.')) {
+      return
+    }
+    
+    try {
+      console.log(`🔄 Resetting session for location: ${locationId}`)
+      const response = await apiCall(API_ENDPOINTS.resetSession(locationId), {
+        method: 'POST'
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log('✅ Reset response:', data)
+        setNotification({ 
+          type: 'success', 
+          message: data.message || `✅ Session reset successfully! ${data.deletedCount || 0} session(s) deleted.` 
+        })
+        // Refresh the locations list
+        await fetchGHLLocations(false)
+      } else {
+        let errorMessage = 'Unknown error'
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorMessage
+        } catch {
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        }
+        console.error('❌ Reset failed:', errorMessage)
+        setNotification({ type: 'error', message: `❌ Failed to reset session: ${errorMessage}` })
+      }
+    } catch (error) {
+      console.error('❌ Error resetting session:', error)
+      setNotification({ 
+        type: 'error', 
+        message: `❌ Failed to reset session: ${error instanceof Error ? error.message : 'Network error. Please try again.'}` 
       })
     }
   }
@@ -645,11 +685,21 @@ export default function Dashboard() {
                               </svg>
                               QR Code
                             </button>
+                            <button
+                              onClick={() => resetSession(account.ghl_location_id)}
+                              className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                              title="Reset Session (Delete from database)"
+                            >
+                              <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                              Reset
+                            </button>
                             {account.status === 'ready' && (
                               <button
                                 onClick={() => logoutSession(account.ghl_location_id)}
                                 className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-                                title="Logout Session"
+                                title="Logout Session (Disconnect from mobile)"
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

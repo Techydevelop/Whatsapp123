@@ -3433,6 +3433,88 @@ app.post('/ghl/location/:locationId/session/logout', async (req, res) => {
   }
 });
 
+// Reset Session (Delete session from database)
+app.post('/ghl/location/:locationId/session/reset', async (req, res) => {
+  try {
+    const { locationId } = req.params;
+    
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+
+    if (!ghlAccount) {
+      return res.status(404).json({ error: 'GHL account not found' });
+    }
+
+    // Get all sessions for this subaccount
+    const { data: sessions } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', ghlAccount.id);
+
+    console.log(`🔄 Resetting ${sessions?.length || 0} session(s) for location: ${locationId}`);
+
+    // Disconnect all WhatsApp clients and cleanup session data
+    if (sessions && sessions.length > 0) {
+      for (const session of sessions) {
+        try {
+          // Try both session name formats to ensure cleanup
+          const cleanSubaccountId = ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+          
+          // Format 1: location_${subaccountId}_${sessionId}
+          const sessionName1 = `location_${cleanSubaccountId}_${cleanSessionId}`;
+          
+          // Format 2: subaccount_${subaccountId}_${sessionId} (legacy)
+          const sessionName2 = `subaccount_${ghlAccount.id}_${session.id}`;
+          
+          // Cleanup both formats
+          try {
+            await waManager.disconnectClient(sessionName1);
+            waManager.clearSessionData(sessionName1);
+            console.log(`✅ Cleaned up session (format 1): ${sessionName1}`);
+          } catch (e) {
+            console.log(`⚠️ Session format 1 not found: ${sessionName1}`);
+          }
+          
+          try {
+            await waManager.disconnectClient(sessionName2);
+            waManager.clearSessionData(sessionName2);
+            console.log(`✅ Cleaned up session (format 2): ${sessionName2}`);
+          } catch (e) {
+            console.log(`⚠️ Session format 2 not found: ${sessionName2}`);
+          }
+        } catch (sessionError) {
+          console.error(`⚠️ Error cleaning session ${session.id}:`, sessionError.message);
+        }
+      }
+    }
+
+    // Delete all sessions from database
+    const { error: sessionsDeleteError } = await supabaseAdmin
+      .from('sessions')
+      .delete()
+      .eq('subaccount_id', ghlAccount.id);
+
+    if (sessionsDeleteError) {
+      console.error('❌ Error deleting sessions from database:', sessionsDeleteError);
+      return res.status(500).json({ error: 'Failed to delete sessions from database' });
+    }
+
+    console.log(`✅ Reset session completed: ${sessions?.length || 0} session(s) deleted for location: ${locationId}`);
+    res.json({ 
+      status: 'success', 
+      message: `Session reset successfully. ${sessions?.length || 0} session(s) deleted.`,
+      deletedCount: sessions?.length || 0
+    });
+  } catch (error) {
+    console.error('Reset session error:', error);
+    res.status(500).json({ error: 'Failed to reset session', details: error.message });
+  }
+});
+
 // Delete subaccount
 app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
   try {
@@ -3464,14 +3546,36 @@ app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
 
     console.log(`📋 Found ${sessions?.length || 0} session(s) to cleanup`);
 
-    // Disconnect all WhatsApp clients
+    // Disconnect all WhatsApp clients and cleanup session data
     if (sessions && sessions.length > 0) {
       for (const session of sessions) {
         try {
-          const sessionName = `subaccount_${ghlAccount.id}_${session.id}`;
-          await waManager.disconnectClient(sessionName);
-          waManager.clearSessionData(sessionName);
-          console.log(`✅ Cleaned up session: ${sessionName}`);
+          // Try both session name formats to ensure cleanup
+          const cleanSubaccountId = ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const cleanSessionId = session.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+          
+          // Format 1: location_${subaccountId}_${sessionId} (used in /ghl/location endpoints)
+          const sessionName1 = `location_${cleanSubaccountId}_${cleanSessionId}`;
+          
+          // Format 2: subaccount_${subaccountId}_${sessionId} (legacy format)
+          const sessionName2 = `subaccount_${ghlAccount.id}_${session.id}`;
+          
+          // Cleanup both formats to be safe
+          try {
+            await waManager.disconnectClient(sessionName1);
+            waManager.clearSessionData(sessionName1);
+            console.log(`✅ Cleaned up session (format 1): ${sessionName1}`);
+          } catch (e) {
+            console.log(`⚠️ Session format 1 not found: ${sessionName1}`);
+          }
+          
+          try {
+            await waManager.disconnectClient(sessionName2);
+            waManager.clearSessionData(sessionName2);
+            console.log(`✅ Cleaned up session (format 2): ${sessionName2}`);
+          } catch (e) {
+            console.log(`⚠️ Session format 2 not found: ${sessionName2}`);
+          }
         } catch (sessionError) {
           console.error(`⚠️ Error cleaning session ${session.id}:`, sessionError.message);
           // Continue with other sessions
@@ -3479,14 +3583,17 @@ app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
       }
     }
 
-    // Delete all sessions
+    // Delete all sessions from database
     const { error: sessionsDeleteError } = await supabaseAdmin
       .from('sessions')
       .delete()
       .eq('subaccount_id', ghlAccount.id);
 
     if (sessionsDeleteError) {
-      console.error('Error deleting sessions:', sessionsDeleteError);
+      console.error('❌ Error deleting sessions from database:', sessionsDeleteError);
+      // Don't fail the entire operation, but log the error
+    } else {
+      console.log(`✅ Deleted ${sessions?.length || 0} session(s) from database`);
     }
 
     // Delete GHL account

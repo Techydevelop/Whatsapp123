@@ -12,6 +12,8 @@ export const API_ENDPOINTS = {
   // Session endpoints
   createSession: (locationId: string) => `${API_BASE_URL}/ghl/location/${locationId}/session`,
   getSession: (locationId: string) => `${API_BASE_URL}/ghl/location/${locationId}/session`,
+  resetSession: (locationId: string) => `${API_BASE_URL}/ghl/location/${locationId}/session/reset`,
+  logoutSession: (locationId: string) => `${API_BASE_URL}/ghl/location/${locationId}/session/logout`,
   
   // Provider endpoints
   providerUI: (locationId: string, companyId?: string) => {
