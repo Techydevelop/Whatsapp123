@@ -14,10 +14,9 @@ export const API_ENDPOINTS = {
   getSession: (locationId: string) => `${API_BASE_URL}/ghl/location/${locationId}/session`,
   
   // Provider endpoints
-  providerUI: (locationId: string, companyId?: string, mode?: 'qr' | 'code') => {
+  providerUI: (locationId: string, companyId?: string) => {
     const params = new URLSearchParams({ locationId });
     if (companyId) params.append('companyId', companyId);
-    if (mode) params.append('mode', mode);
     return `${API_BASE_URL}/ghl/provider?${params.toString()}`;
   }
 };

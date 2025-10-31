@@ -232,26 +232,6 @@ export default function Dashboard() {
     }
   }
 
-  const openPairingCode = async (locationId: string) => {
-    try {
-      const createResponse = await apiCall(API_ENDPOINTS.createSession(locationId), {
-        method: 'POST',
-        body: JSON.stringify({ locationId })
-      })
-
-      if (createResponse.ok) {
-        await fetchGHLLocations(false)
-        const link = API_ENDPOINTS.providerUI(locationId, undefined, 'code')
-        window.open(link, '_blank')
-      } else {
-        const errorData = await createResponse.json()
-        alert(`Failed to create session: ${errorData.error || 'Unknown error'}`)
-      }
-    } catch (error) {
-      console.error('Error creating pairing code session:', error)
-      alert(`Error creating pairing code session: ${error}`)
-    }
-  }
 
   const logoutSession = async (locationId: string) => {
     if (!confirm('⚠️ Are you sure you want to logout this WhatsApp session?\n\nYou will need to scan the QR code again to reconnect.')) {
@@ -670,16 +650,6 @@ export default function Dashboard() {
                                 </svg>
                               </button>
                             )}
-                            <button
-                              onClick={() => openPairingCode(account.ghl_location_id)}
-                              className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
-                              title="Pairing Code"
-                            >
-                              <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                              </svg>
-                              Pair Code
-                            </button>
                             <button
                               onClick={() => deleteSubaccount(account.ghl_location_id)}
                               className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700 transition-colors"

@@ -302,65 +302,17 @@ class BaileysWhatsAppManager {
       socket.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr, isNewLogin, isOnline } = update;
         
-        // Check if this session is waiting for pairing code
-        const clientInfo = this.clients.get(sessionId);
-        const isWaitingForPairing = clientInfo?.pairingCodeRequested;
-        
-        // Enhanced logging for pairing code sessions
-        if (isWaitingForPairing) {
-          console.log(`🔔 PAIRING CODE SESSION - Connection update for ${sessionId}:`, { 
-            connection: connection || 'undefined',
-            hasQR: !!qr,
-            isNewLogin,
-            isOnline,
-            lastDisconnect: lastDisconnect?.error?.message,
-            stable: connectionStable,
-            pairingCode: clientInfo?.pairingCode,
-            pairingPhone: clientInfo?.pairingCodePhone
-          });
-        } else {
-          console.log(`🔄 Connection update for ${sessionId}:`, { 
-            connection: connection || 'undefined', 
-            hasQR: !!qr, 
-            isNewLogin, 
-            isOnline,
-            lastDisconnect: lastDisconnect?.error?.message,
-            stable: connectionStable
-          });
-        }
+        console.log(`🔄 Connection update for ${sessionId}:`, { 
+          connection: connection || 'undefined', 
+          hasQR: !!qr, 
+          isNewLogin, 
+          isOnline,
+          lastDisconnect: lastDisconnect?.error?.message,
+          stable: connectionStable
+        });
         
       if (qr) {
-        // IMPORTANT: Ignore QR codes if we're waiting for pairing code completion
-        if (isWaitingForPairing) {
-          console.log(`🚫🚫🚫 BLOCKING QR code - waiting for pairing code completion for session: ${sessionId}`);
-          console.log(`📱 Pairing code was: ${clientInfo?.pairingCode}, Phone: ${clientInfo?.pairingCodePhone}`);
-          console.log(`🚫 QR code will be ignored until pairing code connection completes`);
-          
-          // Ensure status stays 'connecting' not 'qr_ready'
-          if (this.clients.has(sessionId)) {
-            const currentClient = this.clients.get(sessionId);
-            if (currentClient.status === 'qr_ready') {
-              console.log(`🔧 Fixing status: changing from 'qr_ready' to 'connecting'`);
-              this.clients.set(sessionId, {
-                ...currentClient,
-                status: 'connecting',
-                qr: null, // Force clear QR
-                qrGeneratedAt: null
-              });
-            }
-          }
-          
-          return; // Don't process QR when waiting for pairing code
-        }
-        
         console.log(`📱 QR Code generated for session: ${sessionId}`);
-        
-        // DOUBLE CHECK: Don't set qr_ready if we're waiting for pairing code
-        const currentClientCheck = this.clients.get(sessionId);
-        if (currentClientCheck?.pairingCodeRequested) {
-          console.log(`🚫🚫 BLOCKING QR - pairing code was requested, ignoring this QR event completely`);
-          return; // Don't process QR at all
-        }
         
         // Only set qr_ready if not already connected AND connection is not stable
         if (!connectionStable && (!this.clients.has(sessionId) || this.clients.get(sessionId).status !== 'connected')) {
@@ -457,18 +409,7 @@ class BaileysWhatsAppManager {
           connectionOpenTime = Date.now();
           const phoneNumber = socket.user?.id?.split(':')[0] || 'Unknown';
           
-          // Check if this was a pairing code connection
-          const existingClient = this.clients.get(sessionId);
-          const isPairingCodeConnection = existingClient?.pairingCodeRequested;
-          
-          if (isPairingCodeConnection) {
-            console.log(`✅✅✅ WhatsApp connected via PAIRING CODE for session: ${sessionId}`);
-            console.log(`📱 Pairing code used: ${existingClient.pairingCode}`);
-            console.log(`📱 Pairing code phone: ${existingClient.pairingCodePhone}`);
-            console.log(`🎉 Pairing code connection SUCCESSFUL!`);
-          } else {
-            console.log(`✅ WhatsApp connected for session: ${sessionId}`);
-          }
+          console.log(`✅ WhatsApp connected for session: ${sessionId}`);
           console.log(`📱 Phone number: ${phoneNumber}`);
           
           // Set temporary status as 'connecting' until stable
@@ -478,19 +419,11 @@ class BaileysWhatsAppManager {
             status: 'connecting',
             phoneNumber: phoneNumber,
             lastUpdate: Date.now(),
-            connectedAt: Date.now(),
-            pairingCodeRequested: isPairingCodeConnection || false,
-            pairingCodePhone: existingClient?.pairingCodePhone
+            connectedAt: Date.now()
           });
           
           // Immediate connection - no stability delay
           connectionStable = true;
-          
-          // Clear pairing code keepalive if it exists
-          if (existingClient?.pairingKeepAliveInterval) {
-            clearInterval(existingClient.pairingKeepAliveInterval);
-            console.log(`🧹 Cleared pairing code keepalive interval`);
-          }
           
           this.clients.set(sessionId, {
             socket,
@@ -521,30 +454,15 @@ class BaileysWhatsAppManager {
           console.log(`🔄 Connecting session: ${sessionId}`);
           const currentClient = this.clients.get(sessionId);
           
-          // If waiting for pairing code, preserve pairing code info
-          if (currentClient?.pairingCodeRequested) {
-            console.log(`⏳ Still connecting... waiting for pairing code completion`);
-            this.clients.set(sessionId, {
-              ...currentClient,
-              socket,
-              qr: null,
-              status: 'connecting',
-              lastUpdate: Date.now()
-            });
-          } else {
-            this.clients.set(sessionId, {
-              socket,
-              qr: null,
-              status: 'connecting',
-              lastUpdate: Date.now()
-            });
-          }
+          this.clients.set(sessionId, {
+            ...currentClient,
+            socket,
+            qr: null,
+            status: 'connecting',
+            lastUpdate: Date.now()
+          });
         }
         
-        // Log any connection state change when waiting for pairing code
-        if (isWaitingForPairing && connection) {
-          console.log(`🔔 Pairing code session state change: ${connection} (waiting for completion)`);
-        }
       });
 
       // If we have existing credentials, set status to connecting immediately
@@ -1095,7 +1013,13 @@ class BaileysWhatsAppManager {
     }
   }
 
+  // ===== PAIRING CODE METHODS - DISABLED =====
+  // Pairing code functionality has been removed from the application
+  // These methods are kept for potential future use but are not currently active
+  
   // Request pairing code for phone number (E.164 format without +)
+  // DISABLED: Not called from server routes anymore
+  /*
   async requestPairingCode(sessionId, phoneNumber) {
     try {
       console.log(`📱 Requesting pairing code for ${phoneNumber} in session: ${sessionId}`);
@@ -1273,12 +1197,16 @@ class BaileysWhatsAppManager {
       throw error;
     }
   }
+  */
 
   // Check if client supports pairing code
+  // DISABLED: Not called from server routes anymore
+  /*
   isPairingCodeSupported(sessionId) {
     const client = this.clients.get(sessionId);
     return client && client.socket && typeof client.socket.requestPairingCode === 'function';
   }
+  */
 
   // Get WhatsApp Web version info
   getWhatsAppVersion() {
@@ -1287,7 +1215,7 @@ class BaileysWhatsAppManager {
       status: 'Community confirmed working',
       source: 'wppconnect-team/wa-version repository',
       lastUpdated: 'Latest stable version',
-      pairingCodeSupported: true
+      pairingCodeSupported: false // Disabled - pairing code functionality removed
     };
   }
 }
