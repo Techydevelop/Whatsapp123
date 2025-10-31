@@ -364,9 +364,44 @@ class BaileysWhatsAppManager {
           connectionStable = false;
           connectionOpenTime = null;
           
-          const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+          const disconnectStatusCode = (lastDisconnect?.error)?.output?.statusCode;
+          const isLoggedOut = disconnectStatusCode === DisconnectReason.loggedOut;
+          const isRestartRequired = disconnectStatusCode === DisconnectReason.restartRequired;
+          
+          // According to Baileys docs: after QR scan, WhatsApp forcibly disconnects with restartRequired
+          // This is NOT an error - we must create a new socket
+          // https://baileys.wiki/docs/socket/connecting/
+          if (isRestartRequired) {
+            console.log(`🔄 Restart required (normal after QR/pairing code scan) for session: ${sessionId}`);
+            console.log(`📱 Creating new socket as per Baileys docs...`);
+            
+            // Clear old client and create new one
+            if (this.clients.has(sessionId)) {
+              const oldClient = this.clients.get(sessionId);
+              // Clean up old socket
+              try {
+                if (oldClient.socket && oldClient.socket.end) {
+                  oldClient.socket.end();
+                }
+              } catch (e) {
+                console.warn(`⚠️ Error ending old socket: ${e.message}`);
+              }
+            }
+            
+            // Create new client (this will trigger reconnection)
+            setTimeout(() => {
+              this.createClient(sessionId).catch(err => {
+                console.error(`❌ Failed to recreate socket after restartRequired: ${err}`);
+              });
+            }, 1000); // Small delay before recreating
+            
+            return; // Don't proceed with normal reconnection logic
+          }
+          
+          const shouldReconnect = !isLoggedOut;
           console.log(`🔌 Connection closed for session: ${sessionId}, should reconnect: ${shouldReconnect}`);
           console.log(`🔌 Disconnect reason:`, lastDisconnect?.error?.message);
+          console.log(`🔌 Disconnect status code: ${disconnectStatusCode}`);
           
           // Update status to disconnected but keep client for potential reconnection
           if (this.clients.has(sessionId)) {
@@ -1074,19 +1109,56 @@ class BaileysWhatsAppManager {
         throw new Error(`Invalid phone number format: ${error.message}. Received: ${phoneNumber}`);
       }
       
-      // Wait for connection to be in connecting state or QR available
-      const connectionStatus = this.getClientStatus(sessionId);
-      if (connectionStatus && connectionStatus.status !== 'connecting' && !connectionStatus.hasQR) {
-        console.log(`⏳ Waiting for connection state...`);
-        // Wait a bit for connection to stabilize
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      // According to Baileys docs: wait until connection === "connecting" OR !!qr
+      // https://baileys.wiki/docs/socket/connecting/
+      let connectionReady = false;
+      let attempts = 0;
+      const maxAttempts = 15; // Wait up to 15 seconds (Baileys needs time to establish connection)
+      
+      console.log(`⏳ Waiting for socket to be in 'connecting' or 'qr' state (as per Baileys docs)...`);
+      
+      while (!connectionReady && attempts < maxAttempts) {
+        // Refresh client reference each attempt
+        client = this.clients.get(sessionId);
+        if (!client || !client.socket) {
+          attempts++;
+          console.log(`⏳ Client not ready yet (attempt ${attempts}/${maxAttempts})...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        
+        const connectionStatus = this.getClientStatus(sessionId);
+        // Check if socket connection.update event indicates connecting or QR
+        // According to Baileys: we need connection === "connecting" OR !!qr
+        const isConnecting = connectionStatus?.status === 'connecting';
+        const hasQR = connectionStatus?.hasQR === true;
+        
+        // Also check socket's actual WebSocket state
+        const socketReady = client.socket?.ws?.readyState === 1; // WebSocket.OPEN
+        
+        if (isConnecting || hasQR || socketReady) {
+          connectionReady = true;
+          console.log(`✅ Connection ready for pairing code (status: ${connectionStatus?.status || 'unknown'}, hasQR: ${hasQR}, socketOpen: ${socketReady})`);
+        } else {
+          attempts++;
+          console.log(`⏳ Waiting for connection state (attempt ${attempts}/${maxAttempts})... Current status: ${connectionStatus?.status || 'none'}`);
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second between attempts
+        }
+      }
+      
+      if (!connectionReady) {
+        console.warn(`⚠️ Connection not in optimal state after ${maxAttempts} seconds, but proceeding with pairing code request...`);
+        console.warn(`⚠️ This may still work if socket is establishing connection...`);
       }
       
       // Verify socket is still available before calling
-      if (!client.socket || typeof client.socket.requestPairingCode !== 'function') {
+      if (!client || !client.socket || typeof client.socket.requestPairingCode !== 'function') {
         throw new Error('Socket not ready for pairing code request');
       }
       
+      // According to Baileys docs: phone number MUST be E.164 WITHOUT + sign
+      // Our normalizeToE164WithoutPlus already handles this correctly
+      console.log(`📞 Requesting pairing code from Baileys for: ${formattedPhoneNumber}`);
       const pairingCode = await client.socket.requestPairingCode(formattedPhoneNumber);
       console.log(`✅ Pairing code generated: ${pairingCode}`);
       console.log(`⏳ Waiting for user to enter pairing code in WhatsApp...`);
