@@ -1060,22 +1060,19 @@ class BaileysWhatsAppManager {
         throw new Error('Pairing code not supported by this Baileys version. Please update Baileys.');
       }
 
-      // Ensure phone number is in E.164 format without +
-      const cleanPhoneNumber = phoneNumber.replace(/[^\d]/g, '');
-      let formattedPhoneNumber = cleanPhoneNumber;
+      // Use phone utility for international number formatting
+      const { normalizeToE164WithoutPlus } = require('./phone');
       
-      // Handle different phone number formats
-      if (cleanPhoneNumber.length === 10) {
-        // Assume US number if 10 digits
-        formattedPhoneNumber = '1' + cleanPhoneNumber;
-      } else if (cleanPhoneNumber.startsWith('+')) {
-        // Remove + if present
-        formattedPhoneNumber = cleanPhoneNumber.substring(1);
-      } else if (cleanPhoneNumber.length < 10) {
-        throw new Error('Invalid phone number format');
+      // Normalize phone number to E.164 format WITHOUT + (Baileys requirement)
+      // This handles all countries worldwide automatically
+      let formattedPhoneNumber;
+      try {
+        formattedPhoneNumber = normalizeToE164WithoutPlus(phoneNumber);
+        console.log(`📞 Requesting pairing code for: ${formattedPhoneNumber} (E.164 format without +)`);
+        console.log(`📱 Original input: ${phoneNumber} -> Formatted: ${formattedPhoneNumber}`);
+      } catch (error) {
+        throw new Error(`Invalid phone number format: ${error.message}. Received: ${phoneNumber}`);
       }
-
-      console.log(`📞 Requesting pairing code for: ${formattedPhoneNumber}`);
       
       // Wait for connection to be in connecting state or QR available
       const connectionStatus = this.getClientStatus(sessionId);
