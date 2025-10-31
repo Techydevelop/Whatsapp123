@@ -3000,7 +3000,10 @@ app.post('/ghl/provider/request-pairing', async (req, res) => {
   try {
     const { locationId, phoneNumber } = req.body;
     
-    console.log(`📱 Pairing code request received:`, { locationId, phoneNumber });
+    console.log(`\n📱 === PAIRING CODE REQUEST START ===`);
+    console.log(`   Location: ${locationId}`);
+    console.log(`   Phone: ${phoneNumber}`);
+    console.log(`   Time: ${new Date().toLocaleTimeString()}\n`);
     
     // Validation
     if (!locationId || !phoneNumber) {
@@ -3010,7 +3013,7 @@ app.post('/ghl/provider/request-pairing', async (req, res) => {
       });
     }
     
-    // Clean and validate phone number (E.164 without +)
+    // Clean phone
     const cleanedPhone = phoneNumber.replace(/\D/g, '');
     
     if (cleanedPhone.length < 10 || cleanedPhone.length > 15) {
@@ -3039,57 +3042,51 @@ app.post('/ghl/provider/request-pairing', async (req, res) => {
     if (!ghlAccount) {
       return res.status(404).json({ 
         success: false, 
-        error: 'Location not found. Please connect GHL account first.' 
+        error: 'Location not found' 
       });
     }
     
-    console.log(`📋 Found GHL account: ${ghlAccount.id}`);
+    console.log(`📋 GHL Account: ${ghlAccount.id}`);
     
-    // Check for existing active session
+    // Delete old sessions
     const { data: existingSessions } = await supabaseAdmin
       .from('sessions')
       .select('*')
-      .eq('subaccount_id', ghlAccount.id)
-      .order('created_at', { ascending: false });
+      .eq('subaccount_id', ghlAccount.id);
     
-    // Delete old disconnected sessions
     if (existingSessions && existingSessions.length > 0) {
       for (const oldSession of existingSessions) {
-        if (oldSession.status === 'disconnected') {
-          console.log(`🗑️ Deleting old disconnected session: ${oldSession.id}`);
-          await supabaseAdmin
-            .from('sessions')
-            .delete()
-            .eq('id', oldSession.id);
-          
-          // Cleanup WhatsApp client
-          const oldSessionName = `location_${ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_')}_${oldSession.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-          waManager.clearSessionData(oldSessionName);
-        }
+        console.log(`🗑️ Deleting old session: ${oldSession.id}`);
+        await supabaseAdmin
+          .from('sessions')
+          .delete()
+          .eq('id', oldSession.id);
+        
+        const oldSessionName = `location_${ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_')}_${oldSession.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        waManager.clearSessionData(oldSessionName);
       }
     }
     
-    // Create new session for pairing code
+    // Create new session
     const { data: newSession, error: sessionError } = await supabaseAdmin
       .from('sessions')
       .insert({
         user_id: ghlAccount.user_id,
         subaccount_id: ghlAccount.id,
-        status: 'initializing',
-        mode: 'pairing'
+        status: 'initializing'
       })
       .select()
       .single();
     
     if (sessionError) {
-      console.error('❌ Session creation error:', sessionError);
+      console.error('❌ Session error:', sessionError);
       return res.status(500).json({ 
         success: false, 
-        error: 'Failed to create session' 
+        error: 'Failed to create session: ' + sessionError.message 
       });
     }
     
-    console.log(`✅ New session created: ${newSession.id}`);
+    console.log(`✅ Session created: ${newSession.id}`);
     
     // Generate session name
     const cleanSubaccountId = ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -3097,12 +3094,12 @@ app.post('/ghl/provider/request-pairing', async (req, res) => {
     
     console.log(`🔄 Creating WhatsApp client: ${sessionName}`);
     
-    // Create WhatsApp client
+    // Create client
     await waManager.createClient(sessionName);
     
-    // Wait for client to initialize (important!)
-    console.log(`⏳ Waiting for client to initialize...`);
-    await new Promise(resolve => setTimeout(resolve, 5000)); // 5 seconds
+    // 🔥 IMPORTANT: Wait longer for socket to initialize
+    console.log(`⏳ Waiting 10 seconds for socket initialization...`);
+    await new Promise(resolve => setTimeout(resolve, 10000)); // Increased to 10 seconds
     
     // Request pairing code
     console.log(`📞 Requesting pairing code for: ${cleanedPhone}`);
@@ -3110,15 +3107,16 @@ app.post('/ghl/provider/request-pairing', async (req, res) => {
     try {
       const pairingResult = await waManager.requestPairingCode(sessionName, cleanedPhone);
       
-      console.log(`✅ Pairing code generated successfully:`, pairingResult.pairingCode);
+      console.log(`\n✅✅ PAIRING CODE GENERATED SUCCESSFULLY ✅✅`);
+      console.log(`   Code: ${pairingResult.pairingCode}`);
+      console.log(`   Phone: ${cleanedPhone}`);
+      console.log(`   Session: ${sessionName}`);
+      console.log(`   Now waiting for user to enter code in WhatsApp...\n`);
       
-      // Update session status
+      // Update session
       await supabaseAdmin
         .from('sessions')
-        .update({ 
-          status: 'qr', // Use 'qr' status (pairing code uses same status)
-          mode: 'pairing'
-        })
+        .update({ status: 'qr' })
         .eq('id', newSession.id);
       
       res.json({
@@ -3126,13 +3124,13 @@ app.post('/ghl/provider/request-pairing', async (req, res) => {
         pairingCode: pairingResult.pairingCode,
         sessionId: newSession.id,
         phoneNumber: cleanedPhone,
-        message: `Pairing code: ${pairingResult.pairingCode}. Enter in WhatsApp > Linked Devices > Link with phone number`
+        message: `Enter code ${pairingResult.pairingCode} in WhatsApp`
       });
       
     } catch (pairingError) {
-      console.error('❌ Pairing code generation failed:', pairingError);
+      console.error('❌ Pairing code failed:', pairingError);
       
-      // Cleanup failed session
+      // Cleanup
       await supabaseAdmin
         .from('sessions')
         .delete()
@@ -3140,11 +3138,11 @@ app.post('/ghl/provider/request-pairing', async (req, res) => {
       
       waManager.clearSessionData(sessionName);
       
-      throw new Error(`Pairing code failed: ${pairingError.message}`);
+      throw new Error(`Pairing failed: ${pairingError.message}`);
     }
     
   } catch (error) {
-    console.error('❌ Pairing code request error:', error);
+    console.error('❌ Pairing request error:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Failed to generate pairing code'
