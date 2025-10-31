@@ -185,7 +185,7 @@ export default function LoginPage() {
                       M596,408Q559,500,492,568Q425,636,337,611Q249,586,212,506Q175,426,177,340Q179,254,246,201Q313,148,398,150Q483,152,543,208Q603,264,613,332Q623,400,596,408Z;
                       M587,420Q581,500,520,560Q459,620,380,606Q301,592,244,540Q187,488,165,408Q143,328,189,259Q235,190,309,162Q383,134,454,165Q525,196,572,253Q619,310,587,420Z" />
           </path>
-        </svg>
+              </svg>
         {/* Radial highlights */}
         <div className="pointer-events-none absolute -top-10 -left-10 w-[420px] h-[420px] rounded-full bg-white/10 blur-3xl" />
         <div className="pointer-events-none absolute bottom-10 right-10 w-[520px] h-[520px] rounded-full bg-cyan-200/10 blur-3xl" />
@@ -228,10 +228,10 @@ export default function LoginPage() {
               </div>
               <div className="absolute w-20 h-[4px] bg-[#2D2D2D] rounded-full transition-all duration-200 ease-out" style={{ left: (password.length > 0 && showPassword) ? `10px` : `${40 + (yellowPos.faceX || 0)}px`, top: (password.length > 0 && showPassword) ? `88px` : `${88 + (yellowPos.faceY || 0)}px` }} />
             </div>
+            </div>
           </div>
-        </div>
         <div className="absolute inset-0 bg-white/10 pointer-events-none" />
-      </div>
+        </div>
 
       {/* Right login */}
       <div className="flex items-center justify-center p-8 bg-gray-50">
@@ -240,7 +240,7 @@ export default function LoginPage() {
             <h1 className="text-3xl font-extrabold tracking-tight mb-2 bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-cyan-600">Welcome back!</h1>
             <p className="text-gray-500 text-sm">Please enter your details</p>
             <div className="mx-auto mt-3 h-1 w-16 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500" />
-          </div>
+            </div>
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
               <label htmlFor="email" className="text-sm font-medium text-gray-700">Email</label>
@@ -249,8 +249,8 @@ export default function LoginPage() {
                   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zM2 20a10 10 0 1120 0v1H2v-1z"/></svg>
                 </span>
                 <input id="email" type="email" placeholder="you@example.com" value={email} autoComplete="off" onChange={(e) => setEmail(e.target.value)} onFocus={() => setIsTyping(true)} onBlur={() => setIsTyping(false)} required className="h-12 w-full rounded-lg border-0 ring-1 ring-gray-300 bg-white pl-10 pr-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder:text-gray-400" />
-              </div>
             </div>
+          </div>
             <div className="space-y-2">
               <label htmlFor="password" className="text-sm font-medium text-gray-700">Password</label>
               <div className="relative">
@@ -261,17 +261,17 @@ export default function LoginPage() {
                   ) : (
                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" /><circle cx="12" cy="12" r="3" /></svg>
                   )}
-                </button>
-              </div>
+            </button>
+          </div>
             </div>
             {error && <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">{error}</div>}
             <button type="submit" disabled={isLoading} className="group relative w-full h-12 rounded-xl text-white font-semibold bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 shadow-lg hover:shadow-emerald-500/30 hover:from-emerald-600 hover:via-teal-600 hover:to-cyan-700 transition-shadow disabled:opacity-50">
               <span className="absolute inset-0 rounded-xl bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
               {isLoading ? 'Signing in...' : 'Log in'}
             </button>
-          </form>
-        </div>
+        </form>
       </div>
+    </div>
     </div>
   );
 }

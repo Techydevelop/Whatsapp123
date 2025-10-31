@@ -1013,6 +1013,92 @@ class BaileysWhatsAppManager {
     }
   }
 
+  // Request pairing code for phone number (E.164 format without +)
+  async requestPairingCode(sessionId, phoneNumber) {
+    try {
+      console.log(`📱 Requesting pairing code for ${phoneNumber} in session: ${sessionId}`);
+      
+      // Ensure client exists, create if needed
+      let client = this.clients.get(sessionId);
+      if (!client || !client.socket) {
+        console.log(`🔄 Client not found for ${sessionId}, creating new client...`);
+        await this.createClient(sessionId);
+        // Wait for client to initialize
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        client = this.clients.get(sessionId);
+      }
+
+      if (!client || !client.socket) {
+        throw new Error('Failed to create or initialize client');
+      }
+
+      // Check if requestPairingCode is available
+      if (typeof client.socket.requestPairingCode !== 'function') {
+        throw new Error('Pairing code not supported by this Baileys version. Please update Baileys.');
+      }
+
+      // Use phone utility for international number formatting
+      const { normalizeToE164WithoutPlus } = require('./phone');
+      
+      // Normalize phone number to E.164 format WITHOUT + (Baileys requirement)
+      let formattedPhoneNumber;
+      try {
+        formattedPhoneNumber = normalizeToE164WithoutPlus(phoneNumber);
+        console.log(`📞 Requesting pairing code for: ${formattedPhoneNumber} (E.164 format without +)`);
+      } catch (error) {
+        throw new Error(`Invalid phone number format: ${error.message}. Received: ${phoneNumber}`);
+      }
+      
+      // According to Baileys docs: wait until connection === "connecting" OR !!qr
+      let connectionReady = false;
+      let attempts = 0;
+      const maxAttempts = 15;
+      
+      console.log(`⏳ Waiting for socket to be in 'connecting' or 'qr' state...`);
+      
+      while (!connectionReady && attempts < maxAttempts) {
+        client = this.clients.get(sessionId);
+        if (!client || !client.socket) {
+          attempts++;
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        
+        const connectionStatus = this.getClientStatus(sessionId);
+        const isConnecting = connectionStatus?.status === 'connecting';
+        const hasQR = connectionStatus?.hasQR === true;
+        const socketReady = client.socket?.ws?.readyState === 1;
+        
+        if (isConnecting || hasQR || socketReady) {
+          connectionReady = true;
+          console.log(`✅ Connection ready for pairing code`);
+        } else {
+          attempts++;
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      if (!client || !client.socket || typeof client.socket.requestPairingCode !== 'function') {
+        throw new Error('Socket not ready for pairing code request');
+      }
+      
+      console.log(`📞 Requesting pairing code from Baileys for: ${formattedPhoneNumber}`);
+      const pairingCode = await client.socket.requestPairingCode(formattedPhoneNumber);
+      console.log(`✅ Pairing code generated: ${pairingCode}`);
+      
+      return {
+        success: true,
+        pairingCode: pairingCode,
+        phoneNumber: formattedPhoneNumber,
+        message: `Pairing code ${pairingCode} has been sent to ${formattedPhoneNumber}. Enter this code in WhatsApp > Linked Devices > Link a Device`
+      };
+      
+    } catch (error) {
+      console.error(`❌ Error requesting pairing code:`, error);
+      throw error;
+    }
+  }
+
   // Get WhatsApp Web version info
   getWhatsAppVersion() {
     return {
@@ -1020,7 +1106,7 @@ class BaileysWhatsAppManager {
       status: 'Community confirmed working',
       source: 'wppconnect-team/wa-version repository',
       lastUpdated: 'Latest stable version',
-      pairingCodeSupported: false
+      pairingCodeSupported: true
     };
   }
 }

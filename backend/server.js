@@ -2503,6 +2503,91 @@ app.get('/ghl/provider', async (req, res) => {
               0% { transform: rotate(0deg); }
               100% { transform: rotate(360deg); }
             }
+            .modal-overlay {
+              display: none;
+              position: fixed;
+              top: 0;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              background: rgba(0, 0, 0, 0.8);
+              z-index: 9999;
+              align-items: center;
+              justify-content: center;
+            }
+            .modal-content {
+              background: white;
+              border-radius: 20px;
+              padding: 40px;
+              max-width: 500px;
+              width: 90%;
+              box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+            }
+            .modal-title {
+              font-size: 28px;
+              font-weight: 700;
+              color: #075E54;
+              margin: 0 0 10px;
+            }
+            .modal-subtitle {
+              color: #54656F;
+              margin: 0 0 30px;
+              font-size: 15px;
+            }
+            .input-field {
+              width: 100%;
+              padding: 16px;
+              border: 2px solid #E9EDEF;
+              border-radius: 12px;
+              font-size: 16px;
+              margin-bottom: 20px;
+              transition: all 0.3s;
+              box-sizing: border-box;
+            }
+            .input-field:focus {
+              outline: none;
+              border-color: #25D366;
+              box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.1);
+            }
+            .code-display {
+              display: none;
+              text-align: center;
+              margin: 30px 0;
+            }
+            .code-value {
+              font-size: 48px;
+              font-weight: 800;
+              letter-spacing: 8px;
+              color: #25D366;
+              padding: 30px;
+              background: linear-gradient(135deg, #E8F5E9, #F1F8E9);
+              border-radius: 16px;
+              border: 3px dashed #25D366;
+              font-family: 'Courier New', monospace;
+            }
+            .code-instructions {
+              color: #54656F;
+              margin-top: 20px;
+              line-height: 1.6;
+              font-size: 14px;
+            }
+            .error-box {
+              display: none;
+              color: #C62828;
+              background: #FFEBEE;
+              padding: 16px;
+              border-radius: 10px;
+              margin-top: 15px;
+              border-left: 4px solid #C62828;
+            }
+            .button-row {
+              display: flex;
+              gap: 12px;
+              margin-top: 20px;
+            }
+            .btn-full {
+              flex: 1;
+            }
             @media (max-width: 968px) {
               .content-wrapper {
                 grid-template-columns: 1fr;
@@ -2586,6 +2671,7 @@ app.get('/ghl/provider', async (req, res) => {
 
                   <div class="button-group">
                     <button id="reset" class="btn-secondary">🔄 Reset QR</button>
+                    <button id="pairing-btn" class="btn-success">📱 Use Pairing Code</button>
                     <button id="refresh" class="btn-primary">🔄 Refresh Status</button>
                     <button id="close" class="btn-success" style="display: none;">✅ Close Window</button>
                   </div>
@@ -2606,6 +2692,42 @@ app.get('/ghl/provider', async (req, res) => {
               </div>
             </div>
           </div>
+
+          <!-- Pairing Code Modal -->
+          <div id="pairing-modal" class="modal-overlay">
+            <div class="modal-content">
+              <h2 class="modal-title">📱 Pairing Code Login</h2>
+              <p class="modal-subtitle">Enter your WhatsApp number with country code (no + sign)</p>
+              
+              <input 
+                type="tel" 
+                id="pairing-phone" 
+                class="input-field"
+                placeholder="923001234567"
+                maxlength="15"
+              />
+              
+              <div class="code-display" id="code-display">
+                <div class="code-value" id="code-value">LOADING</div>
+                <p class="code-instructions">
+                  <strong>How to use:</strong><br>
+                  1. Open WhatsApp on your phone<br>
+                  2. Go to Settings → Linked Devices<br>
+                  3. Tap "Link a Device"<br>
+                  4. Choose "Link with phone number"<br>
+                  5. Enter this code: <span id="code-repeat"></span>
+                </p>
+              </div>
+              
+              <div class="error-box" id="pairing-error"></div>
+              
+              <div class="button-row">
+                <button id="get-code-btn" class="btn-primary btn-full">🔢 Get Pairing Code</button>
+                <button id="cancel-pairing" class="btn-secondary btn-full">❌ Cancel</button>
+              </div>
+            </div>
+          </div>
+
           <script>
             const qs = new URLSearchParams(window.location.search);
             const locId = qs.get('locationId');
@@ -2621,6 +2743,15 @@ app.get('/ghl/provider', async (req, res) => {
             const resetBtn = document.getElementById('reset');
             const refreshBtn = document.getElementById('refresh');
             const closeBtn = document.getElementById('close');
+            const pairingBtn = document.getElementById('pairing-btn');
+            const pairingModal = document.getElementById('pairing-modal');
+            const pairingPhone = document.getElementById('pairing-phone');
+            const getCodeBtn = document.getElementById('get-code-btn');
+            const cancelPairingBtn = document.getElementById('cancel-pairing');
+            const codeDisplay = document.getElementById('code-display');
+            const codeValue = document.getElementById('code-value');
+            const codeRepeat = document.getElementById('code-repeat');
+            const pairingError = document.getElementById('pairing-error');
 
             function updateStatus(status, phoneNumber = null) {
               // Update status text
@@ -2724,6 +2855,127 @@ app.get('/ghl/provider', async (req, res) => {
               window.close();
             });
 
+            // Show pairing modal
+            pairingBtn.addEventListener('click', () => {
+              pairingModal.style.display = 'flex';
+              pairingPhone.focus();
+            });
+
+            // Cancel pairing
+            cancelPairingBtn.addEventListener('click', () => {
+              pairingModal.style.display = 'none';
+              pairingPhone.value = '';
+              codeDisplay.style.display = 'none';
+              pairingError.style.display = 'none';
+              getCodeBtn.disabled = false;
+              getCodeBtn.innerHTML = '🔢 Get Pairing Code';
+            });
+
+            // Get pairing code
+            getCodeBtn.addEventListener('click', async () => {
+              const phone = pairingPhone.value.trim();
+              
+              // Validation
+              if (!phone) {
+                pairingError.textContent = '❌ Please enter your phone number';
+                pairingError.style.display = 'block';
+                return;
+              }
+              
+              // Remove all non-digits
+              const cleanPhone = phone.replace(/\D/g, '');
+              
+              if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+                pairingError.textContent = '❌ Invalid format. Use 10-15 digits (e.g., 923001234567)';
+                pairingError.style.display = 'block';
+                return;
+              }
+              
+              if (cleanPhone.startsWith('0')) {
+                pairingError.textContent = '❌ Include country code. Example: 923001234567 (not 03001234567)';
+                pairingError.style.display = 'block';
+                return;
+              }
+              
+              try {
+                getCodeBtn.disabled = true;
+                getCodeBtn.innerHTML = '<div class="loading"></div> Generating...';
+                pairingError.style.display = 'none';
+                
+                console.log('📞 Requesting pairing code for:', cleanPhone);
+                
+                const response = await fetch('/ghl/provider/request-pairing', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    locationId: locId,
+                    phoneNumber: cleanPhone
+                  })
+                });
+                
+                const result = await response.json();
+                console.log('📨 Server response:', result);
+                
+                if (result.success) {
+                  // Show pairing code
+                  codeValue.textContent = result.pairingCode;
+                  codeRepeat.textContent = result.pairingCode;
+                  codeDisplay.style.display = 'block';
+                  pairingPhone.disabled = true;
+                  getCodeBtn.style.display = 'none';
+                  
+                  console.log('✅ Pairing code received:', result.pairingCode);
+                  console.log('⏳ Waiting for user to enter code in WhatsApp...');
+                  
+                  // Start polling for connection
+                  let attempts = 0;
+                  const maxAttempts = 60; // 3 minutes (60 * 3 seconds)
+                  
+                  const connectionPoll = setInterval(async () => {
+                    attempts++;
+                    
+                    try {
+                      const statusRes = await fetch('/ghl/location/' + encodeURIComponent(locId) + '/session');
+                      const statusData = await statusRes.json();
+                      
+                      console.log('🔍 Poll attempt ' + attempts + '/' + maxAttempts + ':', statusData.status);
+                      
+                      if (statusData.status === 'ready') {
+                        clearInterval(connectionPoll);
+                        console.log('✅ Connection successful!');
+                        
+                        pairingModal.style.display = 'none';
+                        updateStatus('ready', statusData.phone_number);
+                        
+                        alert('✅ WhatsApp connected successfully via pairing code!');
+                        location.reload();
+                      } else if (attempts >= maxAttempts) {
+                        clearInterval(connectionPoll);
+                        console.log('⏰ Connection timeout');
+                        pairingError.textContent = '⏰ Timeout. Please try again.';
+                        pairingError.style.display = 'block';
+                        getCodeBtn.disabled = false;
+                        getCodeBtn.innerHTML = '🔢 Get Pairing Code';
+                        getCodeBtn.style.display = 'block';
+                      }
+                    } catch (pollError) {
+                      console.error('Poll error:', pollError);
+                    }
+                  }, 3000); // Poll every 3 seconds
+                  
+                } else {
+                  throw new Error(result.error || 'Failed to get pairing code');
+                }
+                
+              } catch (error) {
+                console.error('❌ Pairing code error:', error);
+                pairingError.textContent = '❌ ' + error.message;
+                pairingError.style.display = 'block';
+                getCodeBtn.disabled = false;
+                getCodeBtn.innerHTML = '🔢 Get Pairing Code';
+              }
+            });
+
             // Initialize
             (async () => {
               await create();
@@ -2741,6 +2993,164 @@ app.get('/ghl/provider', async (req, res) => {
   }
 });
 
+// ============================================
+// PAIRING CODE ENDPOINT
+// ============================================
+app.post('/ghl/provider/request-pairing', async (req, res) => {
+  try {
+    const { locationId, phoneNumber } = req.body;
+    
+    console.log(`📱 Pairing code request received:`, { locationId, phoneNumber });
+    
+    // Validation
+    if (!locationId || !phoneNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Location ID and phone number required' 
+      });
+    }
+    
+    // Clean and validate phone number (E.164 without +)
+    const cleanedPhone = phoneNumber.replace(/\D/g, '');
+    
+    if (cleanedPhone.length < 10 || cleanedPhone.length > 15) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid phone format. Use 10-15 digits (e.g., 923001234567)'
+      });
+    }
+    
+    if (cleanedPhone.startsWith('0')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Include country code. Example: 923001234567 (not 03001234567)'
+      });
+    }
+    
+    console.log(`✅ Phone validated: ${cleanedPhone}`);
+    
+    // Find GHL account
+    const { data: ghlAccount } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('*')
+      .eq('location_id', locationId)
+      .maybeSingle();
+    
+    if (!ghlAccount) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Location not found. Please connect GHL account first.' 
+      });
+    }
+    
+    console.log(`📋 Found GHL account: ${ghlAccount.id}`);
+    
+    // Check for existing active session
+    const { data: existingSessions } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('subaccount_id', ghlAccount.id)
+      .order('created_at', { ascending: false });
+    
+    // Delete old disconnected sessions
+    if (existingSessions && existingSessions.length > 0) {
+      for (const oldSession of existingSessions) {
+        if (oldSession.status === 'disconnected') {
+          console.log(`🗑️ Deleting old disconnected session: ${oldSession.id}`);
+          await supabaseAdmin
+            .from('sessions')
+            .delete()
+            .eq('id', oldSession.id);
+          
+          // Cleanup WhatsApp client
+          const oldSessionName = `location_${ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_')}_${oldSession.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+          waManager.clearSessionData(oldSessionName);
+        }
+      }
+    }
+    
+    // Create new session for pairing code
+    const { data: newSession, error: sessionError } = await supabaseAdmin
+      .from('sessions')
+      .insert({
+        user_id: ghlAccount.user_id,
+        subaccount_id: ghlAccount.id,
+        status: 'initializing',
+        mode: 'pairing'
+      })
+      .select()
+      .single();
+    
+    if (sessionError) {
+      console.error('❌ Session creation error:', sessionError);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to create session' 
+      });
+    }
+    
+    console.log(`✅ New session created: ${newSession.id}`);
+    
+    // Generate session name
+    const cleanSubaccountId = ghlAccount.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sessionName = `location_${cleanSubaccountId}_${newSession.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    
+    console.log(`🔄 Creating WhatsApp client: ${sessionName}`);
+    
+    // Create WhatsApp client
+    await waManager.createClient(sessionName);
+    
+    // Wait for client to initialize (important!)
+    console.log(`⏳ Waiting for client to initialize...`);
+    await new Promise(resolve => setTimeout(resolve, 5000)); // 5 seconds
+    
+    // Request pairing code
+    console.log(`📞 Requesting pairing code for: ${cleanedPhone}`);
+    
+    try {
+      const pairingResult = await waManager.requestPairingCode(sessionName, cleanedPhone);
+      
+      console.log(`✅ Pairing code generated successfully:`, pairingResult.pairingCode);
+      
+      // Update session status
+      await supabaseAdmin
+        .from('sessions')
+        .update({ 
+          status: 'qr', // Use 'qr' status (pairing code uses same status)
+          mode: 'pairing'
+        })
+        .eq('id', newSession.id);
+      
+      res.json({
+        success: true,
+        pairingCode: pairingResult.pairingCode,
+        sessionId: newSession.id,
+        phoneNumber: cleanedPhone,
+        message: `Pairing code: ${pairingResult.pairingCode}. Enter in WhatsApp > Linked Devices > Link with phone number`
+      });
+      
+    } catch (pairingError) {
+      console.error('❌ Pairing code generation failed:', pairingError);
+      
+      // Cleanup failed session
+      await supabaseAdmin
+        .from('sessions')
+        .delete()
+        .eq('id', newSession.id);
+      
+      waManager.clearSessionData(sessionName);
+      
+      throw new Error(`Pairing code failed: ${pairingError.message}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Pairing code request error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to generate pairing code'
+    });
+  }
+});
 
 // Get GHL account status
 app.get('/admin/ghl/account-status', async (req, res) => {
