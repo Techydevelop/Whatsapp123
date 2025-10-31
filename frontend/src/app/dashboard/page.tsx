@@ -220,7 +220,7 @@ export default function Dashboard() {
 
       if (createResponse.ok) {
         await fetchGHLLocations(false)
-        const link = API_ENDPOINTS.providerUI(locationId, undefined, 'qr')
+        const link = API_ENDPOINTS.providerUI(locationId)
         window.open(link, '_blank')
       } else {
         const errorData = await createResponse.json()
