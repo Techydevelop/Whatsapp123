@@ -332,12 +332,36 @@ class BaileysWhatsAppManager {
       if (qr) {
         // IMPORTANT: Ignore QR codes if we're waiting for pairing code completion
         if (isWaitingForPairing) {
-          console.log(`🚫 Ignoring QR code - waiting for pairing code completion for session: ${sessionId}`);
+          console.log(`🚫🚫🚫 BLOCKING QR code - waiting for pairing code completion for session: ${sessionId}`);
           console.log(`📱 Pairing code was: ${clientInfo?.pairingCode}, Phone: ${clientInfo?.pairingCodePhone}`);
+          console.log(`🚫 QR code will be ignored until pairing code connection completes`);
+          
+          // Ensure status stays 'connecting' not 'qr_ready'
+          if (this.clients.has(sessionId)) {
+            const currentClient = this.clients.get(sessionId);
+            if (currentClient.status === 'qr_ready') {
+              console.log(`🔧 Fixing status: changing from 'qr_ready' to 'connecting'`);
+              this.clients.set(sessionId, {
+                ...currentClient,
+                status: 'connecting',
+                qr: null, // Force clear QR
+                qrGeneratedAt: null
+              });
+            }
+          }
+          
           return; // Don't process QR when waiting for pairing code
         }
         
         console.log(`📱 QR Code generated for session: ${sessionId}`);
+        
+        // DOUBLE CHECK: Don't set qr_ready if we're waiting for pairing code
+        const currentClientCheck = this.clients.get(sessionId);
+        if (currentClientCheck?.pairingCodeRequested) {
+          console.log(`🚫🚫 BLOCKING QR - pairing code was requested, ignoring this QR event completely`);
+          return; // Don't process QR at all
+        }
+        
         // Only set qr_ready if not already connected AND connection is not stable
         if (!connectionStable && (!this.clients.has(sessionId) || this.clients.get(sessionId).status !== 'connected')) {
           this.clients.set(sessionId, {
@@ -1165,20 +1189,30 @@ class BaileysWhatsAppManager {
       console.log(`📱 Socket connection state: ${client.socket?.user ? 'authenticated' : 'pending'}`);
       console.log(`🔌 Socket connected: ${client.socket?.ws?.readyState === 1 ? 'yes' : 'no'}`);
       
-      // Ensure client is in 'connecting' state so it can receive connection.open event
+      // IMPORTANT: Set status to 'connecting' and clear QR to prevent QR interference
+      // After pairing code is requested, we must ignore QR codes completely
       if (this.clients.has(sessionId)) {
         const currentClient = this.clients.get(sessionId);
+        // Clear QR code and set status to connecting explicitly
         this.clients.set(sessionId, {
           ...currentClient,
           socket: client.socket, // Ensure socket reference is kept
-          status: 'connecting',
+          status: 'connecting', // Force status to connecting (not qr_ready)
+          qr: null, // CRITICAL: Clear QR code to prevent interference
+          qrGeneratedAt: null, // Clear QR timestamp
           lastUpdate: Date.now(),
           pairingCodeRequested: true,
           pairingCodePhone: formattedPhoneNumber,
           pairingCode: pairingCode,
           pairingCodeGeneratedAt: Date.now()
         });
+        console.log(`🚫 Cleared QR code and set status to 'connecting' to prevent QR interference`);
         console.log(`📱 Client status set to 'connecting' and ready for pairing code completion`);
+        
+        // Update database status to 'connecting' when pairing code is requested
+        console.log(`📊 Updating database status to 'connecting' for pairing code session...`);
+        await this.updateDatabaseStatus(sessionId, 'connecting');
+        
         console.log(`⏰ Client will wait for connection.update event with connection === 'open'`);
         
         // Add explicit listener for pairing code completion (additional safety)
