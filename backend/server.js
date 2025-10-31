@@ -3113,11 +3113,16 @@ app.post('/ghl/provider/request-pairing', async (req, res) => {
       console.log(`   Session: ${sessionName}`);
       console.log(`   Now waiting for user to enter code in WhatsApp...\n`);
       
-      // Update session
+      // Update session with pairing mode marker
       await supabaseAdmin
         .from('sessions')
-        .update({ status: 'qr' })
+        .update({ 
+          status: 'qr',
+          phone_number: cleanedPhone // 🔥 Store phone number as marker
+        })
         .eq('id', newSession.id);
+      
+      console.log(`📌 Session marked as pairing mode in database`);
       
       res.json({
         success: true,
