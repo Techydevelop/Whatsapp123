@@ -1209,9 +1209,14 @@ class BaileysWhatsAppManager {
         console.log(`🚫 Cleared QR code and set status to 'connecting' to prevent QR interference`);
         console.log(`📱 Client status set to 'connecting' and ready for pairing code completion`);
         
-        // Update database status to 'connecting' when pairing code is requested
-        console.log(`📊 Updating database status to 'connecting' for pairing code session...`);
-        await this.updateDatabaseStatus(sessionId, 'connecting');
+        // Update database status when pairing code is requested
+        // Database constraint allows: 'initializing', 'qr', 'ready', 'disconnected'
+        // We use 'qr' status even though it's pairing code (not QR) - the actual state
+        // is tracked in memory via pairingCodeRequested flag
+        console.log(`📊 Updating database status to 'qr' for pairing code session...`);
+        // Note: 'qr' is used for both QR codes AND pairing codes in DB
+        // The distinction is tracked in memory via pairingCodeRequested flag
+        await this.updateDatabaseStatus(sessionId, 'qr');
         
         console.log(`⏰ Client will wait for connection.update event with connection === 'open'`);
         
