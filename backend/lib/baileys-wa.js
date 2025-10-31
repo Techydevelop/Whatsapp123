@@ -1,6 +1,7 @@
 const { makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMessage } = require('baileys');
 const fs = require('fs');
 const path = require('path');
+const emailService = require('./email');
 
 // Fetch the latest WhatsApp Web version dynamically
 async function fetchLatestWaWebVersion() {
@@ -270,7 +271,7 @@ class BaileysWhatsAppManager {
           error: () => {},
           fatal: () => {}
         },
-        browser: ['GHLTechy', 'Chrome', '1.0.0'],
+        browser: ['Octendr', 'Chrome', '1.0.0'],
         version: version, // Use the dynamically fetched version
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: true,
@@ -285,7 +286,7 @@ class BaileysWhatsAppManager {
         msgRetryCounterCache: new Map(),
         getMessage: async (key) => {
           return {
-            conversation: 'Hello from GHLTechy!'
+            conversation: 'Hello from Octendr!'
           };
         },
         shouldSyncHistoryMessage: () => false,
@@ -414,6 +415,11 @@ class BaileysWhatsAppManager {
             // Update database status to disconnected
             this.updateDatabaseStatus(sessionId, 'disconnected', null).catch(err => {
               console.error(`❌ Failed to update database on logout: ${err.message}`);
+            });
+            
+            // Send email notification for mobile disconnect
+            this.sendDisconnectEmail(sessionId, 'mobile').catch(err => {
+              console.error(`❌ Failed to send disconnect email: ${err.message}`);
             });
             
             // Delete client from memory
@@ -983,6 +989,54 @@ class BaileysWhatsAppManager {
       }
     } catch (error) {
       console.error('❌ Error updating database status:', error);
+    }
+  }
+
+  // Send disconnect email notification
+  async sendDisconnectEmail(sessionId, reason = 'mobile') {
+    try {
+      // Extract session ID from sessionId (format: location_subaccountId_sessionId)
+      const sessionIdParts = sessionId.split('_');
+      const actualSessionId = sessionIdParts.slice(2).join('_');
+      
+      // Get session from database to get user_id and subaccount_id
+      const { createClient } = require('@supabase/supabase-js');
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
+      
+      const { data: session } = await supabaseAdmin
+        .from('sessions')
+        .select('user_id, subaccount_id')
+        .eq('id', actualSessionId)
+        .maybeSingle();
+      
+      if (!session) {
+        console.log(`⚠️ Session not found for email notification: ${actualSessionId}`);
+        return;
+      }
+      
+      // Get GHL account to get location_id
+      const { data: ghlAccount } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('location_id')
+        .eq('id', session.subaccount_id)
+        .maybeSingle();
+      
+      if (!ghlAccount) {
+        console.log(`⚠️ GHL account not found for email notification`);
+        return;
+      }
+      
+      // Send email notification
+      await emailService.sendDisconnectNotification(
+        session.user_id,
+        ghlAccount.location_id,
+        reason
+      );
+      
+    } catch (error) {
+      console.error(`❌ Error sending disconnect email:`, error);
     }
   }
   

@@ -3418,7 +3418,21 @@ app.post('/ghl/location/:locationId/session/logout', async (req, res) => {
       console.error(`⚠️ Error clearing session data: ${clearError.message}`);
     }
     
-    // Step 4: Delete session from database completely (after disconnect)
+    // Step 4: Send email notification for dashboard logout
+    try {
+      const emailService = require('./lib/email');
+      await emailService.sendDisconnectNotification(
+        ghlAccount.user_id,
+        locationId,
+        'dashboard'
+      );
+      console.log(`📧 Disconnect email sent for dashboard logout`);
+    } catch (emailError) {
+      console.error(`⚠️ Failed to send disconnect email:`, emailError.message);
+      // Don't fail the logout if email fails
+    }
+
+    // Step 5: Delete session from database completely (after disconnect)
     await supabaseAdmin
       .from('sessions')
       .delete()
