@@ -46,7 +46,8 @@ class EmailService {
       const locationName = ghlAccount ? `Location ${locationId}` : `Location ${locationId}`;
 
       // Prepare email content
-      const subject = '⚠️ WhatsApp Connection Lost - Please Reconnect';
+      // Avoid spam trigger words in subject
+      const subject = 'WhatsApp Connection - Action Required';
       const disconnectReason = reason === 'mobile' 
         ? 'disconnected from your mobile phone' 
         : 'logged out from the dashboard';
@@ -150,15 +151,17 @@ class EmailService {
           <body>
             <div class="container">
               <div class="header">
-                <h1>⚠️ WhatsApp Connection Lost</h1>
+                <h1>WhatsApp Connection Update</h1>
               </div>
               
               <div class="content">
                 <p>Hello ${userName},</p>
                 
+                <p>We noticed that your WhatsApp connection for <strong>${locationName}</strong> has been ${disconnectReason}.</p>
+                
                 <div class="alert-box">
-                  <strong>Connection Disconnected</strong>
-                  Your WhatsApp connection for <strong>${locationName}</strong> has been ${disconnectReason}.
+                  <strong>Connection Status Update</strong>
+                  Your WhatsApp integration needs to be reconnected to continue functioning properly.
                 </div>
                 
                 <div class="info-box">
@@ -199,6 +202,11 @@ class EmailService {
               <div class="footer">
                 <p>This is an automated notification from <strong>Octendr</strong></p>
                 <p>WhatsApp GHL Integration Platform</p>
+                <p style="margin-top: 15px; font-size: 12px; color: #999;">
+                  <a href="${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard?unsubscribe=1" style="color: #54656F; text-decoration: none;">
+                    Manage Email Preferences
+                  </a>
+                </p>
               </div>
             </div>
           </body>
@@ -206,11 +214,11 @@ class EmailService {
       `;
 
       const textContent = `
-WhatsApp Connection Lost - Please Reconnect
+WhatsApp Connection Update - Action Required
 
 Hello ${userName},
 
-Your WhatsApp connection for ${locationName} has been ${disconnectReason}.
+We noticed that your WhatsApp connection for ${locationName} has been ${disconnectReason}.
 
 Account: ${locationName}
 Disconnected: ${new Date().toLocaleString()}
@@ -226,6 +234,8 @@ To reconnect:
 Dashboard: ${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard
 
 This is an automated notification from Octendr.
+
+To manage your email preferences: ${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard?unsubscribe=1
       `;
 
       // Use Supabase Edge Function or external email service
@@ -340,10 +350,19 @@ This is an automated notification from Octendr.
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS,
           },
-          // Gmail specific settings
+          // Gmail specific settings for better deliverability
           tls: {
             rejectUnauthorized: false, // For development, set to true in production
+            ciphers: 'SSLv3',
           },
+          // Connection timeout
+          connectionTimeout: 5000,
+          greetingTimeout: 5000,
+          socketTimeout: 5000,
+          // Rate limiting to avoid spam detection
+          pool: true,
+          maxConnections: 1,
+          maxMessages: 3,
         };
 
         // If using Gmail, add service option
@@ -371,6 +390,21 @@ This is an automated notification from Octendr.
           subject: subject,
           html: html,
           text: text,
+          // Spam prevention headers
+          headers: {
+            'X-Priority': '1',
+            'X-MSMail-Priority': 'Normal',
+            'Importance': 'normal',
+            'List-Unsubscribe': `<${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard?unsubscribe=1>`,
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            'X-Mailer': 'Octendr Notification System',
+            'Precedence': 'bulk',
+            'Auto-Submitted': 'auto-generated',
+          },
+          // Reply-to header
+          replyTo: process.env.EMAIL_REPLY_TO || process.env.SMTP_USER,
+          // Priority settings
+          priority: 'normal',
         };
 
         const info = await transporter.sendMail(mailOptions);
