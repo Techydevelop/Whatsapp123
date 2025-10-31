@@ -2172,16 +2172,35 @@ app.get('/ghl/provider', async (req, res) => {
     
     let { locationId, companyId } = req.query;
     
-    // 🔥 Try to extract locationId from referer URL (GHL context)
+    // 🔥 CRITICAL: Try to extract locationId from referer URL FIRST (GHL context)
+    // This is the PRIMARY source - URL se jo locationId aaye, wahi use karo
     if (!locationId) {
-      const referer = req.get('referer') || req.get('origin') || '';
-      console.log('🔍 Checking referer for locationId:', referer);
+      const referer = req.get('referer') || '';
+      console.log('🔍 Checking referer URL for locationId:', referer);
       
-      // Extract locationId from GHL URLs like: https://app.gohighlevel.com/locations/LOCATION_ID/...
-      const locationMatch = referer.match(/\/locations\/([a-zA-Z0-9_-]+)/);
-      if (locationMatch && locationMatch[1]) {
-        locationId = locationMatch[1];
-        console.log('✅ Found locationId from referer:', locationId);
+      // Extract locationId from GHL URLs like: 
+      // https://app.gohighlevel.com/v2/location/5iODXOPij0pdXOyIEIQi/custom-menu-link/...
+      // https://app.gohighlevel.com/locations/LOCATION_ID/...
+      // https://app.gohighlevel.com/location/LOCATION_ID/...
+      const locationPatterns = [
+        /\/v2\/location\/([a-zA-Z0-9_-]+)/,    // v2/location/LOCATION_ID pattern (PRIORITY)
+        /\/location\/([a-zA-Z0-9_-]+)/,        // location/LOCATION_ID pattern
+        /\/locations\/([a-zA-Z0-9_-]+)/        // locations/LOCATION_ID pattern
+      ];
+      
+      for (const pattern of locationPatterns) {
+        const locationMatch = referer.match(pattern);
+        if (locationMatch && locationMatch[1]) {
+          locationId = locationMatch[1];
+          console.log('✅✅✅ Found locationId from referer URL:', locationId);
+          console.log('   Matched pattern:', pattern.toString());
+          console.log('   Full referer:', referer);
+          break; // Use first match and stop
+        }
+      }
+      
+      if (!locationId) {
+        console.log('⚠️ Could not extract locationId from referer:', referer);
       }
     }
     
@@ -2211,21 +2230,8 @@ app.get('/ghl/provider', async (req, res) => {
       }
     }
     
-    // If still no locationId, try to get first GHL account (fallback)
-    if (!locationId) {
-      console.log('⚠️ No locationId found, trying to get first available GHL account...');
-      
-      const { data: allAccounts } = await supabaseAdmin
-        .from('ghl_accounts')
-        .select('location_id')
-        .limit(1)
-        .maybeSingle();
-      
-      if (allAccounts && allAccounts.location_id) {
-        locationId = allAccounts.location_id;
-        console.log('✅ Using first available locationId:', locationId);
-      }
-    }
+    // 🚫 REMOVED: Don't use first available account as fallback - this causes wrong location!
+    // User must provide locationId or it should be detected from context
     
     if (!locationId) {
       return res.status(200).send(`
