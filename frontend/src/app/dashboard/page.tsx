@@ -311,7 +311,7 @@ export default function Dashboard() {
       const { error: sessionsError } = await supabase
         .from('sessions')
         .delete()
-        .eq('ghl_location_id', locationId) // Sessions might reference location_id directly
+        .eq('subaccount_id', ghlAccount.id) // Use subaccount_id (which is ghl_accounts.id)
       
       if (sessionsError) {
         console.error('Error deleting sessions:', sessionsError)
@@ -334,8 +334,14 @@ export default function Dashboard() {
       }
       
       console.log('✅ GHL account deleted successfully')
+      
+      // Show success message first
       setNotification({ type: 'success', message: '✅ Account deleted successfully!' })
-      await fetchGHLLocations(false)
+      
+      // Refresh list after a small delay to ensure UI updates properly
+      setTimeout(async () => {
+        await fetchGHLLocations(false)
+      }, 500)
       
     } catch (error) {
       console.error('Error deleting account:', error)
