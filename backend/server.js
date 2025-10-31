@@ -2172,6 +2172,28 @@ app.get('/ghl/provider', async (req, res) => {
     
     let { locationId, companyId } = req.query;
     
+    // 🔥 Try to extract locationId from referer URL (GHL context)
+    if (!locationId) {
+      const referer = req.get('referer') || req.get('origin') || '';
+      console.log('🔍 Checking referer for locationId:', referer);
+      
+      // Extract locationId from GHL URLs like: https://app.gohighlevel.com/locations/LOCATION_ID/...
+      const locationMatch = referer.match(/\/locations\/([a-zA-Z0-9_-]+)/);
+      if (locationMatch && locationMatch[1]) {
+        locationId = locationMatch[1];
+        console.log('✅ Found locationId from referer:', locationId);
+      }
+    }
+    
+    // Try to get from GHL headers if available
+    if (!locationId) {
+      const ghlLocationId = req.get('x-location-id') || req.get('location-id');
+      if (ghlLocationId) {
+        locationId = ghlLocationId;
+        console.log('✅ Found locationId from header:', locationId);
+      }
+    }
+    
     // If no locationId provided, try to detect from GHL context or company
     if (!locationId && companyId) {
       console.log('No locationId provided, looking up by companyId:', companyId);
@@ -2185,22 +2207,121 @@ app.get('/ghl/provider', async (req, res) => {
         
       if (ghlAccount && ghlAccount.location_id) {
         locationId = ghlAccount.location_id;
-        console.log('Found locationId from company:', locationId);
+        console.log('✅ Found locationId from company:', locationId);
+      }
+    }
+    
+    // If still no locationId, try to get first GHL account (fallback)
+    if (!locationId) {
+      console.log('⚠️ No locationId found, trying to get first available GHL account...');
+      
+      const { data: allAccounts } = await supabaseAdmin
+        .from('ghl_accounts')
+        .select('location_id')
+        .limit(1)
+        .maybeSingle();
+      
+      if (allAccounts && allAccounts.location_id) {
+        locationId = allAccounts.location_id;
+        console.log('✅ Using first available locationId:', locationId);
       }
     }
     
     if (!locationId) {
-      return res.status(400).send(`
+      return res.status(200).send(`
+      <!DOCTYPE html>
       <html>
-          <body style="font-family: Arial, sans-serif; padding: 20px; text-align: center;">
-            <h2>⚠️ Setup Required</h2>
-            <p>Please add your Location ID to the custom menu link:</p>
-            <code style="background: #f0f0f0; padding: 10px; border-radius: 5px;">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>WhatsApp Setup - Octendr</title>
+          <style>
+            * { box-sizing: border-box; }
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+              padding: 40px 20px;
+              margin: 0;
+              background: linear-gradient(135deg, #128C7E 0%, #075E54 100%);
+              min-height: 100vh;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+            .container {
+              background: white;
+              border-radius: 20px;
+              padding: 40px;
+              max-width: 600px;
+              width: 100%;
+              box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+            }
+            h1 { color: #075E54; margin-top: 0; }
+            .code-block {
+              background: #f5f5f5;
+              padding: 15px;
+              border-radius: 10px;
+              font-family: 'Courier New', monospace;
+              margin: 20px 0;
+              word-break: break-all;
+              border: 2px solid #25D366;
+            }
+            .step { margin: 20px 0; padding-left: 30px; position: relative; }
+            .step::before {
+              content: counter(step);
+              counter-increment: step;
+              position: absolute;
+              left: 0;
+              background: #25D366;
+              color: white;
+              width: 25px;
+              height: 25px;
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-weight: bold;
+            }
+            ol { counter-reset: step; list-style: none; padding: 0; }
+            .highlight { color: #25D366; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>📱 WhatsApp Connection Setup</h1>
+            <p>To connect WhatsApp, please add your Location ID to the link:</p>
+            
+            <div class="code-block">
               ${process.env.BACKEND_URL || 'https://api.octendr.com'}/ghl/provider?locationId=YOUR_LOCATION_ID
-            </code>
-            <p>Find your Location ID in GHL Settings → General → Location ID</p>
-          </body>
-        </html>
+            </div>
+            
+            <ol>
+              <li class="step">
+                Go to <span class="highlight">GoHighLevel Dashboard</span>
+              </li>
+              <li class="step">
+                Navigate to <span class="highlight">Settings → General</span>
+              </li>
+              <li class="step">
+                Copy your <span class="highlight">Location ID</span>
+              </li>
+              <li class="step">
+                Replace <span class="highlight">YOUR_LOCATION_ID</span> in the link above
+              </li>
+              <li class="step">
+                Add this link to your <span class="highlight">Custom Menu</span>
+              </li>
+            </ol>
+            
+            <p style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #E9EDEF; color: #54656F;">
+              <strong>Or use the universal link:</strong><br>
+              <div class="code-block" style="margin-top: 10px;">
+                ${process.env.BACKEND_URL || 'https://api.octendr.com'}/ghl/provider
+              </div>
+              This will automatically detect your location when opened from GHL.
+            </p>
+          </div>
+        </body>
+      </html>
       `);
     }
 
@@ -2608,7 +2729,8 @@ app.get('/ghl/provider', async (req, res) => {
           </div>
           <script>
             const qs = new URLSearchParams(window.location.search);
-            const locId = qs.get('locationId');
+            // Get locationId from URL parameter OR from embedded value
+            const locId = qs.get('locationId') || '${locationId}';
             const companyId = qs.get('companyId');
             
             // Get DOM elements
