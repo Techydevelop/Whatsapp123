@@ -7,6 +7,7 @@ const GHLClient = require('./lib/ghl');
 const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
 const axios = require('axios');
+const Stripe = require('stripe');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -21,6 +22,14 @@ const GHL_CLIENT_ID = process.env.GHL_CLIENT_ID;
 const GHL_CLIENT_SECRET = process.env.GHL_CLIENT_SECRET;
 const GHL_REDIRECT_URI = process.env.GHL_REDIRECT_URI;
 const GHL_SCOPES = process.env.GHL_SCOPES || 'locations.readonly conversations.write conversations.readonly conversations/message.readonly conversations/message.write contacts.readonly contacts.write businesses.readonly users.readonly medias.write';
+
+// Stripe configuration
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: '2024-11-20.acacia',
+}) : null;
+const STRIPE_STARTER_PRICE_ID = process.env.STRIPE_STARTER_PRICE_ID;
+const STRIPE_PROFESSIONAL_PRICE_ID = process.env.STRIPE_PROFESSIONAL_PRICE_ID;
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
 // Token refresh function
 async function refreshGHLToken(ghlAccount) {
@@ -315,9 +324,13 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "https://services.leadconnectorhq.com"],
-      frameSrc: ["'self'", "https://app.gohighlevel.com", "https://*.gohighlevel.com"]
+      frameSrc: ["'self'", "https://app.gohighlevel.com", "https://*.gohighlevel.com"],
+      // Permanent solution for whitelabel domains - Allow all origins (required for GHL whitelabel functionality)
+      frameAncestors: ["*"]
     }
-  }
+  },
+  // Disable X-Frame-Options since we're setting it manually for whitelabel support
+  frameguard: false
 }));
 
 app.use(cors({
@@ -366,13 +379,211 @@ app.use(cors({
 // Add CSP headers for iframe embedding
 app.use((req, res, next) => {
   // Allow iframe embedding from GHL domains
-  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com https://app.gohighlevel.com https://*.gohighlevel.com");
+  // Permanent solution for whitelabel domains - Allow all origins (required for GHL whitelabel functionality)
+  res.setHeader('Content-Security-Policy', "frame-ancestors *");
   res.setHeader('X-Frame-Options', 'ALLOWALL');
   // CORS headers are handled by cors() middleware above, don't override them here
   // res.setHeader('Access-Control-Allow-Origin', '*');
   // res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   // res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
   next();
+});
+
+// Stripe Webhook Handler - MUST be before express.json() to receive raw body
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    if (!stripe) {
+      console.error('❌ Stripe not configured');
+      return res.status(500).json({ error: 'Stripe not configured' });
+    }
+
+    const signature = req.headers['stripe-signature'];
+    const webhookSecret = STRIPE_WEBHOOK_SECRET;
+
+    if (!signature || !webhookSecret) {
+      console.error('❌ Missing Stripe signature or webhook secret');
+      return res.status(400).json({ error: 'Missing signature or webhook secret' });
+    }
+
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(req.body, signature, webhookSecret);
+    } catch (err) {
+      console.error('❌ Webhook signature verification failed:', err.message);
+      return res.status(400).json({ error: `Webhook signature verification failed: ${err.message}` });
+    }
+
+    console.log(`📨 Stripe webhook received: ${event.type}`);
+
+    // Handle different event types
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        
+        const userId = session.metadata?.user_id;
+        const planType = session.metadata?.plan_type; // 'starter' or 'professional'
+
+        if (!userId || !planType) {
+          console.error('❌ Missing user_id or plan_type in metadata');
+          return res.status(400).json({ error: 'Invalid metadata' });
+        }
+
+        // Plan configuration
+        const planConfig = {
+          starter: { max_subaccounts: 3, price: 19 },
+          professional: { max_subaccounts: 10, price: 49 }
+        };
+
+        const config = planConfig[planType];
+
+        if (!config) {
+          console.error('❌ Invalid plan type:', planType);
+          return res.status(400).json({ error: 'Invalid plan type' });
+        }
+
+        // Update user in database
+        const { error: updateError } = await supabaseAdmin
+          .from('users')
+          .update({
+            subscription_status: 'active',
+            subscription_plan: planType,
+            max_subaccounts: config.max_subaccounts,
+            stripe_customer_id: session.customer,
+            stripe_subscription_id: session.subscription,
+            subscription_started_at: new Date().toISOString(),
+            subscription_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+          })
+          .eq('id', userId);
+
+        if (updateError) {
+          console.error('❌ Database update error:', updateError);
+          return res.status(500).json({ error: 'Database update failed' });
+        }
+
+        console.log(`✅ User ${userId} upgraded to ${planType} plan`);
+
+        // Log subscription event
+        await supabaseAdmin.from('subscription_events').insert({
+          user_id: userId,
+          event_type: 'upgrade',
+          plan_name: planType,
+          metadata: { 
+            stripe_session_id: session.id,
+            stripe_customer_id: session.customer,
+            stripe_subscription_id: session.subscription
+          }
+        });
+
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        const customerId = invoice.customer;
+
+        // Find user by stripe_customer_id
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('id, email, name')
+          .eq('stripe_customer_id', customerId)
+          .maybeSingle();
+
+        if (user) {
+          console.log(`⚠️ Payment failed for user ${user.id}`);
+          
+          // Log payment failure event
+          await supabaseAdmin.from('subscription_events').insert({
+            user_id: user.id,
+            event_type: 'payment_failed',
+            plan_name: user.subscription_plan || 'unknown',
+            metadata: {
+              invoice_id: invoice.id,
+              amount_due: invoice.amount_due,
+              invoice_url: invoice.hosted_invoice_url
+            }
+          });
+
+          // Optionally update subscription status after multiple failures
+          // For now, we'll keep it active and let Stripe handle retries
+        }
+
+        break;
+      }
+
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object;
+
+        // Update subscription end date
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('id')
+          .eq('stripe_subscription_id', subscription.id)
+          .maybeSingle();
+
+        if (user && subscription.current_period_end) {
+          await supabaseAdmin
+            .from('users')
+            .update({
+              subscription_ends_at: new Date(subscription.current_period_end * 1000).toISOString()
+            })
+            .eq('id', user.id);
+
+          console.log(`✅ Updated subscription end date for user ${user.id}`);
+        }
+
+        // Handle subscription cancellation
+        if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
+          if (user) {
+            await supabaseAdmin
+              .from('users')
+              .update({
+                subscription_status: 'cancelled',
+                max_subaccounts: 1 // Reset to trial limits
+              })
+              .eq('id', user.id);
+
+            console.log(`⚠️ Subscription cancelled for user ${user.id}`);
+          }
+        }
+
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object;
+        const customerId = invoice.customer;
+
+        // Find user and update subscription status
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('id')
+          .eq('stripe_customer_id', customerId)
+          .maybeSingle();
+
+        if (user) {
+          await supabaseAdmin
+            .from('users')
+            .update({
+              subscription_status: 'active'
+            })
+            .eq('id', user.id);
+
+          console.log(`✅ Payment succeeded for user ${user.id}`);
+        }
+
+        break;
+      }
+
+      default:
+        console.log(`ℹ️ Unhandled event type: ${event.type}`);
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    console.error('❌ Stripe webhook error:', error);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
 });
 
 app.use(express.json());
@@ -636,11 +847,40 @@ app.get('/oauth/callback', async (req, res) => {
       console.log('✅ Subaccount limit check passed');
     }
     
+    // ===========================================
+    // CHECK FOR DUPLICATE SUBACCOUNT (Same Location ID for Same User)
+    // ===========================================
+    const { data: existingGhlAccount, error: duplicateCheckError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('id, location_id, created_at')
+      .eq('user_id', targetUserId)
+      .eq('location_id', finalLocationId)
+      .maybeSingle();
+    
+    if (duplicateCheckError) {
+      console.error('❌ Error checking for duplicate subaccount:', duplicateCheckError);
+      return res.status(500).json({ 
+        error: 'Failed to check for duplicate account',
+        details: duplicateCheckError.message
+      });
+    }
+    
+    if (existingGhlAccount) {
+      console.log('⚠️ This account is already added for this user:', {
+        location_id: finalLocationId,
+        existing_account_id: existingGhlAccount.id,
+        created_at: existingGhlAccount.created_at
+      });
+      
+      const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+      return res.redirect(`${frontendUrl}/dashboard?error=account_already_added&location_id=${encodeURIComponent(finalLocationId)}`);
+    }
+    
     // User already verified above, proceed with GHL account storage
     
     const { error: ghlError } = await supabaseAdmin
       .from('ghl_accounts')
-      .upsert({
+      .insert({
         user_id: targetUserId,
         company_id: tokenData.companyId,
         access_token: tokenData.access_token,
@@ -2165,8 +2405,9 @@ app.get('/ghl/provider/status', async (req, res) => {
 // GHL Provider UI (for custom menu link)
 app.get('/ghl/provider', async (req, res) => {
   try {
-    // Set specific headers for iframe embedding
-    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com");
+    // Set specific headers for iframe embedding - Permanent solution for whitelabel domains
+    // Allow all origins to support any whitelabel domain (required for GHL whitelabel functionality)
+    res.setHeader('Content-Security-Policy', "frame-ancestors *");
     res.setHeader('X-Frame-Options', 'ALLOWALL');
     res.setHeader('Access-Control-Allow-Origin', '*');
     
@@ -4478,6 +4719,82 @@ app.get('/messages/session/:sessionId', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('❌ Error in messages endpoint:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ===========================================
+// STRIPE SUBSCRIPTION ENDPOINTS
+// ===========================================
+
+// Create Stripe Checkout Session
+app.post('/api/stripe/create-checkout', requireAuth, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(500).json({ error: 'Stripe not configured. Please set STRIPE_SECRET_KEY in environment variables.' });
+    }
+
+    const { plan, userEmail } = req.body;
+    const userId = req.user.id;
+
+    if (!plan || (plan !== 'starter' && plan !== 'professional')) {
+      return res.status(400).json({ error: 'Invalid plan. Must be "starter" or "professional"' });
+    }
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    // Get price ID based on plan
+    const priceId = plan === 'starter' 
+      ? STRIPE_STARTER_PRICE_ID
+      : STRIPE_PROFESSIONAL_PRICE_ID;
+
+    if (!priceId) {
+      return res.status(500).json({ error: `Price ID not configured for ${plan} plan. Please set STRIPE_${plan.toUpperCase()}_PRICE_ID in environment variables.` });
+    }
+
+    // Get user email if not provided
+    let email = userEmail;
+    if (!email) {
+      const { data: user } = await supabaseAdmin
+        .from('users')
+        .select('email')
+        .eq('id', userId)
+        .single();
+      
+      if (user) {
+        email = user.email;
+      }
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+
+    // Create checkout session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price: priceId,
+        quantity: 1,
+      }],
+      mode: 'subscription',
+      success_url: `${frontendUrl}/dashboard?subscription=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${frontendUrl}/dashboard?subscription=cancelled`,
+      customer_email: email,
+      metadata: {
+        user_id: userId,
+        plan_type: plan, // 'starter' or 'professional'
+      },
+    });
+
+    console.log(`✅ Stripe checkout session created for user ${userId}, plan: ${plan}`);
+
+    res.json({ sessionId: session.id, url: session.url });
+  } catch (error) {
+    console.error('❌ Stripe checkout error:', error);
+    res.status(500).json({ 
+      error: 'Failed to create checkout session',
+      details: error.message 
+    });
   }
 });
 

@@ -1,7 +1,9 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { Dialog, Transition } from '@headlessui/react'
+import { useAuth } from '@/hooks/useAuth'
+import { API_ENDPOINTS } from '@/lib/config'
 
 interface UpgradeModalProps {
   isOpen: boolean
@@ -18,10 +20,49 @@ export default function UpgradeModal({
   currentSubaccounts,
   maxSubaccounts
 }: UpgradeModalProps) {
-  const handleUpgrade = (plan: 'starter' | 'professional') => {
-    // TODO: Implement Stripe checkout
-    window.open(`/upgrade?plan=${plan}`, '_blank')
-    onClose()
+  const { user } = useAuth()
+  const [loading, setLoading] = useState<string | null>(null)
+
+  const handleUpgrade = async (plan: 'starter' | 'professional') => {
+    if (!user?.id) {
+      alert('Please login to upgrade')
+      return
+    }
+
+    setLoading(plan)
+
+    try {
+      // Get auth token from cookies or localStorage
+      const response = await fetch(API_ENDPOINTS.createCheckout, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // Include cookies for authentication
+        body: JSON.stringify({
+          plan,
+          userEmail: user.email
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to create checkout session')
+      }
+
+      const { url } = await response.json()
+
+      if (url) {
+        // Redirect to Stripe Checkout
+        window.location.href = url
+      } else {
+        throw new Error('No checkout URL received')
+      }
+    } catch (error) {
+      console.error('Error creating checkout:', error)
+      alert(error instanceof Error ? error.message : 'Failed to start checkout. Please try again.')
+      setLoading(null)
+    }
   }
 
   return (
@@ -103,13 +144,13 @@ export default function UpgradeModal({
                           <svg className="w-5 h-5 text-green-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                           </svg>
-                          <span className="text-gray-700">3 GoHighLevel locations</span>
+                          <span className="text-gray-700">3 subaccounts</span>
                         </li>
                         <li className="flex items-start">
                           <svg className="w-5 h-5 text-green-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                           </svg>
-                          <span className="text-gray-700">Unlimited WhatsApp sessions</span>
+                          <span className="text-gray-700">Unlimited WhatsApp Messages</span>
                         </li>
                         <li className="flex items-start">
                           <svg className="w-5 h-5 text-green-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -120,9 +161,10 @@ export default function UpgradeModal({
                       </ul>
                       <button
                         onClick={() => handleUpgrade('starter')}
-                        className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors"
+                        disabled={loading === 'starter'}
+                        className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors"
                       >
-                        Upgrade to Starter
+                        {loading === 'starter' ? 'Loading...' : 'Upgrade to Starter'}
                       </button>
                     </div>
 
@@ -143,13 +185,13 @@ export default function UpgradeModal({
                           <svg className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                           </svg>
-                          <span className="text-gray-700">10 GoHighLevel locations</span>
+                          <span className="text-gray-700">10 subaccounts</span>
                         </li>
                         <li className="flex items-start">
                           <svg className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                           </svg>
-                          <span className="text-gray-700">Unlimited WhatsApp sessions</span>
+                          <span className="text-gray-700">Unlimited WhatsApp Messages</span>
                         </li>
                         <li className="flex items-start">
                           <svg className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -166,9 +208,10 @@ export default function UpgradeModal({
                       </ul>
                       <button
                         onClick={() => handleUpgrade('professional')}
-                        className="w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-lg transition-all"
+                        disabled={loading === 'professional'}
+                        className="w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all"
                       >
-                        Upgrade to Professional
+                        {loading === 'professional' ? 'Loading...' : 'Upgrade to Professional'}
                       </button>
                     </div>
                   </div>

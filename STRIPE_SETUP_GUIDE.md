@@ -43,7 +43,7 @@ Secret key: sk_live_...
 2. Fill details:
    ```
    Name: WhatsApp Starter Plan
-   Description: 3 subaccounts, unlimited WhatsApp sessions
+   Description: 3 subaccounts, unlimited WhatsApp Messages
    ```
 3. Click **"Add pricing"**
 4. Set price:

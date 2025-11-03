@@ -42,9 +42,9 @@ export default function SubscriptionPage() {
   }, [user])
 
   const plans = [
-    { name: 'Free Trial', price: 0, subaccounts: 1, features: ['7 days free', '1 subaccount', 'Unlimited sessions'] },
-    { name: 'Starter', price: 19, subaccounts: 3, features: ['3 subaccounts', 'Unlimited sessions', 'Priority support'] },
-    { name: 'Professional', price: 49, subaccounts: 10, features: ['10 subaccounts', 'Unlimited sessions', 'API access', 'Advanced analytics'] },
+    { name: 'Free Trial', price: 0, subaccounts: 1, features: ['7 days free', '1 subaccount', 'Unlimited WhatsApp Messages'] },
+    { name: 'Starter', price: 19, subaccounts: 3, features: ['3 subaccounts', 'Unlimited WhatsApp Messages', 'Priority support'] },
+    { name: 'Professional', price: 49, subaccounts: 10, features: ['10 subaccounts', 'Unlimited WhatsApp Messages', 'API access', 'Advanced analytics'] },
   ]
 
   if (loading) {

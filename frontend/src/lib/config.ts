@@ -20,7 +20,10 @@ export const API_ENDPOINTS = {
     const params = new URLSearchParams({ locationId });
     if (companyId) params.append('companyId', companyId);
     return `${API_BASE_URL}/ghl/provider?${params.toString()}`;
-  }
+  },
+  
+  // Stripe subscription endpoints
+  createCheckout: `${API_BASE_URL}/api/stripe/create-checkout`
 };
 
 // Helper function to make authenticated API calls

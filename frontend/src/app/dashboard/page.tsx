@@ -180,6 +180,14 @@ export default function Dashboard() {
       })
       // Clean URL
       window.history.replaceState({}, '', '/dashboard')
+    } else if (error === 'account_already_added') {
+      const locationId = urlParams.get('location_id')
+      setNotification({
+        type: 'error',
+        message: 'This account is already added. You cannot add the same subaccount twice.'
+      })
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard')
     }
   }, [])
   
