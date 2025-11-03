@@ -423,6 +423,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
         
         const userId = session.metadata?.user_id;
         const planType = session.metadata?.plan_type; // 'starter' or 'professional'
+        const paymentType = session.metadata?.payment_type || 'recurring'; // 'recurring' or 'one-time'
 
         if (!userId || !planType) {
           console.error('❌ Missing user_id or plan_type in metadata');
@@ -442,18 +443,35 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
           return res.status(400).json({ error: 'Invalid plan type' });
         }
 
+        // Determine subscription end date based on payment type
+        let subscriptionEndsAt;
+        if (paymentType === 'one-time') {
+          // For one-time payments, calculate based on amount or set fixed duration
+          // Example: If $19 = 1 month, $49 = 1 month (or adjust as needed)
+          subscriptionEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+        } else {
+          // For recurring subscriptions, use subscription end date
+          subscriptionEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // Will be updated by subscription.updated event
+        }
+
         // Update user in database
+        const updateData = {
+          subscription_status: 'active',
+          subscription_plan: planType,
+          max_subaccounts: config.max_subaccounts,
+          stripe_customer_id: session.customer,
+          subscription_started_at: new Date().toISOString(),
+          subscription_ends_at: subscriptionEndsAt
+        };
+
+        // Only add subscription_id for recurring payments
+        if (paymentType === 'recurring' && session.subscription) {
+          updateData.stripe_subscription_id = session.subscription;
+        }
+
         const { error: updateError } = await supabaseAdmin
           .from('users')
-          .update({
-            subscription_status: 'active',
-            subscription_plan: planType,
-            max_subaccounts: config.max_subaccounts,
-            stripe_customer_id: session.customer,
-            stripe_subscription_id: session.subscription,
-            subscription_started_at: new Date().toISOString(),
-            subscription_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-          })
+          .update(updateData)
           .eq('id', userId);
 
         if (updateError) {
@@ -461,20 +479,47 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
           return res.status(500).json({ error: 'Database update failed' });
         }
 
-        console.log(`✅ User ${userId} upgraded to ${planType} plan`);
+        console.log(`✅ User ${userId} upgraded to ${planType} plan (${paymentType})`);
 
         // Log subscription event
         await supabaseAdmin.from('subscription_events').insert({
           user_id: userId,
-          event_type: 'upgrade',
+          event_type: paymentType === 'one-time' ? 'one_time_payment' : 'upgrade',
           plan_name: planType,
           metadata: { 
             stripe_session_id: session.id,
             stripe_customer_id: session.customer,
-            stripe_subscription_id: session.subscription
+            stripe_subscription_id: session.subscription || null,
+            payment_type: paymentType,
+            payment_intent_id: session.payment_intent || null
           }
         });
 
+        break;
+      }
+
+      case 'payment_intent.succeeded': {
+        // Handle one-time payment success (if not handled by checkout.session.completed)
+        const paymentIntent = event.data.object;
+        
+        // Check if this payment was already handled by checkout.session.completed
+        // This is a backup handler for one-time payments
+        if (paymentIntent.metadata?.user_id) {
+          const userId = paymentIntent.metadata.user_id;
+          console.log(`✅ One-time payment succeeded for user ${userId}`);
+          
+          // Log payment event
+          await supabaseAdmin.from('subscription_events').insert({
+            user_id: userId,
+            event_type: 'one_time_payment_succeeded',
+            plan_name: paymentIntent.metadata.plan_type || 'unknown',
+            metadata: {
+              payment_intent_id: paymentIntent.id,
+              amount: paymentIntent.amount,
+              currency: paymentIntent.currency
+            }
+          });
+        }
         break;
       }
 
@@ -4769,6 +4814,12 @@ app.post('/api/stripe/create-checkout', requireAuth, async (req, res) => {
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
 
+    // Create checkout session - Support both recurring (subscription) and one-time payments
+    // Check if price is one-time or recurring
+    const price = await stripe.prices.retrieve(priceId);
+    const isRecurring = price.recurring !== null; // If recurring is not null, it's a subscription
+    const mode = isRecurring ? 'subscription' : 'payment';
+    
     // Create checkout session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -4776,13 +4827,14 @@ app.post('/api/stripe/create-checkout', requireAuth, async (req, res) => {
         price: priceId,
         quantity: 1,
       }],
-      mode: 'subscription',
+      mode: mode, // 'subscription' for recurring OR 'payment' for one-time
       success_url: `${frontendUrl}/dashboard?subscription=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${frontendUrl}/dashboard?subscription=cancelled`,
       customer_email: email,
       metadata: {
         user_id: userId,
         plan_type: plan, // 'starter' or 'professional'
+        payment_type: isRecurring ? 'recurring' : 'one-time', // Track payment type
       },
     });
 

@@ -3,6 +3,7 @@
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
+import { API_ENDPOINTS } from '@/lib/config'
 
 interface SubscriptionData {
   subscription_status: string
@@ -16,6 +17,7 @@ export default function SubscriptionPage() {
   const { user } = useAuth()
   const [subscription, setSubscription] = useState<SubscriptionData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [upgrading, setUpgrading] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchSubscription = async () => {
@@ -42,10 +44,67 @@ export default function SubscriptionPage() {
   }, [user])
 
   const plans = [
-    { name: 'Free Trial', price: 0, subaccounts: 1, features: ['7 days free', '1 subaccount', 'Unlimited WhatsApp Messages'] },
-    { name: 'Starter', price: 19, subaccounts: 3, features: ['3 subaccounts', 'Unlimited WhatsApp Messages', 'Priority support'] },
-    { name: 'Professional', price: 49, subaccounts: 10, features: ['10 subaccounts', 'Unlimited WhatsApp Messages', 'API access', 'Advanced analytics'] },
+    { name: 'Free Trial', price: 0, subaccounts: 1, features: ['7 days free', '1 subaccount', 'Unlimited WhatsApp Messages'], planKey: null },
+    { name: 'Starter', price: 19, subaccounts: 3, features: ['3 subaccounts', 'Unlimited WhatsApp Messages', 'Priority support'], planKey: 'starter' as const },
+    { name: 'Professional', price: 49, subaccounts: 10, features: ['10 subaccounts', 'Unlimited WhatsApp Messages', 'API access', 'Advanced analytics'], planKey: 'professional' as const },
   ]
+
+  const handleUpgrade = async (plan: 'starter' | 'professional') => {
+    console.log('🔵 Upgrade button clicked for plan:', plan)
+    
+    if (!user?.id) {
+      console.error('❌ No user found')
+      alert('Please login to upgrade')
+      return
+    }
+
+    console.log('✅ User found:', user.id, user.email)
+    setUpgrading(plan)
+
+    try {
+      const checkoutUrl = API_ENDPOINTS.createCheckout
+      console.log('📡 Calling checkout endpoint:', checkoutUrl)
+      console.log('📦 Request body:', { plan, userEmail: user.email })
+
+      const response = await fetch(checkoutUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          plan,
+          userEmail: user.email
+        })
+      })
+
+      console.log('📥 Response status:', response.status, response.statusText)
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        console.error('❌ API Error:', errorData)
+        throw new Error(errorData.error || 'Failed to create checkout session')
+      }
+
+      const data = await response.json()
+      console.log('✅ Checkout session created:', data)
+
+      const { url } = data
+
+      if (url) {
+        console.log('🔗 Redirecting to Stripe:', url)
+        window.location.href = url
+      } else {
+        console.error('❌ No checkout URL in response:', data)
+        throw new Error('No checkout URL received')
+      }
+    } catch (error) {
+      console.error('❌ Error creating checkout:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to start checkout. Please try again.'
+      alert(`Error: ${errorMessage}\n\nPlease check:\n1. Backend is running\n2. Environment variables are set\n3. Check browser console for details`)
+      setUpgrading(null)
+    }
+  }
 
   if (loading) {
     return (
@@ -112,8 +171,26 @@ export default function SubscriptionPage() {
                   </li>
                 ))}
               </ul>
-              <button className="w-full py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
-                {subscription?.subscription_plan === plan.name.toLowerCase() ? 'Current Plan' : 'Upgrade'}
+              <button 
+                onClick={() => {
+                  if (plan.planKey && plan.name !== 'Free Trial') {
+                    handleUpgrade(plan.planKey as 'starter' | 'professional')
+                  }
+                }}
+                disabled={
+                  subscription?.subscription_plan === plan.name.toLowerCase() || 
+                  plan.name === 'Free Trial' ||
+                  upgrading === plan.planKey
+                }
+                className="w-full py-2 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+              >
+                {upgrading === plan.planKey 
+                  ? 'Loading...' 
+                  : subscription?.subscription_plan === plan.name.toLowerCase() 
+                    ? 'Current Plan' 
+                    : plan.name === 'Free Trial'
+                      ? 'Current Plan'
+                      : 'Upgrade'}
               </button>
             </div>
           ))}

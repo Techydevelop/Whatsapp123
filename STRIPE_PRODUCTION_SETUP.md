@@ -83,10 +83,11 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_... (Live publishable key)
    *(Agar tumhara domain different hai, woh use karo)*
 
 4. **Events to send** select karo:
-   - ✅ `checkout.session.completed`
-   - ✅ `customer.subscription.updated`
-   - ✅ `invoice.payment_failed`
-   - ✅ `invoice.payment_succeeded`
+   - ✅ `checkout.session.completed` (Recurring aur One-time dono ke liye)
+   - ✅ `customer.subscription.updated` (Recurring subscriptions ke liye)
+   - ✅ `invoice.payment_failed` (Recurring subscriptions ke liye)
+   - ✅ `invoice.payment_succeeded` (Recurring subscriptions ke liye)
+   - ✅ `payment_intent.succeeded` (One-time payments ke liye - optional backup)
 
 5. **"Add endpoint"** click karo
 6. **Signing secret copy karo** (starts with `whsec_`)
