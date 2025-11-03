@@ -32,13 +32,20 @@ export default function UpgradeModal({
     setLoading(plan)
 
     try {
-      // Get auth token from cookies or localStorage
+      // Add user ID header for authentication (cross-domain cookie support)
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      // Add X-User-ID header for backend authentication
+      if (user?.id) {
+        headers['X-User-ID'] = user.id;
+      }
+
       const response = await fetch(API_ENDPOINTS.createCheckout, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // Include cookies for authentication
+        headers,
+        credentials: 'include', // Include cookies if available
         body: JSON.stringify({
           plan,
           userEmail: user.email

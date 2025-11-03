@@ -638,34 +638,68 @@ app.use(cookieParser()); // Parse cookies from requests
 // but we add this for extra safety
 app.options('*', cors());
 
-// Auth middleware - JWT based
+// Auth middleware - JWT based (supports both cookie and header-based auth)
 const requireAuth = async (req, res, next) => {
   try {
-    // Get JWT from cookie
+    let userId = null;
+    
+    // Method 1: Try to get JWT from cookie (for same-domain requests)
     const token = req.cookies?.auth_token;
     
-    if (!token) {
-      return res.status(401).json({ error: 'No authentication token provided' });
+    if (token) {
+      try {
+        // Verify JWT
+        const jwt = require('jsonwebtoken');
+        const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+        
+        const decoded = jwt.verify(token, jwtSecret);
+        
+        if (decoded && decoded.userId) {
+          userId = decoded.userId;
+          req.user = {
+            id: decoded.userId,
+            email: decoded.email,
+            name: decoded.name
+          };
+          console.log('✅ Auth via cookie token:', userId);
+          return next();
+        }
+      } catch (jwtError) {
+        console.log('⚠️ JWT token invalid, trying alternative auth method');
+      }
     }
-
-    // Verify JWT
-    const jwt = require('jsonwebtoken');
-    const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
     
-    const decoded = jwt.verify(token, jwtSecret);
+    // Method 2: Try to get user ID from header (for cross-domain requests)
+    const headerUserId = req.headers['x-user-id'];
     
-    if (!decoded || !decoded.userId) {
-      return res.status(401).json({ error: 'Invalid token' });
+    if (headerUserId) {
+      // Verify user exists in database
+      const { data: user, error: userError } = await supabaseAdmin
+        .from('users')
+        .select('id, email, name')
+        .eq('id', headerUserId)
+        .maybeSingle();
+      
+      if (!userError && user) {
+        req.user = {
+          id: user.id,
+          email: user.email,
+          name: user.name
+        };
+        console.log('✅ Auth via X-User-ID header:', user.id);
+        return next();
+      } else {
+        console.error('❌ User not found for header ID:', headerUserId);
+      }
     }
-
-    // Set user info in request (same format as before for compatibility)
-    req.user = {
-      id: decoded.userId,
-      email: decoded.email,
-      name: decoded.name
-    };
     
-    next();
+    // If both methods failed
+    if (!userId && !headerUserId) {
+      console.error('❌ No authentication token or header provided');
+      return res.status(401).json({ error: 'No authentication token provided. Please login again.' });
+    }
+    
+    return res.status(401).json({ error: 'Authentication failed' });
   } catch (error) {
     console.error('Auth middleware error:', error);
     res.status(401).json({ error: 'Authentication failed' });

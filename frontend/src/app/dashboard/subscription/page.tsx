@@ -66,12 +66,21 @@ export default function SubscriptionPage() {
       console.log('📡 Calling checkout endpoint:', checkoutUrl)
       console.log('📦 Request body:', { plan, userEmail: user.email })
 
+      // Add user ID header for authentication (cross-domain cookie support)
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      // Add X-User-ID header for backend authentication
+      if (user?.id) {
+        headers['X-User-ID'] = user.id;
+        console.log('🔑 Adding X-User-ID header:', user.id);
+      }
+
       const response = await fetch(checkoutUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
+        headers,
+        credentials: 'include', // Include cookies if available
         body: JSON.stringify({
           plan,
           userEmail: user.email
