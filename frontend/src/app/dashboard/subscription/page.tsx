@@ -50,21 +50,15 @@ export default function SubscriptionPage() {
   ]
 
   const handleUpgrade = async (plan: 'starter' | 'professional') => {
-    console.log('🔵 Upgrade button clicked for plan:', plan)
-    
     if (!user?.id) {
-      console.error('❌ No user found')
       alert('Please login to upgrade')
       return
     }
 
-    console.log('✅ User found:', user.id, user.email)
     setUpgrading(plan)
 
     try {
       const checkoutUrl = API_ENDPOINTS.createCheckout
-      console.log('📡 Calling checkout endpoint:', checkoutUrl)
-      console.log('📦 Request body:', { plan, userEmail: user.email })
 
       // Add user ID header for authentication (cross-domain cookie support)
       const headers: Record<string, string> = {
@@ -74,7 +68,6 @@ export default function SubscriptionPage() {
       // Add X-User-ID header for backend authentication
       if (user?.id) {
         headers['X-User-ID'] = user.id;
-        console.log('🔑 Adding X-User-ID header:', user.id);
       }
 
       const response = await fetch(checkoutUrl, {
@@ -87,30 +80,22 @@ export default function SubscriptionPage() {
         })
       })
 
-      console.log('📥 Response status:', response.status, response.statusText)
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
-        console.error('❌ API Error:', errorData)
         throw new Error(errorData.error || 'Failed to create checkout session')
       }
 
       const data = await response.json()
-      console.log('✅ Checkout session created:', data)
-
       const { url } = data
 
       if (url) {
-        console.log('🔗 Redirecting to Stripe:', url)
         window.location.href = url
       } else {
-        console.error('❌ No checkout URL in response:', data)
         throw new Error('No checkout URL received')
       }
     } catch (error) {
-      console.error('❌ Error creating checkout:', error)
       const errorMessage = error instanceof Error ? error.message : 'Failed to start checkout. Please try again.'
-      alert(`Error: ${errorMessage}\n\nPlease check:\n1. Backend is running\n2. Environment variables are set\n3. Check browser console for details`)
+      alert(`Error: ${errorMessage}`)
       setUpgrading(null)
     }
   }

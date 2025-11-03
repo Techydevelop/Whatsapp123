@@ -661,11 +661,10 @@ const requireAuth = async (req, res, next) => {
             email: decoded.email,
             name: decoded.name
           };
-          console.log('✅ Auth via cookie token:', userId);
           return next();
         }
       } catch (jwtError) {
-        console.log('⚠️ JWT token invalid, trying alternative auth method');
+        // Token invalid, try alternative auth method
       }
     }
     
@@ -686,16 +685,12 @@ const requireAuth = async (req, res, next) => {
           email: user.email,
           name: user.name
         };
-        console.log('✅ Auth via X-User-ID header:', user.id);
         return next();
-      } else {
-        console.error('❌ User not found for header ID:', headerUserId);
       }
     }
     
     // If both methods failed
     if (!userId && !headerUserId) {
-      console.error('❌ No authentication token or header provided');
       return res.status(401).json({ error: 'No authentication token provided. Please login again.' });
     }
     
@@ -4835,27 +4830,42 @@ app.post('/api/stripe/create-checkout', requireAuth, async (req, res) => {
     // Get user email if not provided
     let email = userEmail;
     if (!email) {
-      const { data: user } = await supabaseAdmin
+      const { data: user, error: userError } = await supabaseAdmin
         .from('users')
         .select('email')
         .eq('id', userId)
         .single();
       
-      if (user) {
+      if (userError) {
+        console.error('Error fetching user email:', userError);
+      } else if (user) {
         email = user.email;
       }
     }
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+    
+    // Get business name from environment (default to "Octendr" if not set)
+    const businessName = process.env.STRIPE_BUSINESS_NAME || 'Octendr';
 
     // Create checkout session - Support both recurring (subscription) and one-time payments
     // Check if price is one-time or recurring
-    const price = await stripe.prices.retrieve(priceId);
+    let price;
+    try {
+      price = await stripe.prices.retrieve(priceId);
+    } catch (priceError) {
+      console.error('Error retrieving price from Stripe:', priceError);
+      return res.status(500).json({ 
+        error: 'Failed to retrieve price from Stripe',
+        details: priceError.message 
+      });
+    }
+
     const isRecurring = price.recurring !== null; // If recurring is not null, it's a subscription
     const mode = isRecurring ? 'subscription' : 'payment';
     
     // Create checkout session
-    const session = await stripe.checkout.sessions.create({
+    const sessionConfig = {
       payment_method_types: ['card'],
       line_items: [{
         price: priceId,
@@ -4869,17 +4879,38 @@ app.post('/api/stripe/create-checkout', requireAuth, async (req, res) => {
         user_id: userId,
         plan_type: plan, // 'starter' or 'professional'
         payment_type: isRecurring ? 'recurring' : 'one-time', // Track payment type
+        business_name: businessName, // Store business name in metadata
       },
-    });
+    };
 
-    console.log(`✅ Stripe checkout session created for user ${userId}, plan: ${plan}`);
+    // Add subscription_data for recurring payments to customize description
+    if (mode === 'subscription') {
+      sessionConfig.subscription_data = {
+        description: `Subscription to ${businessName} ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
+        metadata: {
+          business_name: businessName,
+        },
+      };
+    }
+
+    // Add payment_intent_data for one-time payments
+    if (mode === 'payment') {
+      sessionConfig.payment_intent_data = {
+        description: `Payment to ${businessName} for ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
+        metadata: {
+          business_name: businessName,
+        },
+      };
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionConfig);
 
     res.json({ sessionId: session.id, url: session.url });
   } catch (error) {
-    console.error('❌ Stripe checkout error:', error);
+    console.error('Stripe checkout error:', error);
     res.status(500).json({ 
       error: 'Failed to create checkout session',
-      details: error.message 
+      details: error.message
     });
   }
 });
