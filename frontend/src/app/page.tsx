@@ -1,12 +1,23 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 
-export default function HomePage() {
+function HomeContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   useEffect(() => {
+    // Check for Stripe redirect parameters
+    const subscription = searchParams.get('subscription')
+    const sessionId = searchParams.get('session_id')
+    
+    // If Stripe redirect, go directly to dashboard with parameters
+    if (subscription && sessionId) {
+      router.push(`/dashboard?subscription=${subscription}&session_id=${sessionId}`)
+      return
+    }
+    
     // Check if user is logged in via cookie/localStorage
     const userData = localStorage.getItem('user')
     if (userData) {
@@ -14,11 +25,23 @@ export default function HomePage() {
     } else {
       router.push('/login')
     }
-  }, [router])
+  }, [router, searchParams])
 
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-indigo-600"></div>
     </div>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-indigo-600"></div>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
   )
 }

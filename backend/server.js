@@ -883,7 +883,7 @@ app.get('/oauth/callback', async (req, res) => {
         }
       });
       
-      const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+      const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
       return res.redirect(`${frontendUrl}/dashboard?error=location_exists&email=${encodeURIComponent(existingLocation.email)}`);
     }
     
@@ -914,7 +914,7 @@ app.get('/oauth/callback', async (req, res) => {
           }
         });
         
-        const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+        const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
         return res.redirect(`${frontendUrl}/dashboard?error=trial_limit_reached&current=${currentCount}&max=${userInfo.max_subaccounts}`);
       }
       
@@ -946,7 +946,7 @@ app.get('/oauth/callback', async (req, res) => {
         created_at: existingGhlAccount.created_at
       });
       
-      const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+      const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
       return res.redirect(`${frontendUrl}/dashboard?error=account_already_added&location_id=${encodeURIComponent(finalLocationId)}`);
     }
     
@@ -4801,13 +4801,17 @@ app.get('/messages/session/:sessionId', requireAuth, async (req, res) => {
 // ===========================================
 
 // Create Stripe Checkout Session
+// Endpoint: POST /api/stripe/create-checkout
+// Required Header: X-User-ID (user authentication)
+// Request body: { plan, userEmail, successUrl?, cancelUrl? }
+// Response: { sessionId, url }
 app.post('/api/stripe/create-checkout', requireAuth, async (req, res) => {
   try {
     if (!stripe) {
       return res.status(500).json({ error: 'Stripe not configured. Please set STRIPE_SECRET_KEY in environment variables.' });
     }
 
-    const { plan, userEmail } = req.body;
+    const { plan, userEmail, successUrl, cancelUrl } = req.body;
     const userId = req.user.id;
 
     if (!plan || (plan !== 'starter' && plan !== 'professional')) {
@@ -4864,6 +4868,10 @@ app.post('/api/stripe/create-checkout', requireAuth, async (req, res) => {
     const isRecurring = price.recurring !== null; // If recurring is not null, it's a subscription
     const mode = isRecurring ? 'subscription' : 'payment';
     
+    // Use custom URLs if provided, otherwise use defaults
+    const finalSuccessUrl = successUrl || `${frontendUrl}/dashboard?subscription=success&session_id={CHECKOUT_SESSION_ID}`;
+    const finalCancelUrl = cancelUrl || `${frontendUrl}/dashboard?subscription=cancelled`;
+    
     // Create checkout session
     const sessionConfig = {
       payment_method_types: ['card'],
@@ -4872,13 +4880,13 @@ app.post('/api/stripe/create-checkout', requireAuth, async (req, res) => {
         quantity: 1,
       }],
       mode: mode, // 'subscription' for recurring OR 'payment' for one-time
-      success_url: `${frontendUrl}/dashboard?subscription=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${frontendUrl}/dashboard?subscription=cancelled`,
+      success_url: finalSuccessUrl,
+      cancel_url: finalCancelUrl,
       customer_email: email,
       metadata: {
-        user_id: userId,
-        plan_type: plan, // 'starter' or 'professional'
-        payment_type: isRecurring ? 'recurring' : 'one-time', // Track payment type
+        user_id: userId,           // Required - Webhook ke liye
+        plan_type: plan,           // Required - 'starter' or 'professional'
+        payment_type: isRecurring ? 'recurring' : 'one-time', // Optional - Track payment type
         business_name: businessName, // Store business name in metadata
       },
     };

@@ -157,11 +157,64 @@ export default function Dashboard() {
     fetchGHLLocations()
   }, [fetchGHLLocations])
 
-  // Handle URL error parameters (from OAuth redirect)
+  // Handle URL parameters (from OAuth redirect and Stripe payment)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
     const error = urlParams.get('error')
+    const subscription = urlParams.get('subscription')
+    const sessionId = urlParams.get('session_id')
     
+    // Handle subscription success (from Stripe redirect)
+    if (subscription === 'success' && sessionId) {
+      setNotification({
+        type: 'success',
+        message: '✅ Payment successful! Your subscription has been activated. Refreshing your account...'
+      })
+      
+      // Refresh subscription data
+      const refreshSubscription = async () => {
+        if (!user?.id) return
+        
+        try {
+          const { data, error } = await supabase
+            .from('users')
+            .select('subscription_status, subscription_plan, max_subaccounts, trial_ends_at')
+            .eq('id', user.id)
+            .single()
+          
+          if (!error && data) {
+            setUserSubscription({
+              status: data.subscription_status || 'trial',
+              maxSubaccounts: data.max_subaccounts || 1,
+              currentSubaccounts: subaccountStatuses.length,
+              trialEndsAt: data.trial_ends_at
+            })
+            
+            // Refresh locations to get updated limits
+            fetchGHLLocations(false)
+          }
+        } catch (err) {
+          console.error('Error refreshing subscription:', err)
+        }
+      }
+      
+      refreshSubscription()
+      
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard')
+    }
+    
+    // Handle subscription cancelled
+    if (subscription === 'cancelled') {
+      setNotification({
+        type: 'error',
+        message: 'Payment was cancelled. You can try again anytime.'
+      })
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard')
+    }
+    
+    // Handle error parameters (from OAuth redirect)
     if (error === 'trial_limit_reached') {
       const current = urlParams.get('current')
       const max = urlParams.get('max')
@@ -189,7 +242,7 @@ export default function Dashboard() {
       // Clean URL
       window.history.replaceState({}, '', '/dashboard')
     }
-  }, [])
+  }, [user, subaccountStatuses.length, fetchGHLLocations])
   
   // Separate effect for polling to avoid issues
   useEffect(() => {
