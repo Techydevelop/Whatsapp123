@@ -166,9 +166,13 @@ export default function Dashboard() {
     
     // Handle subscription success (from Stripe redirect)
     if (subscription === 'success' && sessionId) {
+      const isAdditionalSubaccount = urlParams.get('additional_subaccount') === 'true'
+      
       setNotification({
         type: 'success',
-        message: '✅ Payment successful! Your subscription has been activated. Refreshing your account...'
+        message: isAdditionalSubaccount 
+          ? '✅ Payment successful! Additional subaccount added. You can now add one more subaccount.'
+          : '✅ Payment successful! Your subscription has been activated. Refreshing your account...'
       })
       
       // Refresh subscription data
@@ -239,6 +243,16 @@ export default function Dashboard() {
         type: 'error',
         message: 'This account is already added. You cannot add the same subaccount twice.'
       })
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard')
+    } else if (error === 'limit_reached_additional') {
+      const current = urlParams.get('current')
+      const max = urlParams.get('max')
+      setNotification({
+        type: 'error',
+        message: `You've reached your plan limit (${current}/${max}). Purchase an additional subaccount or upgrade your plan.`
+      })
+      setShowUpgradeModal(true)
       // Clean URL
       window.history.replaceState({}, '', '/dashboard')
     }
@@ -436,6 +450,21 @@ export default function Dashboard() {
       
       console.log('✅ GHL account deleted successfully')
       
+      // Mark location as inactive in used_locations (so user can re-add it later)
+      console.log('🔄 Marking location as inactive in used_locations...')
+      const { error: usedLocationError } = await supabase
+        .from('used_locations')
+        .update({ is_active: false })
+        .eq('location_id', locationId)
+        .eq('user_id', user.id)
+      
+      if (usedLocationError) {
+        console.error('Warning: Could not update used_locations:', usedLocationError)
+        // Continue anyway - not critical
+      } else {
+        console.log('✅ Location marked as inactive in used_locations')
+      }
+      
       // Show success message first
       setNotification({ type: 'success', message: '✅ Account deleted successfully!' })
       
@@ -532,6 +561,7 @@ export default function Dashboard() {
           currentPlan={userSubscription.status}
           currentSubaccounts={userSubscription.currentSubaccounts}
           maxSubaccounts={userSubscription.maxSubaccounts}
+          showAdditionalSubaccount={userSubscription.status === 'active'}
         />
       )}
 
@@ -624,6 +654,11 @@ export default function Dashboard() {
               </button>
               <button
                 onClick={() => {
+                  // Check if trial is expired
+                  if (userSubscription && userSubscription.status === 'expired') {
+                    setShowUpgradeModal(true)
+                    return
+                  }
                   // Check trial limit before navigating
                   if (userSubscription && userSubscription.currentSubaccounts >= userSubscription.maxSubaccounts) {
                     setShowUpgradeModal(true)
@@ -631,7 +666,9 @@ export default function Dashboard() {
                     window.location.href = '/dashboard/add-subaccount'
                   }
                 }}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+                disabled={userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date())}
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date()) ? 'Your trial has expired. Please upgrade to add accounts.' : ''}
               >
                 <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -843,15 +880,23 @@ export default function Dashboard() {
                 : 'Get started by connecting your first GoHighLevel account.'}
             </p>
             {!searchQuery && filterStatus === 'all' && (
-              <a
-                href="/dashboard/add-subaccount"
-                className="inline-flex items-center px-6 py-3 border border-transparent rounded-lg text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+              <button
+                onClick={() => {
+                  if (userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date())) {
+                    setShowUpgradeModal(true)
+                  } else {
+                    window.location.href = '/dashboard/add-subaccount'
+                  }
+                }}
+                disabled={userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date())}
+                className="inline-flex items-center px-6 py-3 border border-transparent rounded-lg text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date()) ? 'Your trial has expired. Please upgrade to add accounts.' : ''}
               >
                 <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
                 Add Your First Account
-              </a>
+              </button>
             )}
           </div>
         )}

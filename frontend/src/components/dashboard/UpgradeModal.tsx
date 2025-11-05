@@ -11,6 +11,7 @@ interface UpgradeModalProps {
   currentPlan: string
   currentSubaccounts: number
   maxSubaccounts: number
+  showAdditionalSubaccount?: boolean
 }
 
 export default function UpgradeModal({
@@ -18,10 +19,57 @@ export default function UpgradeModal({
   onClose,
   currentPlan,
   currentSubaccounts,
-  maxSubaccounts
+  maxSubaccounts,
+  showAdditionalSubaccount = false
 }: UpgradeModalProps) {
   const { user } = useAuth()
   const [loading, setLoading] = useState<string | null>(null)
+
+  const handleAdditionalSubaccount = async () => {
+    if (!user?.id) {
+      alert('Please login to purchase additional subaccount')
+      return
+    }
+
+    setLoading('additional')
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (user?.id) {
+        headers['X-User-ID'] = user.id;
+      }
+
+      const response = await fetch(`${API_ENDPOINTS.createCheckout}?additional_subaccount=true`, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({
+          additional_subaccount: true,
+          userEmail: user.email
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to create checkout session')
+      }
+
+      const { url } = await response.json()
+
+      if (url) {
+        window.location.href = url
+      } else {
+        throw new Error('No checkout URL received')
+      }
+    } catch (error) {
+      console.error('Error purchasing additional subaccount:', error)
+      alert(error instanceof Error ? error.message : 'Failed to start checkout. Please try again.')
+      setLoading(null)
+    }
+  }
 
   const handleUpgrade = async (plan: 'starter' | 'professional') => {
     if (!user?.id) {
@@ -125,12 +173,60 @@ export default function UpgradeModal({
                 <div className="p-6">
                   <div className="mb-6 text-center">
                       <p className="text-gray-700 text-lg">
-                        Your current plan allows <strong>{maxSubaccounts} subaccount</strong>, and you&apos;re already using <strong>{currentSubaccounts}</strong>.
+                        Your current plan allows <strong>{maxSubaccounts} subaccount{maxSubaccounts !== 1 ? 's' : ''}</strong>, and you&apos;re already using <strong>{currentSubaccounts}</strong>.
                       </p>
                     <p className="text-gray-600 text-sm mt-2">
-                      Choose a plan to unlock more locations:
+                      {showAdditionalSubaccount 
+                        ? 'Purchase an additional subaccount or upgrade to a higher plan:'
+                        : 'Choose a plan to unlock more locations:'}
                     </p>
                   </div>
+
+                  {/* Additional Subaccount Option */}
+                  {showAdditionalSubaccount && (
+                    <div className="mb-6 border-2 border-indigo-500 rounded-xl p-6 bg-gradient-to-r from-indigo-50 to-purple-50">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h4 className="text-xl font-bold text-gray-900">Add Another Subaccount</h4>
+                          <p className="text-gray-600 text-sm mt-1">One-time payment for additional subaccount</p>
+                        </div>
+                        <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-semibold rounded-full">
+                          Quick Add
+                        </span>
+                      </div>
+                      <div className="mb-4">
+                        <span className="text-3xl font-bold text-gray-900">$10</span>
+                        <span className="text-gray-600"> one-time</span>
+                      </div>
+                      <ul className="space-y-2 mb-6">
+                        <li className="flex items-start">
+                          <svg className="w-5 h-5 text-indigo-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-gray-700">+1 additional subaccount</span>
+                        </li>
+                        <li className="flex items-start">
+                          <svg className="w-5 h-5 text-indigo-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-gray-700">Unlimited WhatsApp Messages</span>
+                        </li>
+                        <li className="flex items-start">
+                          <svg className="w-5 h-5 text-indigo-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-gray-700">All current plan features</span>
+                        </li>
+                      </ul>
+                      <button
+                        onClick={handleAdditionalSubaccount}
+                        disabled={loading === 'additional'}
+                        className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all"
+                      >
+                        {loading === 'additional' ? 'Loading...' : 'Add Subaccount for $10'}
+                      </button>
+                    </div>
+                  )}
 
                   {/* Plans */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -151,7 +247,7 @@ export default function UpgradeModal({
                           <svg className="w-5 h-5 text-green-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                           </svg>
-                          <span className="text-gray-700">3 subaccounts</span>
+                          <span className="text-gray-700">2 subaccounts</span>
                         </li>
                         <li className="flex items-start">
                           <svg className="w-5 h-5 text-green-600 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">

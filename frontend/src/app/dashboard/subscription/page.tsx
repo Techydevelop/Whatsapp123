@@ -45,7 +45,7 @@ export default function SubscriptionPage() {
 
   const plans = [
     { name: 'Free Trial', price: 0, subaccounts: 1, features: ['7 days free', '1 subaccount', 'Unlimited WhatsApp Messages'], planKey: null },
-    { name: 'Starter', price: 19, subaccounts: 3, features: ['3 subaccounts', 'Unlimited WhatsApp Messages', 'Priority support'], planKey: 'starter' as const },
+    { name: 'Starter', price: 19, subaccounts: 2, features: ['2 subaccounts', 'Unlimited WhatsApp Messages', 'Priority support'], planKey: 'starter' as const },
     { name: 'Professional', price: 49, subaccounts: 10, features: ['10 subaccounts', 'Unlimited WhatsApp Messages', 'API access', 'Advanced analytics'], planKey: 'professional' as const },
   ]
 
@@ -116,18 +116,30 @@ export default function SubscriptionPage() {
       </div>
 
       {/* Current Plan */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className={`rounded-lg shadow-sm border p-6 ${
+        subscription?.subscription_status === 'expired' 
+          ? 'bg-red-50 border-red-200' 
+          : 'bg-white border-gray-200'
+      }`}>
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Current Plan</h2>
         <div className="flex items-center justify-between">
           <div>
             <p className="text-2xl font-bold text-gray-900">
-              {subscription?.subscription_plan === 'free' || subscription?.subscription_status === 'trial' ? 'Free Trial' : 
+              {subscription?.subscription_status === 'expired' ? 'Trial Expired' :
+               subscription?.subscription_plan === 'free' || subscription?.subscription_status === 'trial' ? 'Free Trial' : 
                subscription?.subscription_plan === 'starter' ? 'Starter Plan' :
                subscription?.subscription_plan === 'professional' ? 'Professional Plan' : 'Free'}
             </p>
             <p className="text-gray-600 mt-1">
-              {subscription?.max_subaccounts} subaccount{subscription?.max_subaccounts !== 1 ? 's' : ''} allowed
+              {subscription?.subscription_status === 'expired' 
+                ? 'Your trial has expired. Upgrade to continue using WhatsApp Integration.'
+                : `${subscription?.max_subaccounts} subaccount${subscription?.max_subaccounts !== 1 ? 's' : ''} allowed`}
             </p>
+            {subscription?.subscription_status === 'expired' && subscription?.trial_ends_at && (
+              <p className="text-sm text-red-600 mt-2 font-medium">
+                ⚠️ Trial expired on {new Date(subscription.trial_ends_at).toLocaleDateString()}
+              </p>
+            )}
             {subscription?.subscription_status === 'trial' && subscription?.trial_ends_at && (
               <p className="text-sm text-orange-600 mt-2">
                 Trial ends on {new Date(subscription.trial_ends_at).toLocaleDateString()}
@@ -135,11 +147,31 @@ export default function SubscriptionPage() {
             )}
           </div>
           <div className="text-right">
-            <div className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-green-100 text-green-800">
-              {subscription?.subscription_status === 'active' ? 'Active' : 'Trial'}
+            <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
+              subscription?.subscription_status === 'expired' 
+                ? 'bg-red-100 text-red-800' 
+                : subscription?.subscription_status === 'active' 
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-yellow-100 text-yellow-800'
+            }`}>
+              {subscription?.subscription_status === 'expired' 
+                ? 'Expired' 
+                : subscription?.subscription_status === 'active' 
+                  ? 'Active' 
+                  : 'Trial'}
             </div>
           </div>
         </div>
+        {subscription?.subscription_status === 'expired' && (
+          <div className="mt-4 p-4 bg-red-100 border border-red-300 rounded-lg">
+            <p className="text-sm text-red-800 font-medium mb-2">
+              ⚠️ Your trial has expired. Your subaccounts have been temporarily disabled.
+            </p>
+            <p className="text-sm text-red-700">
+              Upgrade to a paid plan now to restore access to all your subaccounts and features.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Available Plans */}
@@ -176,15 +208,23 @@ export default function SubscriptionPage() {
                   plan.name === 'Free Trial' ||
                   upgrading === plan.planKey
                 }
-                className="w-full py-2 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                className={`w-full py-2 px-4 rounded-lg transition-colors ${
+                  subscription?.subscription_status === 'expired' && plan.name !== 'Free Trial'
+                    ? 'bg-red-600 hover:bg-red-700 text-white font-semibold'
+                    : subscription?.subscription_plan === plan.name.toLowerCase() || plan.name === 'Free Trial'
+                      ? 'bg-gray-400 cursor-not-allowed text-white'
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                } disabled:bg-gray-400 disabled:cursor-not-allowed`}
               >
                 {upgrading === plan.planKey 
                   ? 'Loading...' 
                   : subscription?.subscription_plan === plan.name.toLowerCase() 
                     ? 'Current Plan' 
                     : plan.name === 'Free Trial'
-                      ? 'Current Plan'
-                      : 'Upgrade'}
+                      ? subscription?.subscription_status === 'expired' ? 'Expired' : 'Current Plan'
+                      : subscription?.subscription_status === 'expired' 
+                        ? 'Upgrade to Restore Access'
+                        : 'Upgrade'}
               </button>
             </div>
           ))}

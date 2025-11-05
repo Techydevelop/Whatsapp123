@@ -424,7 +424,52 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
         const userId = session.metadata?.user_id;
         const planType = session.metadata?.plan_type; // 'starter' or 'professional'
         const paymentType = session.metadata?.payment_type || 'recurring'; // 'recurring' or 'one-time'
+        const isAdditionalSubaccount = session.metadata?.additional_subaccount === 'true';
 
+        // Handle additional subaccount purchase
+        if (isAdditionalSubaccount && userId) {
+          const currentMax = parseInt(session.metadata?.current_max || '0');
+          
+          // Get current user info
+          const { data: userInfo } = await supabaseAdmin
+            .from('users')
+            .select('max_subaccounts, subscription_status')
+            .eq('id', userId)
+            .single();
+
+          if (userInfo && userInfo.subscription_status === 'active') {
+            // Increment max_subaccounts by 1
+            const newMax = (userInfo.max_subaccounts || currentMax) + 1;
+            
+            const { error: updateError } = await supabaseAdmin
+              .from('users')
+              .update({ max_subaccounts: newMax })
+              .eq('id', userId);
+
+            if (updateError) {
+              console.error('❌ Error updating max_subaccounts for additional subaccount:', updateError);
+            } else {
+              console.log(`✅ Additional subaccount purchased. User ${userId} max_subaccounts updated from ${userInfo.max_subaccounts} to ${newMax}`);
+              
+              // Log the event
+              await supabaseAdmin.from('subscription_events').insert({
+                user_id: userId,
+                event_type: 'additional_subaccount_purchased',
+                plan_name: userInfo.subscription_status,
+                metadata: {
+                  stripe_session_id: session.id,
+                  previous_max: userInfo.max_subaccounts,
+                  new_max: newMax,
+                  amount: 1000 // $10 in cents
+                }
+              });
+            }
+          }
+          
+          return res.json({ received: true });
+        }
+
+        // Regular plan purchase
         if (!userId || !planType) {
           console.error('❌ Missing user_id or plan_type in metadata');
           return res.status(400).json({ error: 'Invalid metadata' });
@@ -432,7 +477,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
 
         // Plan configuration
         const planConfig = {
-          starter: { max_subaccounts: 3, price: 19 },
+          starter: { max_subaccounts: 2, price: 19 },
           professional: { max_subaccounts: 10, price: 49 }
         };
 
@@ -495,6 +540,20 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
           }
         });
 
+        // Send subscription activation email
+        try {
+          const emailService = require('./lib/email');
+          const emailResult = await emailService.sendSubscriptionActivationEmail(userId, planType);
+          if (emailResult.success) {
+            console.log(`✅ Subscription activation email sent to user ${userId}`);
+          } else {
+            console.error(`❌ Failed to send subscription activation email:`, emailResult.error);
+          }
+        } catch (emailError) {
+          console.error('❌ Error sending subscription activation email:', emailError);
+          // Don't fail the webhook if email fails
+        }
+
         break;
       }
 
@@ -530,7 +589,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
         // Find user by stripe_customer_id
         const { data: user } = await supabaseAdmin
           .from('users')
-          .select('id, email, name')
+          .select('id, email, name, subscription_plan')
           .eq('stripe_customer_id', customerId)
           .maybeSingle();
 
@@ -548,6 +607,24 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
               invoice_url: invoice.hosted_invoice_url
             }
           });
+
+          // Send payment failed email
+          try {
+            const emailService = require('./lib/email');
+            const emailResult = await emailService.sendPaymentFailedEmail(user.id, {
+              amount_due: invoice.amount_due,
+              hosted_invoice_url: invoice.hosted_invoice_url,
+              invoice_pdf: invoice.invoice_pdf
+            });
+            if (emailResult.success) {
+              console.log(`✅ Payment failed email sent to user ${user.id}`);
+            } else {
+              console.error(`❌ Failed to send payment failed email:`, emailResult.error);
+            }
+          } catch (emailError) {
+            console.error('❌ Error sending payment failed email:', emailError);
+            // Don't fail the webhook if email fails
+          }
 
           // Optionally update subscription status after multiple failures
           // For now, we'll keep it active and let Stripe handle retries
@@ -887,9 +964,20 @@ app.get('/oauth/callback', async (req, res) => {
       return res.redirect(`${frontendUrl}/dashboard?error=location_exists&email=${encodeURIComponent(existingLocation.email)}`);
     }
     
-    // 3. Check subaccount limit for trial users
-    if (userInfo.subscription_status === 'trial' || userInfo.subscription_status === 'free') {
-      // Count current GHL accounts
+    // 3. Check if this location was previously used by this user
+    const { data: previouslyUsedLocation } = await supabaseAdmin
+      .from('used_locations')
+      .select('location_id, user_id, is_active')
+      .eq('location_id', finalLocationId)
+      .eq('user_id', targetUserId)
+      .maybeSingle();
+
+    const isReAddingLocation = previouslyUsedLocation !== null;
+    console.log(`📍 Location check: ${isReAddingLocation ? 'Previously used by this user (re-adding allowed)' : 'New location'}`);
+
+    // 4. Check subaccount limit (only for new locations, not re-adding)
+    if (!isReAddingLocation) {
+      // Count current active GHL accounts
       const { data: currentAccounts, error: countError } = await supabaseAdmin
         .from('ghl_accounts')
         .select('id', { count: 'exact' })
@@ -898,9 +986,9 @@ app.get('/oauth/callback', async (req, res) => {
       const currentCount = currentAccounts?.length || 0;
       console.log(`📊 Current subaccounts: ${currentCount}, Max allowed: ${userInfo.max_subaccounts}`);
       
-      // If already at limit, block the addition
+      // If already at limit, block new location addition
       if (currentCount >= userInfo.max_subaccounts) {
-        console.log('❌ Subaccount limit reached for trial user');
+        console.log(`❌ Subaccount limit reached. Current: ${currentCount}, Max: ${userInfo.max_subaccounts}`);
         
         // Log the limit reached event
         await supabaseAdmin.from('subscription_events').insert({
@@ -910,15 +998,24 @@ app.get('/oauth/callback', async (req, res) => {
           metadata: {
             current_count: currentCount,
             max_allowed: userInfo.max_subaccounts,
-            trial_ends_at: userInfo.trial_ends_at
+            attempted_location: finalLocationId,
+            is_new_location: true
           }
         });
         
         const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
-        return res.redirect(`${frontendUrl}/dashboard?error=trial_limit_reached&current=${currentCount}&max=${userInfo.max_subaccounts}`);
+        
+        // For active subscriptions, show additional subaccount purchase option
+        if (userInfo.subscription_status === 'active') {
+          return res.redirect(`${frontendUrl}/dashboard?error=limit_reached_additional&current=${currentCount}&max=${userInfo.max_subaccounts}`);
+        } else {
+          return res.redirect(`${frontendUrl}/dashboard?error=trial_limit_reached&current=${currentCount}&max=${userInfo.max_subaccounts}`);
+        }
       }
       
-      console.log('✅ Subaccount limit check passed');
+      console.log('✅ Subaccount limit check passed for new location');
+    } else {
+      console.log('✅ Re-adding previously used location - limit check skipped');
     }
     
     // ===========================================
@@ -4811,9 +4908,58 @@ app.post('/api/stripe/create-checkout', requireAuth, async (req, res) => {
       return res.status(500).json({ error: 'Stripe not configured. Please set STRIPE_SECRET_KEY in environment variables.' });
     }
 
-    const { plan, userEmail, successUrl, cancelUrl } = req.body;
+    const { plan, userEmail, successUrl, cancelUrl, additional_subaccount } = req.body;
     const userId = req.user.id;
+    const isAdditionalSubaccount = req.query.additional_subaccount === 'true' || additional_subaccount === true;
 
+    // Handle additional subaccount purchase
+    if (isAdditionalSubaccount) {
+      // Get user's current subscription info
+      const { data: userInfo } = await supabaseAdmin
+        .from('users')
+        .select('subscription_status, max_subaccounts')
+        .eq('id', userId)
+        .single();
+
+      if (!userInfo || userInfo.subscription_status !== 'active') {
+        return res.status(400).json({ error: 'You must have an active subscription to purchase additional subaccounts' });
+      }
+
+      // Create one-time payment for $10 additional subaccount
+      const additionalSubaccountPrice = 1000; // $10 in cents
+
+      const frontendUrl = process.env.FRONTEND_URL || 'https://whatsappghl.vercel.app';
+      const businessName = process.env.STRIPE_BUSINESS_NAME || 'Octendr';
+      
+      const sessionConfig = {
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: 'Additional Subaccount',
+              description: 'Add one more subaccount to your existing plan'
+            },
+            unit_amount: additionalSubaccountPrice,
+          },
+          quantity: 1,
+        }],
+        mode: 'payment', // One-time payment
+        success_url: `${frontendUrl}/dashboard?subscription=success&additional_subaccount=true&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${frontendUrl}/dashboard?subscription=cancelled`,
+        customer_email: userEmail,
+        metadata: {
+          user_id: userId,
+          additional_subaccount: 'true',
+          current_max: userInfo.max_subaccounts.toString()
+        },
+      };
+
+      const session = await stripe.checkout.sessions.create(sessionConfig);
+      return res.json({ sessionId: session.id, url: session.url });
+    }
+
+    // Regular plan purchase
     if (!plan || (plan !== 'starter' && plan !== 'professional')) {
       return res.status(400).json({ error: 'Invalid plan. Must be "starter" or "professional"' });
     }
@@ -4922,6 +5068,245 @@ app.post('/api/stripe/create-checkout', requireAuth, async (req, res) => {
     });
   }
 });
+
+// Manual endpoint to trigger trial expiry check (for testing/admin)
+app.post('/api/admin/check-expired-trials', async (req, res) => {
+  try {
+    await checkAndProcessExpiredTrials();
+    res.json({ success: true, message: 'Trial expiry check completed' });
+  } catch (error) {
+    console.error('Error in manual trial expiry check:', error);
+    res.status(500).json({ error: 'Failed to check expired trials', details: error.message });
+  }
+});
+
+// Manual endpoint to trigger reminder check (for testing/admin)
+app.post('/api/admin/check-reminders', async (req, res) => {
+  try {
+    await checkAndSendReminders();
+    res.json({ success: true, message: 'Reminder check completed' });
+  } catch (error) {
+    console.error('Error in manual reminder check:', error);
+    res.status(500).json({ error: 'Failed to check reminders', details: error.message });
+  }
+});
+
+// Trial expiry check and processing function
+async function checkAndProcessExpiredTrials() {
+  try {
+    console.log('🕐 Checking for expired trials...');
+    const emailService = require('./lib/email');
+    const now = new Date().toISOString();
+
+    // Find all users with expired trials (trial_ends_at <= now and status is still 'trial' or 'free')
+    const { data: expiredUsers, error: fetchError } = await supabaseAdmin
+      .from('users')
+      .select('id, email, name, subscription_status, trial_ends_at')
+      .in('subscription_status', ['trial', 'free'])
+      .lte('trial_ends_at', now);
+
+    if (fetchError) {
+      console.error('❌ Error fetching expired trials:', fetchError);
+      return;
+    }
+
+    if (!expiredUsers || expiredUsers.length === 0) {
+      console.log('✅ No expired trials found');
+      return;
+    }
+
+    console.log(`📋 Found ${expiredUsers.length} expired trial(s)`);
+
+    for (const user of expiredUsers) {
+      try {
+        console.log(`🔄 Processing expired trial for user: ${user.id} (${user.email})`);
+
+        // Get all GHL accounts (subaccounts) for this user
+        const { data: ghlAccounts, error: accountsError } = await supabaseAdmin
+          .from('ghl_accounts')
+          .select('id, location_id')
+          .eq('user_id', user.id);
+
+        if (accountsError) {
+          console.error(`❌ Error fetching GHL accounts for user ${user.id}:`, accountsError);
+          continue;
+        }
+
+        // Delete all sessions first
+        if (ghlAccounts && ghlAccounts.length > 0) {
+          for (const account of ghlAccounts) {
+            // Delete sessions associated with this account
+            const { error: sessionsError } = await supabaseAdmin
+              .from('sessions')
+              .delete()
+              .eq('subaccount_id', account.id);
+
+            if (sessionsError) {
+              console.error(`❌ Error deleting sessions for account ${account.id}:`, sessionsError);
+            } else {
+              console.log(`✅ Deleted sessions for account ${account.id}`);
+            }
+          }
+
+          // Delete all GHL accounts (subaccounts)
+          const { error: deleteAccountsError } = await supabaseAdmin
+            .from('ghl_accounts')
+            .delete()
+            .eq('user_id', user.id);
+
+          if (deleteAccountsError) {
+            console.error(`❌ Error deleting GHL accounts for user ${user.id}:`, deleteAccountsError);
+          } else {
+            console.log(`✅ Deleted ${ghlAccounts.length} subaccount(s) for user ${user.id}`);
+          }
+        }
+
+        // Update user subscription status to 'expired'
+        const { error: updateError } = await supabaseAdmin
+          .from('users')
+          .update({
+            subscription_status: 'expired',
+            total_subaccounts: 0
+          })
+          .eq('id', user.id);
+
+        if (updateError) {
+          console.error(`❌ Error updating user status for ${user.id}:`, updateError);
+          continue;
+        }
+
+        console.log(`✅ Updated user ${user.id} status to 'expired'`);
+
+        // Log the expiry event
+        await supabaseAdmin.from('subscription_events').insert({
+          user_id: user.id,
+          event_type: 'trial_expired',
+          plan_name: user.subscription_status,
+          metadata: {
+            deleted_subaccounts: ghlAccounts?.length || 0,
+            expired_at: now
+          }
+        });
+
+        // Send expiry email
+        const emailResult = await emailService.sendTrialExpiredNotification(user.id);
+        if (emailResult.success) {
+          console.log(`✅ Sent expiry email to ${user.email}`);
+        } else {
+          console.error(`❌ Failed to send expiry email to ${user.email}:`, emailResult.error);
+        }
+
+      } catch (userError) {
+        console.error(`❌ Error processing user ${user.id}:`, userError);
+        continue;
+      }
+    }
+
+    console.log(`✅ Completed processing ${expiredUsers.length} expired trial(s)`);
+  } catch (error) {
+    console.error('❌ Error in checkAndProcessExpiredTrials:', error);
+  }
+}
+
+// Check for users needing reminder emails (3 days left, 1 day left)
+async function checkAndSendReminders() {
+  try {
+    console.log('📧 Checking for trial reminders...');
+    const emailService = require('./lib/email');
+    const now = new Date();
+    const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    const oneDayFromNow = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
+
+    // Find users with 3 days left (trial ends in 3 days)
+    const { data: threeDayUsers, error: threeDayError } = await supabaseAdmin
+      .from('users')
+      .select('id, email, trial_ends_at')
+      .eq('subscription_status', 'trial')
+      .gte('trial_ends_at', new Date(now.getTime() + 2.5 * 24 * 60 * 60 * 1000).toISOString())
+      .lte('trial_ends_at', threeDaysFromNow.toISOString());
+
+    // Find users with 1 day left (trial ends in 1 day)
+    const { data: oneDayUsers, error: oneDayError } = await supabaseAdmin
+      .from('users')
+      .select('id, email, trial_ends_at')
+      .eq('subscription_status', 'trial')
+      .gte('trial_ends_at', new Date(now.getTime() + 0.5 * 24 * 60 * 60 * 1000).toISOString())
+      .lte('trial_ends_at', oneDayFromNow.toISOString());
+
+    // Check if reminders were already sent today
+    const today = new Date().toISOString().split('T')[0];
+    const { data: todayEvents } = await supabaseAdmin
+      .from('subscription_events')
+      .select('user_id, event_type, metadata')
+      .eq('event_type', 'reminder_sent')
+      .gte('created_at', new Date(today).toISOString());
+
+    const reminderSentToday = new Set(
+      todayEvents?.map(e => {
+        const metadata = typeof e.metadata === 'string' ? JSON.parse(e.metadata) : e.metadata;
+        return `${e.user_id}_${metadata?.days_left || ''}`;
+      }) || []
+    );
+
+    // Send 3-day reminders
+    if (threeDayUsers && threeDayUsers.length > 0) {
+      for (const user of threeDayUsers) {
+        const reminderKey = `${user.id}_3`;
+        if (!reminderSentToday.has(reminderKey)) {
+          const emailResult = await emailService.sendTrialReminder(user.id, 3);
+          if (emailResult.success) {
+            await supabaseAdmin.from('subscription_events').insert({
+              user_id: user.id,
+              event_type: 'reminder_sent',
+              plan_name: 'trial',
+              metadata: { days_left: 3 }
+            });
+            console.log(`✅ Sent 3-day reminder to ${user.email}`);
+          }
+        }
+      }
+    }
+
+    // Send 1-day reminders
+    if (oneDayUsers && oneDayUsers.length > 0) {
+      for (const user of oneDayUsers) {
+        const reminderKey = `${user.id}_1`;
+        if (!reminderSentToday.has(reminderKey)) {
+          const emailResult = await emailService.sendTrialReminder(user.id, 1);
+          if (emailResult.success) {
+            await supabaseAdmin.from('subscription_events').insert({
+              user_id: user.id,
+              event_type: 'reminder_sent',
+              plan_name: 'trial',
+              metadata: { days_left: 1 }
+            });
+            console.log(`✅ Sent 1-day reminder to ${user.email}`);
+          }
+        }
+      }
+    }
+
+    console.log('✅ Completed reminder check');
+  } catch (error) {
+    console.error('❌ Error in checkAndSendReminders:', error);
+  }
+}
+
+// Schedule trial expiry checks (every hour)
+setInterval(async () => {
+  await checkAndProcessExpiredTrials();
+}, 60 * 60 * 1000); // 1 hour
+
+// Schedule reminder checks (every 6 hours)
+setInterval(async () => {
+  await checkAndSendReminders();
+}, 6 * 60 * 60 * 1000); // 6 hours
+
+// Run immediately on startup
+setTimeout(async () => {
+  await checkAndProcessExpiredTrials();
+  await checkAndSendReminders();
+}, 5000); // Wait 5 seconds after server starts
 
 // Start server
 app.listen(PORT, () => {

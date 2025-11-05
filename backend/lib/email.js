@@ -342,32 +342,42 @@ To manage your email preferences: ${process.env.FRONTEND_URL || 'https://dashboa
         }
         
         // Gmail SMTP configuration
+        const isGmail = !process.env.SMTP_HOST || process.env.SMTP_HOST === 'smtp.gmail.com';
+        const smtpPort = parseInt(process.env.SMTP_PORT || '587');
+        
         const smtpConfig = {
           host: process.env.SMTP_HOST || 'smtp.gmail.com',
-          port: parseInt(process.env.SMTP_PORT || '587'),
-          secure: process.env.SMTP_PORT === '465', // true for 465, false for other ports
+          port: smtpPort,
+          secure: smtpPort === 465, // true for 465 (SSL), false for 587 (TLS)
           auth: {
             user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
+            pass: process.env.SMTP_PASS, // Gmail App Password (not regular password)
           },
-          // Gmail specific settings for better deliverability
+          // Gmail specific settings for better deliverability and security
           tls: {
-            rejectUnauthorized: false, // For development, set to true in production
-            ciphers: 'SSLv3',
+            rejectUnauthorized: process.env.NODE_ENV === 'production', // Verify certificates in production
+            minVersion: 'TLSv1.2', // Use modern TLS version
           },
           // Connection timeout
-          connectionTimeout: 5000,
-          greetingTimeout: 5000,
-          socketTimeout: 5000,
-          // Rate limiting to avoid spam detection
+          connectionTimeout: 10000, // Increased to 10 seconds for Gmail
+          greetingTimeout: 10000,
+          socketTimeout: 10000,
+          // Rate limiting to avoid spam detection (Gmail has strict limits)
           pool: true,
           maxConnections: 1,
-          maxMessages: 3,
+          maxMessages: 5, // Gmail allows up to 500 emails/day, so 5 per connection is safe
+          rateDelta: 1000, // Wait 1 second between messages
+          rateLimit: 5, // Max 5 messages per rateDelta
         };
 
-        // If using Gmail, add service option
-        if (smtpConfig.host === 'smtp.gmail.com') {
+        // If using Gmail, add service option and optimize settings
+        if (isGmail) {
           smtpConfig.service = 'gmail';
+          // Additional Gmail optimizations
+          smtpConfig.requireTLS = true; // Force TLS for Gmail
+          console.log('📧 Using Gmail SMTP configuration');
+          console.log('⚠️ Make sure you are using a Gmail App Password, not your regular Gmail password');
+          console.log('   To create App Password: Google Account → Security → 2-Step Verification → App Passwords');
         }
 
         const transporter = nodemailer.createTransport(smtpConfig);
@@ -376,11 +386,27 @@ To manage your email preferences: ${process.env.FRONTEND_URL || 'https://dashboa
         try {
           await transporter.verify();
           console.log('✅ SMTP server connection verified');
+          if (isGmail) {
+            console.log('✅ Gmail SMTP authentication successful');
+          }
         } catch (verifyError) {
           console.error('❌ SMTP verification failed:', verifyError.message);
+          
+          // Provide helpful error messages for Gmail
+          let errorMessage = `SMTP connection failed: ${verifyError.message}`;
+          if (isGmail) {
+            if (verifyError.message.includes('Invalid login') || verifyError.message.includes('535')) {
+              errorMessage = `Gmail authentication failed. Make sure you are using a Gmail App Password (not your regular password). To create one: Google Account → Security → 2-Step Verification → App Passwords`;
+            } else if (verifyError.message.includes('EAUTH') || verifyError.message.includes('authentication')) {
+              errorMessage = `Gmail authentication error. Verify your SMTP_USER and SMTP_PASS are correct. Use App Password, not regular password.`;
+            } else if (verifyError.message.includes('ECONNECTION') || verifyError.message.includes('ETIMEDOUT')) {
+              errorMessage = `Gmail connection timeout. Check your network/firewall settings. Port ${smtpPort} should be open.`;
+            }
+          }
+          
           return { 
             success: false, 
-            error: `SMTP connection failed: ${verifyError.message}. Check your SMTP credentials.` 
+            error: errorMessage
           };
         }
 
@@ -401,8 +427,8 @@ To manage your email preferences: ${process.env.FRONTEND_URL || 'https://dashboa
             'Precedence': 'bulk',
             'Auto-Submitted': 'auto-generated',
           },
-          // Reply-to header
-          replyTo: process.env.EMAIL_REPLY_TO || process.env.SMTP_USER,
+          // Reply-to header (optional - defaults to sender email if not set)
+          ...(process.env.EMAIL_REPLY_TO && { replyTo: process.env.EMAIL_REPLY_TO }),
           // Priority settings
           priority: 'normal',
         };
@@ -418,6 +444,848 @@ To manage your email preferences: ${process.env.FRONTEND_URL || 'https://dashboa
 
     } catch (error) {
       console.error('❌ Email API error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Send trial reminder email (3 days left, 1 day left)
+   * @param {string} userId - User ID
+   * @param {number} daysLeft - Days remaining in trial
+   */
+  async sendTrialReminder(userId, daysLeft) {
+    try {
+      console.log(`📧 Preparing trial reminder email for user: ${userId}, days left: ${daysLeft}`);
+
+      const { data: user, error: userError } = await this.supabaseAdmin
+        .from('users')
+        .select('id, email, name, trial_ends_at')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (userError || !user) {
+        console.error('❌ Failed to fetch user for trial reminder:', userError);
+        return { success: false, error: 'User not found' };
+      }
+
+      if (!user.email) {
+        console.error('❌ User email not found');
+        return { success: false, error: 'User email not available' };
+      }
+
+      const userName = user.name || user.email.split('@')[0];
+      const trialEndDate = user.trial_ends_at ? new Date(user.trial_ends_at).toLocaleDateString() : 'soon';
+
+      const subject = daysLeft === 1 
+        ? `⏰ Final Reminder: Your Trial Ends Tomorrow!`
+        : `⏰ Trial Reminder: ${daysLeft} Days Left`;
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Trial Reminder</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                background-color: #f5f5f5;
+                margin: 0;
+                padding: 0;
+              }
+              .container {
+                max-width: 600px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                padding: 0;
+              }
+              .header {
+                background: linear-gradient(135deg, #075E54 0%, #128C7E 100%);
+                padding: 30px;
+                text-align: center;
+                color: white;
+              }
+              .header h1 {
+                margin: 0;
+                font-size: 24px;
+                font-weight: 700;
+              }
+              .content {
+                padding: 40px 30px;
+              }
+              .alert-box {
+                background: ${daysLeft === 1 ? '#FFF3E0' : '#E3F2FD'};
+                border-left: 4px solid ${daysLeft === 1 ? '#FF9800' : '#2196F3'};
+                padding: 20px;
+                margin: 20px 0;
+                border-radius: 4px;
+              }
+              .alert-box strong {
+                color: ${daysLeft === 1 ? '#E65100' : '#1565C0'};
+                display: block;
+                margin-bottom: 10px;
+                font-size: 18px;
+              }
+              .button {
+                display: inline-block;
+                background: #25D366;
+                color: white;
+                padding: 14px 28px;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 600;
+                margin: 20px 0;
+                text-align: center;
+              }
+              .button:hover {
+                background: #1DA851;
+              }
+              .footer {
+                background: #F0F2F5;
+                padding: 20px;
+                text-align: center;
+                color: #54656F;
+                font-size: 14px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>⏰ Trial Reminder</h1>
+              </div>
+              
+              <div class="content">
+                <p>Hello ${userName},</p>
+                
+                <div class="alert-box">
+                  <strong>${daysLeft === 1 ? 'Final Reminder!' : 'Trial Ending Soon'}</strong>
+                  Your ${daysLeft === 1 ? 'trial ends tomorrow' : `free trial has ${daysLeft} days remaining`}. Upgrade now to continue using WhatsApp Integration without interruption.
+                </div>
+                
+                <p><strong>Trial End Date:</strong> ${trialEndDate}</p>
+                
+                <p>To avoid service interruption, please upgrade your plan before your trial expires.</p>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                  <a href="${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard/subscription" class="button">
+                    Upgrade Now
+                  </a>
+                </div>
+                
+                <p style="color: #54656F; font-size: 14px; margin-top: 30px;">
+                  <strong>Benefits of upgrading:</strong><br>
+                  • Unlimited subaccounts<br>
+                  • Priority support<br>
+                  • Advanced features<br>
+                  • No service interruption
+                </p>
+              </div>
+              
+              <div class="footer">
+                <p>This is an automated notification from <strong>Octendr</strong></p>
+                <p>WhatsApp GHL Integration Platform</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const textContent = `
+Trial Reminder - ${daysLeft === 1 ? 'Final Reminder!' : `${daysLeft} Days Left`}
+
+Hello ${userName},
+
+Your free trial has ${daysLeft === 1 ? '1 day remaining' : `${daysLeft} days remaining`}. Trial ends on: ${trialEndDate}
+
+Upgrade now to continue using WhatsApp Integration without interruption.
+
+Upgrade: ${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard/subscription
+
+This is an automated notification from Octendr.
+      `;
+
+      const emailResult = await this.sendEmailViaAPI({
+        to: user.email,
+        subject: subject,
+        html: htmlContent,
+        text: textContent
+      });
+
+      if (emailResult.success) {
+        console.log(`✅ Trial reminder email sent successfully to: ${user.email}`);
+        return { success: true, email: user.email };
+      } else {
+        console.error(`❌ Failed to send trial reminder email:`, emailResult.error);
+        return { success: false, error: emailResult.error };
+      }
+
+    } catch (error) {
+      console.error('❌ Error sending trial reminder email:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Send trial expired email notification
+   * @param {string} userId - User ID
+   */
+  async sendTrialExpiredNotification(userId) {
+    try {
+      console.log(`📧 Preparing trial expired email for user: ${userId}`);
+
+      const { data: user, error: userError } = await this.supabaseAdmin
+        .from('users')
+        .select('id, email, name')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (userError || !user) {
+        console.error('❌ Failed to fetch user for trial expired email:', userError);
+        return { success: false, error: 'User not found' };
+      }
+
+      if (!user.email) {
+        console.error('❌ User email not found');
+        return { success: false, error: 'User email not available' };
+      }
+
+      const userName = user.name || user.email.split('@')[0];
+
+      const subject = '⚠️ Your Trial Has Expired - Upgrade Now';
+      
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Trial Expired</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                background-color: #f5f5f5;
+                margin: 0;
+                padding: 0;
+              }
+              .container {
+                max-width: 600px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                padding: 0;
+              }
+              .header {
+                background: linear-gradient(135deg, #D32F2F 0%, #F57C00 100%);
+                padding: 30px;
+                text-align: center;
+                color: white;
+              }
+              .header h1 {
+                margin: 0;
+                font-size: 24px;
+                font-weight: 700;
+              }
+              .content {
+                padding: 40px 30px;
+              }
+              .alert-box {
+                background: #FFEBEE;
+                border-left: 4px solid #D32F2F;
+                padding: 20px;
+                margin: 20px 0;
+                border-radius: 4px;
+              }
+              .alert-box strong {
+                color: #C62828;
+                display: block;
+                margin-bottom: 10px;
+                font-size: 18px;
+              }
+              .button {
+                display: inline-block;
+                background: #D32F2F;
+                color: white;
+                padding: 14px 28px;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 600;
+                margin: 20px 0;
+                text-align: center;
+              }
+              .button:hover {
+                background: #B71C1C;
+              }
+              .footer {
+                background: #F0F2F5;
+                padding: 20px;
+                text-align: center;
+                color: #54656F;
+                font-size: 14px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>⚠️ Trial Expired</h1>
+              </div>
+              
+              <div class="content">
+                <p>Hello ${userName},</p>
+                
+                <div class="alert-box">
+                  <strong>Your Trial Has Expired</strong>
+                  Your free trial period has ended. To continue using WhatsApp Integration, please upgrade to a paid plan.
+                </div>
+                
+                <p>Your subaccounts have been temporarily disabled. Upgrade now to restore access and continue using all features.</p>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                  <a href="${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard/subscription" class="button">
+                    Upgrade Now
+                  </a>
+                </div>
+                
+                <p style="color: #54656F; font-size: 14px; margin-top: 30px;">
+                  <strong>What happens after upgrade:</strong><br>
+                  • All your subaccounts will be restored<br>
+                  • Full access to all features<br>
+                  • Priority support<br>
+                  • No data loss
+                </p>
+              </div>
+              
+              <div class="footer">
+                <p>This is an automated notification from <strong>Octendr</strong></p>
+                <p>WhatsApp GHL Integration Platform</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const textContent = `
+Your Trial Has Expired
+
+Hello ${userName},
+
+Your free trial period has ended. To continue using WhatsApp Integration, please upgrade to a paid plan.
+
+Your subaccounts have been temporarily disabled. Upgrade now to restore access.
+
+Upgrade: ${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard/subscription
+
+This is an automated notification from Octendr.
+      `;
+
+      const emailResult = await this.sendEmailViaAPI({
+        to: user.email,
+        subject: subject,
+        html: htmlContent,
+        text: textContent
+      });
+
+      if (emailResult.success) {
+        console.log(`✅ Trial expired email sent successfully to: ${user.email}`);
+        return { success: true, email: user.email };
+      } else {
+        console.error(`❌ Failed to send trial expired email:`, emailResult.error);
+        return { success: false, error: emailResult.error };
+      }
+
+    } catch (error) {
+      console.error('❌ Error sending trial expired email:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Send subscription activation/welcome email
+   * @param {string} userId - User ID
+   * @param {string} planName - Plan name (starter, professional)
+   */
+  async sendSubscriptionActivationEmail(userId, planName) {
+    try {
+      console.log(`📧 Preparing subscription activation email for user: ${userId}, plan: ${planName}`);
+
+      const { data: user, error: userError } = await this.supabaseAdmin
+        .from('users')
+        .select('id, email, name, max_subaccounts')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (userError || !user) {
+        console.error('❌ Failed to fetch user for subscription email:', userError);
+        return { success: false, error: 'User not found' };
+      }
+
+      if (!user.email) {
+        console.error('❌ User email not found');
+        return { success: false, error: 'User email not available' };
+      }
+
+      const userName = user.name || user.email.split('@')[0];
+      const planDisplayName = planName === 'starter' ? 'Starter Plan' : planName === 'professional' ? 'Professional Plan' : planName;
+      const planPrice = planName === 'starter' ? '$19' : planName === 'professional' ? '$49' : 'N/A';
+
+      const subject = `🎉 Welcome to ${planDisplayName} - Subscription Activated!`;
+      
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Subscription Activated</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                background-color: #f5f5f5;
+                margin: 0;
+                padding: 0;
+              }
+              .container {
+                max-width: 600px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                padding: 0;
+              }
+              .header {
+                background: linear-gradient(135deg, #075E54 0%, #128C7E 100%);
+                padding: 30px;
+                text-align: center;
+                color: white;
+              }
+              .header h1 {
+                margin: 0;
+                font-size: 24px;
+                font-weight: 700;
+              }
+              .content {
+                padding: 40px 30px;
+              }
+              .success-box {
+                background: #E8F5E9;
+                border-left: 4px solid #4CAF50;
+                padding: 20px;
+                margin: 20px 0;
+                border-radius: 4px;
+              }
+              .success-box strong {
+                color: #2E7D32;
+                display: block;
+                margin-bottom: 10px;
+                font-size: 18px;
+              }
+              .info-box {
+                background: #F0F2F5;
+                padding: 20px;
+                border-radius: 8px;
+                margin: 20px 0;
+              }
+              .info-row {
+                display: flex;
+                justify-content: space-between;
+                padding: 8px 0;
+                border-bottom: 1px solid #E9EDEF;
+              }
+              .info-row:last-child {
+                border-bottom: none;
+              }
+              .button {
+                display: inline-block;
+                background: #25D366;
+                color: white;
+                padding: 14px 28px;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 600;
+                margin: 20px 0;
+                text-align: center;
+              }
+              .button:hover {
+                background: #1DA851;
+              }
+              .footer {
+                background: #F0F2F5;
+                padding: 20px;
+                text-align: center;
+                color: #54656F;
+                font-size: 14px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>🎉 Subscription Activated!</h1>
+              </div>
+              
+              <div class="content">
+                <p>Hello ${userName},</p>
+                
+                <div class="success-box">
+                  <strong>✅ Payment Successful!</strong>
+                  Your ${planDisplayName} subscription has been activated successfully. You now have full access to all features.
+                </div>
+                
+                <div class="info-box">
+                  <div class="info-row">
+                    <span><strong>Plan:</strong></span>
+                    <span>${planDisplayName}</span>
+                  </div>
+                  <div class="info-row">
+                    <span><strong>Price:</strong></span>
+                    <span>${planPrice}/month</span>
+                  </div>
+                  <div class="info-row">
+                    <span><strong>Subaccounts:</strong></span>
+                    <span>${user.max_subaccounts || 0} allowed</span>
+                  </div>
+                  <div class="info-row">
+                    <span><strong>Status:</strong></span>
+                    <span style="color: #4CAF50; font-weight: 600;">Active</span>
+                  </div>
+                </div>
+                
+                <p><strong>What's Next?</strong></p>
+                <ul style="color: #54656F; line-height: 1.8;">
+                  <li>Add and manage your GoHighLevel subaccounts</li>
+                  <li>Connect WhatsApp Business accounts</li>
+                  <li>Start sending and receiving messages</li>
+                  <li>Access all premium features</li>
+                </ul>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                  <a href="${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard" class="button">
+                    Go to Dashboard
+                  </a>
+                </div>
+                
+                <p style="color: #54656F; font-size: 14px; margin-top: 30px;">
+                  <strong>Need help?</strong> If you have any questions, please contact our support team.
+                </p>
+              </div>
+              
+              <div class="footer">
+                <p>This is an automated notification from <strong>Octendr</strong></p>
+                <p>WhatsApp GHL Integration Platform</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const textContent = `
+Subscription Activated - Welcome to ${planDisplayName}!
+
+Hello ${userName},
+
+Your ${planDisplayName} subscription has been activated successfully. Your payment was processed and you now have full access to all features.
+
+Plan: ${planDisplayName}
+Price: ${planPrice}/month
+Subaccounts: ${user.max_subaccounts || 0} allowed
+Status: Active
+
+What's Next?
+- Add and manage your GoHighLevel subaccounts
+- Connect WhatsApp Business accounts
+- Start sending and receiving messages
+- Access all premium features
+
+Dashboard: ${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard
+
+This is an automated notification from Octendr.
+      `;
+
+      const emailResult = await this.sendEmailViaAPI({
+        to: user.email,
+        subject: subject,
+        html: htmlContent,
+        text: textContent
+      });
+
+      if (emailResult.success) {
+        console.log(`✅ Subscription activation email sent successfully to: ${user.email}`);
+        return { success: true, email: user.email };
+      } else {
+        console.error(`❌ Failed to send subscription activation email:`, emailResult.error);
+        return { success: false, error: emailResult.error };
+      }
+
+    } catch (error) {
+      console.error('❌ Error sending subscription activation email:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Send payment failed email notification
+   * @param {string} userId - User ID
+   * @param {object} invoiceData - Invoice data from Stripe
+   */
+  async sendPaymentFailedEmail(userId, invoiceData) {
+    try {
+      console.log(`📧 Preparing payment failed email for user: ${userId}`);
+
+      const { data: user, error: userError } = await this.supabaseAdmin
+        .from('users')
+        .select('id, email, name, subscription_plan')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (userError || !user) {
+        console.error('❌ Failed to fetch user for payment failed email:', userError);
+        return { success: false, error: 'User not found' };
+      }
+
+      if (!user.email) {
+        console.error('❌ User email not found');
+        return { success: false, error: 'User email not available' };
+      }
+
+      const userName = user.name || user.email.split('@')[0];
+      const planName = user.subscription_plan === 'starter' ? 'Starter Plan' : user.subscription_plan === 'professional' ? 'Professional Plan' : user.subscription_plan;
+      const amountDue = invoiceData.amount_due ? `$${(invoiceData.amount_due / 100).toFixed(2)}` : 'N/A';
+      const invoiceUrl = invoiceData.hosted_invoice_url || invoiceData.invoice_pdf || null;
+
+      const subject = '⚠️ Payment Failed - Action Required';
+      
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Payment Failed</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                background-color: #f5f5f5;
+                margin: 0;
+                padding: 0;
+              }
+              .container {
+                max-width: 600px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                padding: 0;
+              }
+              .header {
+                background: linear-gradient(135deg, #D32F2F 0%, #F57C00 100%);
+                padding: 30px;
+                text-align: center;
+                color: white;
+              }
+              .header h1 {
+                margin: 0;
+                font-size: 24px;
+                font-weight: 700;
+              }
+              .content {
+                padding: 40px 30px;
+              }
+              .alert-box {
+                background: #FFEBEE;
+                border-left: 4px solid #D32F2F;
+                padding: 20px;
+                margin: 20px 0;
+                border-radius: 4px;
+              }
+              .alert-box strong {
+                color: #C62828;
+                display: block;
+                margin-bottom: 10px;
+                font-size: 18px;
+              }
+              .info-box {
+                background: #F0F2F5;
+                padding: 20px;
+                border-radius: 8px;
+                margin: 20px 0;
+              }
+              .info-row {
+                display: flex;
+                justify-content: space-between;
+                padding: 8px 0;
+                border-bottom: 1px solid #E9EDEF;
+              }
+              .info-row:last-child {
+                border-bottom: none;
+              }
+              .button {
+                display: inline-block;
+                background: #D32F2F;
+                color: white;
+                padding: 14px 28px;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 600;
+                margin: 20px 0;
+                text-align: center;
+              }
+              .button:hover {
+                background: #B71C1C;
+              }
+              .button-secondary {
+                display: inline-block;
+                background: #54656F;
+                color: white;
+                padding: 14px 28px;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 600;
+                margin: 10px 5px;
+                text-align: center;
+              }
+              .button-secondary:hover {
+                background: #42505A;
+              }
+              .footer {
+                background: #F0F2F5;
+                padding: 20px;
+                text-align: center;
+                color: #54656F;
+                font-size: 14px;
+              }
+              .warning-list {
+                background: #FFF3E0;
+                border-left: 4px solid #FF9800;
+                padding: 15px 20px;
+                margin: 20px 0;
+                border-radius: 4px;
+              }
+              .warning-list ul {
+                margin: 10px 0;
+                padding-left: 20px;
+              }
+              .warning-list li {
+                margin: 8px 0;
+                color: #E65100;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>⚠️ Payment Failed</h1>
+              </div>
+              
+              <div class="content">
+                <p>Hello ${userName},</p>
+                
+                <div class="alert-box">
+                  <strong>Payment Failed</strong>
+                  We were unable to process your payment for your ${planName} subscription. Please update your payment method to continue using our services.
+                </div>
+                
+                <div class="info-box">
+                  <div class="info-row">
+                    <span><strong>Plan:</strong></span>
+                    <span>${planName}</span>
+                  </div>
+                  <div class="info-row">
+                    <span><strong>Amount Due:</strong></span>
+                    <span style="color: #D32F2F; font-weight: 600;">${amountDue}</span>
+                  </div>
+                  <div class="info-row">
+                    <span><strong>Status:</strong></span>
+                    <span style="color: #D32F2F; font-weight: 600;">Payment Failed</span>
+                  </div>
+                </div>
+                
+                <div class="warning-list">
+                  <strong style="color: #E65100; display: block; margin-bottom: 10px;">⚠️ Important:</strong>
+                  <ul>
+                    <li>Your subscription may be suspended if payment is not updated</li>
+                    <li>All your subaccounts will be temporarily disabled</li>
+                    <li>Update your payment method to restore access immediately</li>
+                  </ul>
+                </div>
+                
+                <p><strong>What to do:</strong></p>
+                <ol style="color: #54656F; line-height: 1.8; padding-left: 20px;">
+                  <li>Check your payment method (card may have expired or insufficient funds)</li>
+                  <li>Update your payment information in the billing section</li>
+                  <li>Retry the payment</li>
+                </ol>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                  <a href="${invoiceUrl || `${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard/billing`}" class="button">
+                    ${invoiceUrl ? 'View Invoice & Pay' : 'Update Payment Method'}
+                  </a>
+                  ${invoiceUrl ? `<br><a href="${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard/billing" class="button-secondary" style="margin-top: 10px;">
+                    Go to Billing
+                  </a>` : ''}
+                </div>
+                
+                <p style="color: #54656F; font-size: 14px; margin-top: 30px;">
+                  <strong>Need help?</strong> If you continue to experience payment issues, please contact our support team.
+                </p>
+              </div>
+              
+              <div class="footer">
+                <p>This is an automated notification from <strong>Octendr</strong></p>
+                <p>WhatsApp GHL Integration Platform</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const textContent = `
+Payment Failed - Action Required
+
+Hello ${userName},
+
+We were unable to process your payment for your ${planName} subscription.
+
+Plan: ${planName}
+Amount Due: ${amountDue}
+Status: Payment Failed
+
+⚠️ Important:
+- Your subscription may be suspended if payment is not updated
+- All your subaccounts will be temporarily disabled
+- Update your payment method to restore access immediately
+
+What to do:
+1. Check your payment method (card may have expired or insufficient funds)
+2. Update your payment information in the billing section
+3. Retry the payment
+
+${invoiceUrl ? `Invoice: ${invoiceUrl}` : `Billing: ${process.env.FRONTEND_URL || 'https://dashboard.octendr.com'}/dashboard/billing`}
+
+This is an automated notification from Octendr.
+      `;
+
+      const emailResult = await this.sendEmailViaAPI({
+        to: user.email,
+        subject: subject,
+        html: htmlContent,
+        text: textContent
+      });
+
+      if (emailResult.success) {
+        console.log(`✅ Payment failed email sent successfully to: ${user.email}`);
+        return { success: true, email: user.email };
+      } else {
+        console.error(`❌ Failed to send payment failed email:`, emailResult.error);
+        return { success: false, error: emailResult.error };
+      }
+
+    } catch (error) {
+      console.error('❌ Error sending payment failed email:', error);
       return { success: false, error: error.message };
     }
   }
