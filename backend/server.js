@@ -975,35 +975,49 @@ app.get('/oauth/callback', async (req, res) => {
     }
     
     // 3. Check if this location was previously used by this user (even if deleted)
-    // IMPORTANT: Only allow re-adding previously owned locations, not new ones
-    // This is the CRITICAL anti-abuse check
+    // ===========================================
+    // CHECK LOCATION OWNERSHIP: ghl_accounts FIRST, then used_locations
+    // ===========================================
+    // Step 1: Check if location exists in ghl_accounts (active account)
+    const { data: existingActiveAccount, error: activeAccountError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('id, location_id, user_id')
+      .eq('location_id', finalLocationId)
+      .eq('user_id', targetUserId)
+      .maybeSingle();
+
+    if (activeAccountError) {
+      console.error('❌ Error checking ghl_accounts:', activeAccountError);
+    }
+
+    // Step 2: Check if location exists in used_locations (previously owned, may be deleted)
     const { data: previouslyUsedLocation, error: locationCheckError } = await supabaseAdmin
       .from('used_locations')
       .select('location_id, user_id, is_active')
       .eq('location_id', finalLocationId)
-      .eq('user_id', targetUserId)  // CRITICAL: Must check user_id to ensure it's the same user
+      .eq('user_id', targetUserId)
       .maybeSingle();
 
     if (locationCheckError) {
       console.error('❌ Error checking used_locations:', locationCheckError);
-      // Continue with limit check if there's an error
     }
 
-    // Only allow re-adding if location was previously owned by THIS user
-    // CRITICAL: is_active status doesn't matter - if user owned it before (even if deleted), they can re-add it
-    // If location is NOT in used_locations for this user, it's a NEW location and must pass limit check
-    const isReAddingLocation = previouslyUsedLocation !== null && 
+    // Determine if this is a re-add or new location
+    const isActiveInGhlAccounts = existingActiveAccount !== null && 
+                                  existingActiveAccount.user_id === targetUserId;
+    const isPreviouslyOwned = previouslyUsedLocation !== null && 
                                previouslyUsedLocation.user_id === targetUserId &&
                                previouslyUsedLocation.location_id === finalLocationId;
     
     console.log(`🔍 Location ownership check:`);
     console.log(`   Location ID: ${finalLocationId}`);
     console.log(`   User ID: ${targetUserId}`);
-    console.log(`   Previously owned: ${previouslyUsedLocation ? 'YES' : 'NO'}`);
-    if (previouslyUsedLocation) {
-      console.log(`   Owner user_id: ${previouslyUsedLocation.user_id}`);
-      console.log(`   is_active: ${previouslyUsedLocation.is_active ?? 'N/A (column not found)'}`);
-    }
+    console.log(`   Active in ghl_accounts: ${isActiveInGhlAccounts ? 'YES' : 'NO'}`);
+    console.log(`   Previously owned (used_locations): ${isPreviouslyOwned ? 'YES' : 'NO'}`);
+    
+    // If location is active in ghl_accounts, it's already added - handle duplicate check later
+    // If location is in used_locations (even if deleted), user can re-add it
+    const isReAddingLocation = isPreviouslyOwned;
     
     if (isReAddingLocation) {
       console.log(`✅ Location previously owned by this user - re-adding allowed`);
@@ -1012,8 +1026,6 @@ app.get('/oauth/callback', async (req, res) => {
       console.log(`📍 NEW location detected - user never owned this location before`);
       console.log(`   Must pass subaccount limit check`);
       
-      // STRICT RULE: If user has reached their limit, they CANNOT add new locations
-      // They can ONLY re-add previously owned locations
       // Count current active GHL accounts
       const { data: currentAccounts, error: countError } = await supabaseAdmin
         .from('ghl_accounts')
@@ -1023,70 +1035,47 @@ app.get('/oauth/callback', async (req, res) => {
       const currentCount = currentAccounts?.length || 0;
       console.log(`📊 Current subaccounts: ${currentCount}, Max allowed: ${userInfo.max_subaccounts}`);
       
-      // If already at limit, check if this location is in previously owned list
+      // If already at limit, block NEW location
       if (currentCount >= userInfo.max_subaccounts) {
         console.log(`❌ Subaccount limit reached. Current: ${currentCount}, Max: ${userInfo.max_subaccounts}`);
+        console.log(`🚫 Cannot add NEW location - user must upgrade or purchase additional subaccount`);
         
-        // Get list of previously owned locations that user can re-add
+        // Get list of previously owned locations that user can re-add (from used_locations)
         const { data: previouslyOwnedLocations } = await supabaseAdmin
           .from('used_locations')
-          .select('location_id, is_active')
+          .select('location_id')
           .eq('user_id', targetUserId)
           .order('last_active_at', { ascending: false });
         
         const availableLocations = previouslyOwnedLocations?.map(loc => loc.location_id) || [];
         const availableCount = availableLocations.length;
         
-        // Check if attempted location is in the list of previously owned locations
-        const isAttemptedLocationAvailable = availableLocations.includes(finalLocationId);
-        
-        if (isAttemptedLocationAvailable) {
-          // Location is in previously owned list - allow re-adding even at limit
-          console.log(`✅ Attempted location is in previously owned list - allowing re-add`);
-          console.log(`   Location ID: ${finalLocationId} was previously owned by user`);
-        } else {
-          // NEW location - block it
-          console.log(`🚫 Cannot add NEW location - user can only re-add previously owned locations`);
-          console.log(`📋 User has ${availableCount} previously owned location(s) available for re-adding`);
-          console.log(`   Available locations: ${availableLocations.join(', ')}`);
-          console.log(`   Attempted location: ${finalLocationId}`);
-          console.log(`💡 User must either:`);
-          console.log(`   1. Re-add one of their ${availableCount} previously owned location(s), OR`);
-          console.log(`   2. Purchase additional subaccount for $10`);
-          
-          // Log the limit reached event
-          await supabaseAdmin.from('subscription_events').insert({
-            user_id: targetUserId,
-            event_type: 'subaccount_limit_reached',
-            plan_name: userInfo.subscription_status,
-            metadata: {
-              current_count: currentCount,
-              max_allowed: userInfo.max_subaccounts,
-              attempted_location: finalLocationId,
-              is_new_location: true,
-              can_re_add_only: true,
-              available_locations_count: availableCount,
-              available_location_ids: availableLocations
-            }
-          });
-          
-          const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
-          
-          // For active subscriptions, show additional subaccount purchase option
-          if (userInfo.subscription_status === 'active') {
-            return res.redirect(`${frontendUrl}/dashboard?error=limit_reached_additional&current=${currentCount}&max=${userInfo.max_subaccounts}&available=${availableCount}`);
-          } else {
-            return res.redirect(`${frontendUrl}/dashboard?error=trial_limit_reached&current=${currentCount}&max=${userInfo.max_subaccounts}&available=${availableCount}`);
+        // Log the limit reached event
+        await supabaseAdmin.from('subscription_events').insert({
+          user_id: targetUserId,
+          event_type: 'subaccount_limit_reached',
+          plan_name: userInfo.subscription_status,
+          metadata: {
+            current_count: currentCount,
+            max_allowed: userInfo.max_subaccounts,
+            attempted_location: finalLocationId,
+            is_new_location: true,
+            available_locations_count: availableCount,
+            available_location_ids: availableLocations
           }
+        });
+        
+        const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
+        
+        // For active subscriptions, show additional subaccount purchase option
+        if (userInfo.subscription_status === 'active') {
+          return res.redirect(`${frontendUrl}/dashboard?error=limit_reached_additional&current=${currentCount}&max=${userInfo.max_subaccounts}&available=${availableCount}`);
+        } else {
+          return res.redirect(`${frontendUrl}/dashboard?error=trial_limit_reached&current=${currentCount}&max=${userInfo.max_subaccounts}&available=${availableCount}`);
         }
       }
       
       console.log('✅ Subaccount limit check passed for new location');
-    }
-    
-    // If re-adding, skip limit check
-    if (isReAddingLocation) {
-      console.log('✅ Re-adding previously used location - limit check skipped (user owned this location before)');
     }
     
     // ===========================================
@@ -1267,16 +1256,28 @@ app.get('/api/user/subscription-info', requireAuth, async (req, res) => {
     
     const currentCount = currentAccounts?.length || 0;
     
-    // Get previously owned locations (inactive ones that can be re-added)
+    // Get all active locations from ghl_accounts (to exclude them from available locations)
+    const { data: activeAccounts } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('location_id')
+      .eq('user_id', userId);
+    
+    const activeLocationIds = (activeAccounts || []).map(acc => acc.location_id);
+    
+    // Get previously owned locations from used_locations
     const { data: previouslyOwnedLocations, error: locationsError } = await supabaseAdmin
       .from('used_locations')
       .select('location_id, is_active, last_active_at')
       .eq('user_id', userId)
       .order('last_active_at', { ascending: false });
     
-    // Filter for inactive locations (migration-safe: if is_active column doesn't exist, treat as inactive)
+    // Filter for inactive locations (not in ghl_accounts and is_active: false)
     const availableLocations = (previouslyOwnedLocations || [])
       .filter(loc => {
+        // Exclude if location is currently active in ghl_accounts
+        if (activeLocationIds.includes(loc.location_id)) {
+          return false;
+        }
         // If is_active column exists, only include inactive ones
         // If column doesn't exist, include all (for backward compatibility)
         return loc.hasOwnProperty('is_active') ? !loc.is_active : true;
@@ -4066,6 +4067,23 @@ app.delete('/admin/ghl/delete-subaccount', requireAuth, async (req, res) => {
     if (accountDeleteError) {
       console.error('Error deleting GHL account:', accountDeleteError);
       return res.status(500).json({ error: 'Failed to delete account from database' });
+    }
+
+    // Mark location as inactive in used_locations (for anti-abuse tracking)
+    const { error: updateUsedLocationError } = await supabaseAdmin
+      .from('used_locations')
+      .update({ 
+        is_active: false,
+        last_active_at: new Date().toISOString()
+      })
+      .eq('location_id', locationId)
+      .eq('user_id', req.user?.id);
+
+    if (updateUsedLocationError) {
+      console.error('⚠️ Error updating used_locations (non-critical):', updateUsedLocationError);
+      // Don't fail the operation, just log the error
+    } else {
+      console.log(`✅ Marked location as inactive in used_locations: ${locationId}`);
     }
 
     console.log(`✅ Subaccount deleted successfully for location: ${locationId}`);
