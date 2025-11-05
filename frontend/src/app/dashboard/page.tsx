@@ -35,6 +35,7 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; locationId?: string }>({ open: false })
+  const [confirmResetSession, setConfirmResetSession] = useState<{ open: boolean; locationId?: string }>({ open: false })
   
   // Trial system state
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
@@ -238,19 +239,29 @@ export default function Dashboard() {
       const max = urlParams.get('max')
       setNotification({
         type: 'error',
-        message: `Plan limit reached! You have ${current}/${max} subaccounts. Upgrade to add more.`
+        message: `⚠️ Trial limit reached! You have ${current}/${max} subaccounts. You can only re-add previously owned locations. Upgrade to add new locations.`
       })
       setShowUpgradeModal(true)
       // Clean URL
       window.history.replaceState({}, '', '/dashboard')
     } else if (error === 'location_exists') {
-      const email = urlParams.get('email')
       setNotification({
         type: 'error',
-        message: `This location is already linked to ${email}. Please upgrade or contact support.`
+        message: 'This location is already linked to another account. Please try a different location or contact support.'
       })
       // Clean URL
       window.history.replaceState({}, '', '/dashboard')
+    } else if (error === 'subscription_expired') {
+      setNotification({
+        type: 'error',
+        message: '⚠️ Your subscription has expired. Please upgrade to continue using WhatsApp Integration.'
+      })
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard')
+      // Redirect to subscription page after 2 seconds
+      setTimeout(() => {
+        window.location.href = '/dashboard/subscription'
+      }, 2000)
     } else if (error === 'account_already_added') {
       const locationId = urlParams.get('location_id')
       setNotification({
@@ -264,7 +275,7 @@ export default function Dashboard() {
       const max = urlParams.get('max')
       setNotification({
         type: 'error',
-        message: `You've reached your plan limit (${current}/${max}). Purchase an additional subaccount or upgrade your plan.`
+        message: `⚠️ Limit reached! You have ${current}/${max} subaccounts. You can only re-add previously owned locations. To add a NEW location, purchase an additional subaccount for $10 or upgrade your plan.`
       })
       setShowUpgradeModal(true)
       // Clean URL
@@ -360,10 +371,11 @@ export default function Dashboard() {
   }
 
   const resetSession = async (locationId: string) => {
-    if (!confirm('🔄 Are you sure you want to reset this session?\n\nThis will:\n• Delete all session data from database\n• Clear WhatsApp connection\n• Prevent conflicts for new connections\n\nYou will need to scan QR code again.')) {
-      return
-    }
-    
+    // Open confirmation modal instead of browser confirm
+    setConfirmResetSession({ open: true, locationId })
+  }
+
+  const doResetSession = async (locationId: string) => {
     try {
       console.log(`🔄 Resetting session for location: ${locationId}`)
       const response = await apiCall(API_ENDPOINTS.resetSession(locationId), {
@@ -980,6 +992,32 @@ export default function Dashboard() {
             <li>Connection settings</li>
           </ul>
           <p className="mt-3 font-medium text-red-600">This action cannot be undone.</p>
+        </div>
+      </Modal>
+
+      {/* Reset session confirmation modal */}
+      <Modal
+        isOpen={confirmResetSession.open}
+        onClose={() => setConfirmResetSession({ open: false })}
+        title="Reset Session?"
+        icon="warning"
+        confirmText="Reset"
+        cancelText="Cancel"
+        onConfirm={async () => {
+          if (confirmResetSession.locationId) {
+            await doResetSession(confirmResetSession.locationId)
+          }
+          setConfirmResetSession({ open: false })
+        }}
+      >
+        <div>
+          <p className="mb-2">This will:</p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Delete all session data from database</li>
+            <li>Clear WhatsApp connection</li>
+            <li>Prevent conflicts for new connections</li>
+          </ul>
+          <p className="mt-3 font-medium text-orange-600">You will need to scan QR code again to reconnect.</p>
         </div>
       </Modal>
     </div>

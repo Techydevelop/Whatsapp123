@@ -1,11 +1,64 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
+import { supabase } from '@/lib/supabase'
+import { useRouter } from 'next/navigation'
 
 export default function AddSubAccount() {
   const { user } = useAuth()
+  const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [subscriptionStatus, setSubscriptionStatus] = useState<{
+    status: string
+    trialEndsAt?: string
+  } | null>(null)
+  const [checking, setChecking] = useState(true)
+
+  // Check subscription status
+  useEffect(() => {
+    const checkSubscription = async () => {
+      if (!user?.id) {
+        setChecking(false)
+        return
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('subscription_status, trial_ends_at')
+          .eq('id', user.id)
+          .single()
+
+        if (!error && data) {
+          setSubscriptionStatus({
+            status: data.subscription_status || 'trial',
+            trialEndsAt: data.trial_ends_at
+          })
+        }
+      } catch (error) {
+        console.error('Error checking subscription:', error)
+      } finally {
+        setChecking(false)
+      }
+    }
+
+    checkSubscription()
+  }, [user])
+
+  // Helper to check if trial/subscription is expired
+  const isExpired = (): boolean => {
+    if (!subscriptionStatus) return false
+    if (subscriptionStatus.status === 'expired') return true
+    if (subscriptionStatus.trialEndsAt) {
+      try {
+        return new Date(subscriptionStatus.trialEndsAt) <= new Date()
+      } catch {
+        return false
+      }
+    }
+    return false
+  }
 
   const handleConnect = async () => {
     setLoading(true)
@@ -14,6 +67,22 @@ export default function AddSubAccount() {
       // Check if user is logged in
       if (!user?.id) {
         alert('❌ Please login first to add your GHL account')
+        setLoading(false)
+        return
+      }
+
+      // Check if trial/subscription is expired
+      if (isExpired()) {
+        alert('⚠️ Your trial has expired. Please upgrade your subscription to add accounts.')
+        router.push('/dashboard/subscription')
+        setLoading(false)
+        return
+      }
+
+      // Check if subscription status is expired
+      if (subscriptionStatus?.status === 'expired') {
+        alert('⚠️ Your subscription has expired. Please upgrade to continue using WhatsApp Integration.')
+        router.push('/dashboard/subscription')
         setLoading(false)
         return
       }
@@ -41,8 +110,42 @@ export default function AddSubAccount() {
     }
   }
 
+  if (checking) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-indigo-600 border-t-transparent mx-auto mb-4"></div>
+          <p className="text-gray-600">Checking subscription status...</p>
+        </div>
+      </div>
+    )
+  }
+
+  const expired = isExpired()
+
   return (
     <div className="max-w-2xl mx-auto">
+      {expired && (
+        <div className="mb-6 rounded-lg bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-red-900">
+                ⚠️ Your trial has expired
+              </h3>
+              <p className="text-sm text-red-700 mt-1">
+                Please upgrade your subscription to add accounts and continue using WhatsApp Integration.
+              </p>
+            </div>
+            <button
+              onClick={() => router.push('/dashboard/subscription')}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 transition-colors"
+            >
+              Upgrade Now
+            </button>
+          </div>
+        </div>
+      )}
+      
       <div className="bg-white shadow rounded-lg p-8">
         <h2 className="text-2xl font-bold text-gray-900 mb-2">Add GHL Account</h2>
         <p className="text-gray-600 mb-8">Connect your GoHighLevel location to start using WhatsApp</p>
@@ -74,8 +177,9 @@ export default function AddSubAccount() {
             
             <button
               onClick={handleConnect}
-              disabled={loading}
+              disabled={loading || expired}
               className="w-full bg-blue-600 text-white py-4 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-all text-lg"
+              title={expired ? 'Your trial has expired. Please upgrade to add accounts.' : ''}
             >
               {loading ? (
                 <span className="flex items-center justify-center">

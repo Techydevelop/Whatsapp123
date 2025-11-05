@@ -936,6 +936,16 @@ app.get('/oauth/callback', async (req, res) => {
       current: userInfo.total_subaccounts,
       max: userInfo.max_subaccounts
     });
+
+    // Check if subscription/trial is expired - BLOCK ALL ACTIONS
+    const isExpired = userInfo.subscription_status === 'expired' || 
+      (userInfo.trial_ends_at && new Date(userInfo.trial_ends_at) <= new Date());
+    
+    if (isExpired) {
+      console.log('❌ Subscription/trial expired - blocking account addition');
+      const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
+      return res.redirect(`${frontendUrl}/dashboard?error=subscription_expired`);
+    }
     
     // 2. Check if location already used by another user (anti-abuse)
     const { data: existingLocation } = await supabaseAdmin
@@ -961,10 +971,11 @@ app.get('/oauth/callback', async (req, res) => {
       });
       
       const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
-      return res.redirect(`${frontendUrl}/dashboard?error=location_exists&email=${encodeURIComponent(existingLocation.email)}`);
+      return res.redirect(`${frontendUrl}/dashboard?error=location_exists`);
     }
     
-    // 3. Check if this location was previously used by this user
+    // 3. Check if this location was previously used by this user (even if deleted)
+    // IMPORTANT: Only allow re-adding previously owned locations, not new ones
     const { data: previouslyUsedLocation } = await supabaseAdmin
       .from('used_locations')
       .select('location_id, user_id, is_active')
@@ -972,11 +983,19 @@ app.get('/oauth/callback', async (req, res) => {
       .eq('user_id', targetUserId)
       .maybeSingle();
 
-    const isReAddingLocation = previouslyUsedLocation !== null;
-    console.log(`📍 Location check: ${isReAddingLocation ? 'Previously used by this user (re-adding allowed)' : 'New location'}`);
-
-    // 4. Check subaccount limit (only for new locations, not re-adding)
-    if (!isReAddingLocation) {
+    // Only allow re-adding if location was previously owned by this user
+    // is_active status doesn't matter - if user owned it before, they can re-add it
+    const isReAddingLocation = previouslyUsedLocation !== null && previouslyUsedLocation.user_id === targetUserId;
+    
+    if (isReAddingLocation) {
+      console.log(`✅ Location previously owned by this user - re-adding allowed (is_active: ${previouslyUsedLocation.is_active})`);
+      console.log(`   User can re-add this location without limit check`);
+    } else {
+      console.log(`📍 NEW location detected - user never owned this location before`);
+      console.log(`   Must pass subaccount limit check`);
+      
+      // STRICT RULE: If user has reached their limit, they CANNOT add new locations
+      // They can ONLY re-add previously owned locations
       // Count current active GHL accounts
       const { data: currentAccounts, error: countError } = await supabaseAdmin
         .from('ghl_accounts')
@@ -986,9 +1005,13 @@ app.get('/oauth/callback', async (req, res) => {
       const currentCount = currentAccounts?.length || 0;
       console.log(`📊 Current subaccounts: ${currentCount}, Max allowed: ${userInfo.max_subaccounts}`);
       
-      // If already at limit, block new location addition
+      // If already at limit, BLOCK new location addition (not re-adding)
       if (currentCount >= userInfo.max_subaccounts) {
         console.log(`❌ Subaccount limit reached. Current: ${currentCount}, Max: ${userInfo.max_subaccounts}`);
+        console.log(`🚫 Cannot add NEW location - user can only re-add previously owned locations`);
+        console.log(`💡 User must either:`);
+        console.log(`   1. Re-add one of their previously owned locations, OR`);
+        console.log(`   2. Purchase additional subaccount for $10`);
         
         // Log the limit reached event
         await supabaseAdmin.from('subscription_events').insert({
@@ -999,7 +1022,8 @@ app.get('/oauth/callback', async (req, res) => {
             current_count: currentCount,
             max_allowed: userInfo.max_subaccounts,
             attempted_location: finalLocationId,
-            is_new_location: true
+            is_new_location: true,
+            can_re_add_only: true // User can only re-add previously owned locations
           }
         });
         
@@ -1014,8 +1038,11 @@ app.get('/oauth/callback', async (req, res) => {
       }
       
       console.log('✅ Subaccount limit check passed for new location');
-    } else {
-      console.log('✅ Re-adding previously used location - limit check skipped');
+    }
+    
+    // If re-adding, skip limit check
+    if (isReAddingLocation) {
+      console.log('✅ Re-adding previously used location - limit check skipped (user owned this location before)');
     }
     
     // ===========================================
@@ -1169,6 +1196,29 @@ app.get('/admin/ghl/subaccounts', requireAuth, async (req, res) => {
 
 // Admin Create Session Endpoint
 app.post('/admin/create-session', requireAuth, async (req, res) => {
+  // Check subscription status before allowing session creation
+  try {
+    const { data: userInfo } = await supabaseAdmin
+      .from('users')
+      .select('subscription_status, trial_ends_at')
+      .eq('id', req.user?.id)
+      .single();
+    
+    if (userInfo) {
+      const isExpired = userInfo.subscription_status === 'expired' || 
+        (userInfo.trial_ends_at && new Date(userInfo.trial_ends_at) <= new Date());
+      
+      if (isExpired) {
+        return res.status(403).json({ 
+          error: 'Subscription expired. Please upgrade to continue using WhatsApp Integration.',
+          code: 'SUBSCRIPTION_EXPIRED'
+        });
+      }
+    }
+  } catch (checkError) {
+    console.error('Error checking subscription for session creation:', checkError);
+    // Continue anyway - don't block if check fails
+  }
   try {
     const { subaccountId, mode = 'qr' } = req.body;
     
@@ -2333,141 +2383,6 @@ app.post('/whatsapp/webhook', async (req, res) => {
   } catch (error) {
     console.error('WhatsApp webhook error:', error);
     res.json({ status: 'success' });
-  }
-});
-
-// GHL Provider Outbound Message Webhook
-app.post('/webhooks/ghl/provider-outbound', async (req, res) => {
-  try {
-    console.log('📤 GHL Provider Outbound Message:', req.body);
-    
-    // Check if this is an echo from our own inbound message
-    const evt = req.body;
-    const { contactId, text, message, messageType, mediaUrl, locationId, messageId, altId } = evt;
-    
-    // If altId starts with 'wa_' it's from our WhatsApp webhook - ignore it
-    if (altId && altId.startsWith('wa_')) {
-      console.log('🚫 Ignoring echo from our own WhatsApp message:', altId);
-      return res.sendStatus(200);
-    }
-    
-    // If message was sent in last 10 seconds, likely an echo
-    const now = Date.now();
-    if (global.recentInboundMessages && global.recentInboundMessages.has(`${contactId}_${text}`)) {
-      console.log('🚫 Ignoring recent echo message');
-      return res.sendStatus(200);
-    }
-    
-    if (!contactId || !text) {
-      console.log('Missing required fields in GHL outbound webhook');
-      return res.sendStatus(200);
-    }
-    
-    // Get GHL account for this location
-    let ghlAccount = null;
-    const targetLocationId = locationId || process.env.GHL_LOCATION_ID;
-    
-    if (targetLocationId) {
-      const { data: account } = await supabaseAdmin
-        .from('ghl_accounts')
-        .select('*')
-        .eq('location_id', targetLocationId)
-        .maybeSingle();
-      
-      if (account) {
-        ghlAccount = account;
-      }
-    }
-    
-    // Fallback to any GHL account
-    if (!ghlAccount) {
-      const { data: anyAccount } = await supabaseAdmin
-        .from('ghl_accounts')
-        .select('*')
-        .limit(1)
-        .maybeSingle();
-      
-      if (anyAccount) {
-        ghlAccount = anyAccount;
-      }
-    }
-    
-    if (!ghlAccount) {
-      console.log(`❌ No GHL account found for outbound message`);
-      return res.sendStatus(200);
-    }
-    
-    const validToken = await ensureValidToken(ghlAccount);
-    
-    // Lookup phone by contact
-    let phone = null;
-    try {
-      const contactRes = await makeGHLRequest(`${BASE}/contacts/${contactId}`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${validToken}`,
-          Version: "2021-07-28",
-          "Content-Type": "application/json"
-        }
-      }, ghlAccount);
-      
-      if (contactRes.ok) {
-        const contactData = await contactRes.json();
-        phone = contactData.contact?.phone;
-        console.log(`📱 Found phone for contact ${contactId}: ${phone}`);
-      }
-    } catch (contactError) {
-      console.error(`❌ Error looking up contact:`, contactError);
-    }
-    
-    if (!phone) {
-      console.log(`❌ No phone found for contact: ${contactId}`);
-      return res.sendStatus(200);
-    }
-    
-    // Send message via WhatsApp
-    try {
-      const waNumber = phone.replace('+', '').replace('@s.whatsapp.net', '');
-      const waJid = `${waNumber}@s.whatsapp.net`;
-      
-      // Find active WhatsApp session for this location
-      const { data: session } = await supabaseAdmin
-        .from('sessions')
-        .select('*')
-        .eq('subaccount_id', ghlAccount.id)
-        .eq('status', 'ready')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!session) {
-        console.log(`❌ No active WhatsApp session found for location: ${ghlAccount.location_id}`);
-        return res.sendStatus(200);
-      }
-
-      // Use consistent client key format - use subaccount_id from session
-      const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-      
-      console.log(`🔍 Looking for client with key: ${clientKey}`);
-      const clientStatus = waManager.getClientStatus(clientKey);
-      
-      if (clientStatus && clientStatus.status === 'connected') {
-        console.log(`✅ Sending WhatsApp message to ${waJid}: ${text}`);
-        await waManager.sendMessage(clientKey, waNumber, text, 'text', null);
-        console.log(`✅ Message sent to WhatsApp: ${waJid}`);
-      } else {
-        console.log(`❌ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
-        console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
-      }
-    } catch (waError) {
-      console.error(`❌ Error sending WhatsApp message:`, waError);
-    }
-    
-    res.sendStatus(200);
-  } catch (error) {
-    console.error('GHL outbound webhook error:', error);
-    res.sendStatus(200);
   }
 });
 
@@ -4554,21 +4469,11 @@ app.post('/debug/test-outbound', async (req, res) => {
       locationId: process.env.GHL_LOCATION_ID
     };
     
-    console.log('🧪 Testing outbound webhook with data:', webhookData);
-    
-    // Call the webhook internally
-    const webhookResponse = await fetch(`${process.env.BACKEND_URL || 'https://api.octendr.com'}/webhooks/ghl/provider-outbound`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(webhookData)
-    });
+    console.log('🧪 Test endpoint called - provider-outbound webhook has been removed');
     
     res.json({ 
       status: 'success', 
-      webhookResponse: webhookResponse.ok,
-      message: 'Test outbound message sent to webhook'
+      message: 'Provider outbound webhook has been removed. This endpoint is no longer used.'
     });
   } catch (error) {
     console.error('Test outbound error:', error);
