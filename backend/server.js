@@ -954,7 +954,7 @@ app.get('/oauth/callback', async (req, res) => {
       .eq('location_id', finalLocationId)
       .maybeSingle();
     
-    // If location exists and is linked to different user
+    // If location exists and is linked to different user, block it
     if (existingLocation && existingLocation.user_id !== targetUserId) {
       console.log('⚠️ Location already linked to another user:', existingLocation);
       
@@ -1033,9 +1033,63 @@ app.get('/oauth/callback', async (req, res) => {
         .eq('user_id', targetUserId);
       
       const currentCount = currentAccounts?.length || 0;
-      console.log(`📊 Current subaccounts: ${currentCount}, Max allowed: ${userInfo.max_subaccounts}`);
       
-      // If already at limit, block NEW location
+      // IMPORTANT: Also count total previously owned locations (including deleted ones)
+      // This prevents users from deleting and adding NEW locations to bypass limits
+      const { data: allOwnedLocations } = await supabaseAdmin
+        .from('used_locations')
+        .select('location_id')
+        .eq('user_id', targetUserId);
+      
+      const totalOwnedCount = allOwnedLocations?.length || 0;
+      
+      console.log(`📊 Current active subaccounts: ${currentCount}`);
+      console.log(`📊 Total previously owned locations: ${totalOwnedCount}`);
+      console.log(`📊 Max allowed: ${userInfo.max_subaccounts}`);
+      
+      // CRITICAL: If user has EVER owned locations up to the limit, they can only re-add those
+      // They CANNOT add NEW locations if they've reached their limit before
+      if (totalOwnedCount >= userInfo.max_subaccounts) {
+        console.log(`❌ User has already reached their limit (${totalOwnedCount} previously owned locations)`);
+        console.log(`🚫 Cannot add NEW location - user must re-add one of their previously owned locations`);
+        
+        // Get list of previously owned locations that user can re-add
+        const { data: previouslyOwnedLocations } = await supabaseAdmin
+          .from('used_locations')
+          .select('location_id')
+          .eq('user_id', targetUserId)
+          .order('last_active_at', { ascending: false });
+        
+        const availableLocations = previouslyOwnedLocations?.map(loc => loc.location_id) || [];
+        const availableCount = availableLocations.length;
+        
+        // Log the limit reached event
+        await supabaseAdmin.from('subscription_events').insert({
+          user_id: targetUserId,
+          event_type: 'subaccount_limit_reached',
+          plan_name: userInfo.subscription_status,
+          metadata: {
+            current_count: currentCount,
+            total_owned_count: totalOwnedCount,
+            max_allowed: userInfo.max_subaccounts,
+            attempted_location: finalLocationId,
+            is_new_location: true,
+            available_locations_count: availableCount,
+            available_location_ids: availableLocations
+          }
+        });
+        
+        const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
+        
+        // For active subscriptions, show additional subaccount purchase option
+        if (userInfo.subscription_status === 'active') {
+          return res.redirect(`${frontendUrl}/dashboard?error=limit_reached_additional&current=${currentCount}&max=${userInfo.max_subaccounts}&available=${availableCount}`);
+        } else {
+          return res.redirect(`${frontendUrl}/dashboard?error=trial_limit_reached&current=${currentCount}&max=${userInfo.max_subaccounts}&available=${availableCount}`);
+        }
+      }
+      
+      // Also check current active count (for users who haven't reached their limit yet)
       if (currentCount >= userInfo.max_subaccounts) {
         console.log(`❌ Subaccount limit reached. Current: ${currentCount}, Max: ${userInfo.max_subaccounts}`);
         console.log(`🚫 Cannot add NEW location - user must upgrade or purchase additional subaccount`);
