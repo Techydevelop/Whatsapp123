@@ -1179,46 +1179,39 @@ app.get('/oauth/callback', async (req, res) => {
           ghl_account_id: savedAccount.id,
           first_used_at: new Date().toISOString(),
           last_active_at: new Date().toISOString(),
-          is_active: true  // Will fail gracefully if column doesn't exist
+          is_active: true
         };
         
-        await supabaseAdmin.from('used_locations').insert(insertData).catch(err => {
-          // If is_active column doesn't exist, try without it
-          if (err.message && err.message.includes('is_active')) {
-            delete insertData.is_active;
-            return supabaseAdmin.from('used_locations').insert(insertData);
-          }
-          throw err;
-        });
-        console.log('✅ Location saved to used_locations - user can re-add this location later');
-        console.log(`   Location ID: ${finalLocationId}, User ID: ${targetUserId}`);
+        const { error: insertError } = await supabaseAdmin
+          .from('used_locations')
+          .insert(insertData);
+        
+        if (insertError) {
+          console.error('❌ Error saving location to used_locations:', insertError);
+        } else {
+          console.log('✅ Location saved to used_locations - user can re-add this location later');
+          console.log(`   Location ID: ${finalLocationId}, User ID: ${targetUserId}`);
+        }
       } else {
         // Update existing location to active (user is re-adding a previously owned location)
         const updateData = {
           last_active_at: new Date().toISOString(),
           ghl_account_id: savedAccount.id,
-          is_active: true  // Will fail gracefully if column doesn't exist
+          is_active: true
         };
         
-        await supabaseAdmin
+        const { error: updateError } = await supabaseAdmin
           .from('used_locations')
           .update(updateData)
           .eq('location_id', finalLocationId)
-          .eq('user_id', targetUserId)
-          .catch(err => {
-            // If is_active column doesn't exist, try without it
-            if (err.message && err.message.includes('is_active')) {
-              delete updateData.is_active;
-              return supabaseAdmin
-                .from('used_locations')
-                .update(updateData)
-                .eq('location_id', finalLocationId)
-                .eq('user_id', targetUserId);
-            }
-            throw err;
-          });
-        console.log('✅ Updated existing location in used_locations - reactivated');
-        console.log(`   Location ID: ${finalLocationId}, User ID: ${targetUserId}`);
+          .eq('user_id', targetUserId);
+        
+        if (updateError) {
+          console.error('❌ Error updating location in used_locations:', updateError);
+        } else {
+          console.log('✅ Updated existing location in used_locations - reactivated');
+          console.log(`   Location ID: ${finalLocationId}, User ID: ${targetUserId}`);
+        }
       }
     }
     
