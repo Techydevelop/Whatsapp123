@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { apiCall, API_ENDPOINTS } from '@/lib/config'
 
 export default function AddSubAccount() {
   const { user } = useAuth()
@@ -13,9 +14,18 @@ export default function AddSubAccount() {
     status: string
     trialEndsAt?: string
   } | null>(null)
+  const [subscriptionInfo, setSubscriptionInfo] = useState<{
+    subscription_status: string
+    max_subaccounts: number
+    current_subaccounts: number
+    trial_ends_at?: string
+    previously_owned_locations: string[]
+    can_add_new: boolean
+    limit_reached: boolean
+  } | null>(null)
   const [checking, setChecking] = useState(true)
 
-  // Check subscription status
+  // Check subscription status and limits
   useEffect(() => {
     const checkSubscription = async () => {
       if (!user?.id) {
@@ -24,17 +34,30 @@ export default function AddSubAccount() {
       }
 
       try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('subscription_status, trial_ends_at')
-          .eq('id', user.id)
-          .single()
-
-        if (!error && data) {
+        // Fetch subscription info from backend (includes limits and previously owned locations)
+        const response = await apiCall(API_ENDPOINTS.subscriptionInfo)
+        
+        if (response.ok) {
+          const data = await response.json()
+          setSubscriptionInfo(data)
           setSubscriptionStatus({
             status: data.subscription_status || 'trial',
             trialEndsAt: data.trial_ends_at
           })
+        } else {
+          // Fallback to direct DB query
+          const { data, error } = await supabase
+            .from('users')
+            .select('subscription_status, trial_ends_at')
+            .eq('id', user.id)
+            .single()
+
+          if (!error && data) {
+            setSubscriptionStatus({
+              status: data.subscription_status || 'trial',
+              trialEndsAt: data.trial_ends_at
+            })
+          }
         }
       } catch (error) {
         console.error('Error checking subscription:', error)
@@ -83,6 +106,24 @@ export default function AddSubAccount() {
       if (subscriptionStatus?.status === 'expired') {
         alert('⚠️ Your subscription has expired. Please upgrade to continue using WhatsApp Integration.')
         router.push('/dashboard/subscription')
+        setLoading(false)
+        return
+      }
+
+      // Check if limit is reached and user can only re-add previously owned locations
+      if (subscriptionInfo?.limit_reached && !subscriptionInfo.can_add_new) {
+        const availableCount = subscriptionInfo.previously_owned_locations?.length || 0
+        
+        if (availableCount > 0) {
+          alert(`⚠️ You've reached your subaccount limit (${subscriptionInfo.current_subaccounts}/${subscriptionInfo.max_subaccounts}).\n\nYou can only re-add one of your ${availableCount} previously owned location(s), or purchase an additional subaccount for $10.\n\nPlease go back to the dashboard and use the "Add Account" button to see your options.`)
+        } else {
+          if (subscriptionInfo.subscription_status === 'active') {
+            alert(`⚠️ You've reached your subaccount limit (${subscriptionInfo.current_subaccounts}/${subscriptionInfo.max_subaccounts}).\n\nPlease go back to the dashboard and purchase an additional subaccount for $10 to add a new location.`)
+          } else {
+            alert(`⚠️ You've reached your trial subaccount limit (${subscriptionInfo.current_subaccounts}/${subscriptionInfo.max_subaccounts}).\n\nPlease upgrade your subscription to add more locations.`)
+            router.push('/dashboard/subscription')
+          }
+        }
         setLoading(false)
         return
       }
@@ -165,6 +206,42 @@ export default function AddSubAccount() {
               Connect your GoHighLevel location to enable WhatsApp integration
             </p>
             
+            {/* Show limit warning if reached */}
+            {subscriptionInfo?.limit_reached && !subscriptionInfo.can_add_new && (
+              <div className="mb-6 rounded-lg bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 p-4 shadow-sm">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3 flex-1">
+                    <h3 className="text-sm font-medium text-yellow-800">
+                      Subaccount Limit Reached
+                    </h3>
+                    <div className="mt-2 text-sm text-yellow-700">
+                      <p>
+                        You're currently using {subscriptionInfo.current_subaccounts} of {subscriptionInfo.max_subaccounts} subaccounts.
+                      </p>
+                      {subscriptionInfo.previously_owned_locations && subscriptionInfo.previously_owned_locations.length > 0 ? (
+                        <p className="mt-1">
+                          You can only re-add one of your {subscriptionInfo.previously_owned_locations.length} previously owned location(s), or purchase an additional subaccount for $10.
+                        </p>
+                      ) : subscriptionInfo.subscription_status === 'active' ? (
+                        <p className="mt-1">
+                          Please go back to the dashboard to purchase an additional subaccount for $10.
+                        </p>
+                      ) : (
+                        <p className="mt-1">
+                          Please upgrade your subscription to add more locations.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             <div className="bg-blue-50 rounded-md p-4 mb-6">
               <p className="text-sm text-blue-800 font-medium mb-2">✨ What you get:</p>
               <ul className="text-sm text-blue-700 space-y-1">
@@ -175,11 +252,23 @@ export default function AddSubAccount() {
               </ul>
             </div>
             
+            {subscriptionInfo && (
+              <div className="mb-6 text-sm text-gray-600 text-center">
+                <span className="font-medium">Subaccounts:</span> {subscriptionInfo.current_subaccounts} / {subscriptionInfo.max_subaccounts}
+              </div>
+            )}
+            
             <button
               onClick={handleConnect}
-              disabled={loading || expired}
+              disabled={loading || expired || (subscriptionInfo?.limit_reached && !subscriptionInfo.can_add_new)}
               className="w-full bg-blue-600 text-white py-4 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-all text-lg"
-              title={expired ? 'Your trial has expired. Please upgrade to add accounts.' : ''}
+              title={
+                expired 
+                  ? 'Your trial has expired. Please upgrade to add accounts.'
+                  : subscriptionInfo?.limit_reached && !subscriptionInfo.can_add_new
+                  ? 'You have reached your subaccount limit. You can only re-add previously owned locations or purchase an additional subaccount.'
+                  : ''
+              }
             >
               {loading ? (
                 <span className="flex items-center justify-center">

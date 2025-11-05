@@ -237,9 +237,10 @@ export default function Dashboard() {
     if (error === 'trial_limit_reached') {
       const current = urlParams.get('current')
       const max = urlParams.get('max')
+      const available = urlParams.get('available') || '0'
       setNotification({
         type: 'error',
-        message: `⚠️ Trial limit reached! You have ${current}/${max} subaccounts. You can only re-add previously owned locations. Upgrade to add new locations.`
+        message: `⚠️ Trial limit reached! You have ${current}/${max} subaccounts. You can only re-add your ${available} previously owned location(s). Upgrade to add new locations.`
       })
       setShowUpgradeModal(true)
       // Clean URL
@@ -273,9 +274,10 @@ export default function Dashboard() {
     } else if (error === 'limit_reached_additional') {
       const current = urlParams.get('current')
       const max = urlParams.get('max')
+      const available = urlParams.get('available') || '0'
       setNotification({
         type: 'error',
-        message: `⚠️ Limit reached! You have ${current}/${max} subaccounts. You can only re-add previously owned locations. To add a NEW location, purchase an additional subaccount for $10 or upgrade your plan.`
+        message: `⚠️ Limit reached! You have ${current}/${max} subaccounts. You can only re-add your ${available} previously owned location(s). To add a NEW location, purchase an additional subaccount for $10 or upgrade your plan.`
       })
       setShowUpgradeModal(true)
       // Clean URL

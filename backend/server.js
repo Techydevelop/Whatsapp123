@@ -976,19 +976,37 @@ app.get('/oauth/callback', async (req, res) => {
     
     // 3. Check if this location was previously used by this user (even if deleted)
     // IMPORTANT: Only allow re-adding previously owned locations, not new ones
-    const { data: previouslyUsedLocation } = await supabaseAdmin
+    // This is the CRITICAL anti-abuse check
+    const { data: previouslyUsedLocation, error: locationCheckError } = await supabaseAdmin
       .from('used_locations')
       .select('location_id, user_id, is_active')
       .eq('location_id', finalLocationId)
-      .eq('user_id', targetUserId)
+      .eq('user_id', targetUserId)  // CRITICAL: Must check user_id to ensure it's the same user
       .maybeSingle();
 
-    // Only allow re-adding if location was previously owned by this user
-    // is_active status doesn't matter - if user owned it before, they can re-add it
-    const isReAddingLocation = previouslyUsedLocation !== null && previouslyUsedLocation.user_id === targetUserId;
+    if (locationCheckError) {
+      console.error('❌ Error checking used_locations:', locationCheckError);
+      // Continue with limit check if there's an error
+    }
+
+    // Only allow re-adding if location was previously owned by THIS user
+    // CRITICAL: is_active status doesn't matter - if user owned it before (even if deleted), they can re-add it
+    // If location is NOT in used_locations for this user, it's a NEW location and must pass limit check
+    const isReAddingLocation = previouslyUsedLocation !== null && 
+                               previouslyUsedLocation.user_id === targetUserId &&
+                               previouslyUsedLocation.location_id === finalLocationId;
+    
+    console.log(`🔍 Location ownership check:`);
+    console.log(`   Location ID: ${finalLocationId}`);
+    console.log(`   User ID: ${targetUserId}`);
+    console.log(`   Previously owned: ${previouslyUsedLocation ? 'YES' : 'NO'}`);
+    if (previouslyUsedLocation) {
+      console.log(`   Owner user_id: ${previouslyUsedLocation.user_id}`);
+      console.log(`   is_active: ${previouslyUsedLocation.is_active ?? 'N/A (column not found)'}`);
+    }
     
     if (isReAddingLocation) {
-      console.log(`✅ Location previously owned by this user - re-adding allowed (is_active: ${previouslyUsedLocation.is_active})`);
+      console.log(`✅ Location previously owned by this user - re-adding allowed`);
       console.log(`   User can re-add this location without limit check`);
     } else {
       console.log(`📍 NEW location detected - user never owned this location before`);
@@ -1005,35 +1023,61 @@ app.get('/oauth/callback', async (req, res) => {
       const currentCount = currentAccounts?.length || 0;
       console.log(`📊 Current subaccounts: ${currentCount}, Max allowed: ${userInfo.max_subaccounts}`);
       
-      // If already at limit, BLOCK new location addition (not re-adding)
+      // If already at limit, check if this location is in previously owned list
       if (currentCount >= userInfo.max_subaccounts) {
         console.log(`❌ Subaccount limit reached. Current: ${currentCount}, Max: ${userInfo.max_subaccounts}`);
-        console.log(`🚫 Cannot add NEW location - user can only re-add previously owned locations`);
-        console.log(`💡 User must either:`);
-        console.log(`   1. Re-add one of their previously owned locations, OR`);
-        console.log(`   2. Purchase additional subaccount for $10`);
         
-        // Log the limit reached event
-        await supabaseAdmin.from('subscription_events').insert({
-          user_id: targetUserId,
-          event_type: 'subaccount_limit_reached',
-          plan_name: userInfo.subscription_status,
-          metadata: {
-            current_count: currentCount,
-            max_allowed: userInfo.max_subaccounts,
-            attempted_location: finalLocationId,
-            is_new_location: true,
-            can_re_add_only: true // User can only re-add previously owned locations
-          }
-        });
+        // Get list of previously owned locations that user can re-add
+        const { data: previouslyOwnedLocations } = await supabaseAdmin
+          .from('used_locations')
+          .select('location_id, is_active')
+          .eq('user_id', targetUserId)
+          .order('last_active_at', { ascending: false });
         
-        const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
+        const availableLocations = previouslyOwnedLocations?.map(loc => loc.location_id) || [];
+        const availableCount = availableLocations.length;
         
-        // For active subscriptions, show additional subaccount purchase option
-        if (userInfo.subscription_status === 'active') {
-          return res.redirect(`${frontendUrl}/dashboard?error=limit_reached_additional&current=${currentCount}&max=${userInfo.max_subaccounts}`);
+        // Check if attempted location is in the list of previously owned locations
+        const isAttemptedLocationAvailable = availableLocations.includes(finalLocationId);
+        
+        if (isAttemptedLocationAvailable) {
+          // Location is in previously owned list - allow re-adding even at limit
+          console.log(`✅ Attempted location is in previously owned list - allowing re-add`);
+          console.log(`   Location ID: ${finalLocationId} was previously owned by user`);
         } else {
-          return res.redirect(`${frontendUrl}/dashboard?error=trial_limit_reached&current=${currentCount}&max=${userInfo.max_subaccounts}`);
+          // NEW location - block it
+          console.log(`🚫 Cannot add NEW location - user can only re-add previously owned locations`);
+          console.log(`📋 User has ${availableCount} previously owned location(s) available for re-adding`);
+          console.log(`   Available locations: ${availableLocations.join(', ')}`);
+          console.log(`   Attempted location: ${finalLocationId}`);
+          console.log(`💡 User must either:`);
+          console.log(`   1. Re-add one of their ${availableCount} previously owned location(s), OR`);
+          console.log(`   2. Purchase additional subaccount for $10`);
+          
+          // Log the limit reached event
+          await supabaseAdmin.from('subscription_events').insert({
+            user_id: targetUserId,
+            event_type: 'subaccount_limit_reached',
+            plan_name: userInfo.subscription_status,
+            metadata: {
+              current_count: currentCount,
+              max_allowed: userInfo.max_subaccounts,
+              attempted_location: finalLocationId,
+              is_new_location: true,
+              can_re_add_only: true,
+              available_locations_count: availableCount,
+              available_location_ids: availableLocations
+            }
+          });
+          
+          const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
+          
+          // For active subscriptions, show additional subaccount purchase option
+          if (userInfo.subscription_status === 'active') {
+            return res.redirect(`${frontendUrl}/dashboard?error=limit_reached_additional&current=${currentCount}&max=${userInfo.max_subaccounts}&available=${availableCount}`);
+          } else {
+            return res.redirect(`${frontendUrl}/dashboard?error=trial_limit_reached&current=${currentCount}&max=${userInfo.max_subaccounts}&available=${availableCount}`);
+          }
         }
       }
       
@@ -1118,36 +1162,63 @@ app.get('/oauth/callback', async (req, res) => {
       .single();
     
     if (savedAccount) {
-      // Check if location already tracked
+      // Check if location already tracked by THIS user (important for user_id check)
       const { data: existingLocation } = await supabaseAdmin
         .from('used_locations')
-        .select('id')
+        .select('id, user_id')
         .eq('location_id', finalLocationId)
+        .eq('user_id', targetUserId)  // CRITICAL: Check user_id to avoid conflicts
         .maybeSingle();
       
       if (!existingLocation) {
-        // Save to used_locations for anti-abuse
-        await supabaseAdmin.from('used_locations').insert({
+        // Save to used_locations for anti-abuse - NEW location being added
+        const insertData = {
           location_id: finalLocationId,
           user_id: targetUserId,
           email: userInfo.email,
           ghl_account_id: savedAccount.id,
-          is_active: true,
           first_used_at: new Date().toISOString(),
-          last_active_at: new Date().toISOString()
+          last_active_at: new Date().toISOString(),
+          is_active: true  // Will fail gracefully if column doesn't exist
+        };
+        
+        await supabaseAdmin.from('used_locations').insert(insertData).catch(err => {
+          // If is_active column doesn't exist, try without it
+          if (err.message && err.message.includes('is_active')) {
+            delete insertData.is_active;
+            return supabaseAdmin.from('used_locations').insert(insertData);
+          }
+          throw err;
         });
-        console.log('✅ Location saved to used_locations for anti-abuse');
+        console.log('✅ Location saved to used_locations - user can re-add this location later');
+        console.log(`   Location ID: ${finalLocationId}, User ID: ${targetUserId}`);
       } else {
-        // Update existing location to active
+        // Update existing location to active (user is re-adding a previously owned location)
+        const updateData = {
+          last_active_at: new Date().toISOString(),
+          ghl_account_id: savedAccount.id,
+          is_active: true  // Will fail gracefully if column doesn't exist
+        };
+        
         await supabaseAdmin
           .from('used_locations')
-          .update({
-            is_active: true,
-            last_active_at: new Date().toISOString(),
-            user_id: targetUserId
-          })
-          .eq('id', existingLocation.id);
-        console.log('✅ Updated existing location in used_locations');
+          .update(updateData)
+          .eq('location_id', finalLocationId)
+          .eq('user_id', targetUserId)
+          .catch(err => {
+            // If is_active column doesn't exist, try without it
+            if (err.message && err.message.includes('is_active')) {
+              delete updateData.is_active;
+              return supabaseAdmin
+                .from('used_locations')
+                .update(updateData)
+                .eq('location_id', finalLocationId)
+                .eq('user_id', targetUserId);
+            }
+            throw err;
+          });
+        console.log('✅ Updated existing location in used_locations - reactivated');
+        console.log(`   Location ID: ${finalLocationId}, User ID: ${targetUserId}`);
       }
     }
     
@@ -1175,6 +1246,62 @@ app.get('/oauth/callback', async (req, res) => {
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.status(500).json({ error: 'OAuth callback failed' });
+  }
+});
+
+// Get user subscription info and previously owned locations
+app.get('/api/user/subscription-info', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Get user subscription info
+    const { data: userInfo, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('subscription_status, max_subaccounts, trial_ends_at')
+      .eq('id', userId)
+      .single();
+    
+    if (userError || !userInfo) {
+      console.error('Error fetching user info:', userError);
+      return res.status(500).json({ error: 'Failed to fetch user info' });
+    }
+    
+    // Get current subaccounts count
+    const { data: currentAccounts, error: accountsError } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('id', { count: 'exact' })
+      .eq('user_id', userId);
+    
+    const currentCount = currentAccounts?.length || 0;
+    
+    // Get previously owned locations (inactive ones that can be re-added)
+    const { data: previouslyOwnedLocations, error: locationsError } = await supabaseAdmin
+      .from('used_locations')
+      .select('location_id, is_active, last_active_at')
+      .eq('user_id', userId)
+      .order('last_active_at', { ascending: false });
+    
+    // Filter for inactive locations (migration-safe: if is_active column doesn't exist, treat as inactive)
+    const availableLocations = (previouslyOwnedLocations || [])
+      .filter(loc => {
+        // If is_active column exists, only include inactive ones
+        // If column doesn't exist, include all (for backward compatibility)
+        return loc.hasOwnProperty('is_active') ? !loc.is_active : true;
+      })
+      .map(loc => loc.location_id);
+    
+    res.json({
+      subscription_status: userInfo.subscription_status,
+      max_subaccounts: userInfo.max_subaccounts || 0,
+      current_subaccounts: currentCount,
+      trial_ends_at: userInfo.trial_ends_at,
+      previously_owned_locations: availableLocations,
+      can_add_new: currentCount < (userInfo.max_subaccounts || 0),
+      limit_reached: currentCount >= (userInfo.max_subaccounts || 0)
+    });
+  } catch (error) {
+    console.error('Error fetching subscription info:', error);
+    res.status(500).json({ error: 'Failed to fetch subscription info' });
   }
 });
 
