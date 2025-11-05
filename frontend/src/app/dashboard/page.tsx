@@ -45,6 +45,20 @@ export default function Dashboard() {
     trialEndsAt?: string
   } | null>(null)
 
+  // Helper function to check if trial is expired
+  const isTrialExpired = (): boolean => {
+    if (!userSubscription) return false
+    if (userSubscription.status === 'expired') return true
+    if (userSubscription.trialEndsAt) {
+      try {
+        return new Date(userSubscription.trialEndsAt) <= new Date()
+      } catch {
+        return false
+      }
+    }
+    return false
+  }
+
   const fetchGHLLocations = useCallback(async (showLoading = true) => {
     try {
       console.log('🔍 fetchGHLLocations called, user:', user?.id)
@@ -666,9 +680,9 @@ export default function Dashboard() {
                     window.location.href = '/dashboard/add-subaccount'
                   }
                 }}
-                disabled={userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date())}
+                disabled={isTrialExpired()}
                 className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title={userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date()) ? 'Your trial has expired. Please upgrade to add accounts.' : ''}
+                title={isTrialExpired() ? 'Your trial has expired. Please upgrade to add accounts.' : undefined}
               >
                 <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -888,7 +902,7 @@ export default function Dashboard() {
                     window.location.href = '/dashboard/add-subaccount'
                   }
                 }}
-                disabled={userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date())}
+                disabled={userSubscription?.status === 'expired' || !!(userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date())}
                 className="inline-flex items-center px-6 py-3 border border-transparent rounded-lg text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title={userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date()) ? 'Your trial has expired. Please upgrade to add accounts.' : ''}
               >
