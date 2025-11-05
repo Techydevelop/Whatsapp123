@@ -1867,45 +1867,46 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       
       // Send text message if there's text and no attachments, or if text wasn't sent as caption
       if (messageContent && (!attachments || attachments.length === 0)) {
-      const sendResult = await waManager.sendMessage(clientKey, phoneNumber, messageContent || '', 'text');
-      
-      // Check if message was skipped (no WhatsApp)
-      if (sendResult && sendResult.status === 'skipped') {
-        // Send notification message back to GHL conversation
-        try {
-          const providerId = getProviderId();
-          const notificationPayload = {
-            type: "SMS",
-            conversationProviderId: providerId,
-            contactId: contactId,
-            message: `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`,
-            direction: "inbound",
-            status: "delivered",
-            altId: `failed_${Date.now()}`
-          };
+        const sendResult = await waManager.sendMessage(clientKey, phoneNumber, messageContent || '', 'text');
+        
+        // Check if message was skipped (no WhatsApp)
+        if (sendResult && sendResult.status === 'skipped') {
+          // Send notification message back to GHL conversation
+          try {
+            const providerId = getProviderId();
+            const notificationPayload = {
+              type: "SMS",
+              conversationProviderId: providerId,
+              contactId: contactId,
+              message: `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`,
+              direction: "inbound",
+              status: "delivered",
+              altId: `failed_${Date.now()}`
+            };
+            
+            const notificationRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${validToken}`,
+                Version: "2021-07-28",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify(notificationPayload)
+            }, ghlAccount);
+          } catch (notifError) {
+            console.error(`❌ Failed to send notification to GHL:`, notifError.message);
+          }
           
-          const notificationRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${validToken}`,
-              Version: "2021-07-28",
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(notificationPayload)
-          }, ghlAccount);
-        } catch (notifError) {
-          console.error(`❌ Failed to send notification to GHL:`, notifError.message);
+          return res.json({ 
+            status: 'warning', 
+            reason: sendResult.reason,
+            phoneNumber: phoneNumber,
+            message: 'Number does not have WhatsApp - notification sent to conversation'
+          });
         }
         
-        return res.json({ 
-          status: 'warning', 
-          reason: sendResult.reason,
-          phoneNumber: phoneNumber,
-          message: 'Number does not have WhatsApp - notification sent to conversation'
-        });
+        console.log(`✅ Sent to ${phoneNumber}`);
       }
-      
-      console.log(`✅ Sent to ${phoneNumber}`);
       
     } catch (sendError) {
       console.error('❌ Error sending message:', sendError.message);
