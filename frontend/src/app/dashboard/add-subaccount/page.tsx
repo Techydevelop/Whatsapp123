@@ -221,7 +221,7 @@ export default function AddSubAccount() {
                     </h3>
                     <div className="mt-2 text-sm text-yellow-700">
                       <p>
-                        You're currently using {subscriptionInfo.current_subaccounts} of {subscriptionInfo.max_subaccounts} subaccounts.
+                        You&apos;re currently using {subscriptionInfo.current_subaccounts} of {subscriptionInfo.max_subaccounts} subaccounts.
                       </p>
                       {subscriptionInfo.previously_owned_locations && subscriptionInfo.previously_owned_locations.length > 0 ? (
                         <p className="mt-1">

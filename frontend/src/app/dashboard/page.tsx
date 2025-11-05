@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/lib/supabase'
-import { API_ENDPOINTS, API_BASE_URL, apiCall } from '@/lib/config'
+import { API_ENDPOINTS, apiCall } from '@/lib/config'
 import TrialBanner from '@/components/dashboard/TrialBanner'
 import UpgradeModal from '@/components/dashboard/UpgradeModal'
 import Modal from '@/components/ui/Modal'
@@ -264,7 +264,6 @@ export default function Dashboard() {
         window.location.href = '/dashboard/subscription'
       }, 2000)
     } else if (error === 'account_already_added') {
-      const locationId = urlParams.get('location_id')
       setNotification({
         type: 'error',
         message: 'This account is already added. You cannot add the same subaccount twice.'
