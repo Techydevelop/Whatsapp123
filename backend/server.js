@@ -4329,7 +4329,7 @@ app.post('/ghl/provider/messages', async (req, res) => {
 });
 
 // Debug endpoint to check WhatsApp clients (Baileys)
-app.get('/debug/whatsapp-clients', (req, res) => {
+app.get('/debug/whatsapp-clients', async (req, res) => {
   try {
     const clients = waManager.getAllClients();
     const clientInfo = clients.map(client => ({
@@ -4340,11 +4340,14 @@ app.get('/debug/whatsapp-clients', (req, res) => {
       isConnected: client.status === 'connected'
     }));
     
+    // Get version info (now async)
+    const versionInfo = await waManager.getWhatsAppVersion();
+    
     res.json({
       totalClients: clients.length,
       clients: clientInfo,
       availableSessions: clients.map(client => client.sessionId),
-      versionInfo: waManager.getWhatsAppVersion()
+      versionInfo: versionInfo
     });
   } catch (error) {
     console.error('Debug error:', error);

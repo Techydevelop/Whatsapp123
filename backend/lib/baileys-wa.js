@@ -1,43 +1,46 @@
-const { makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMessage } = require('baileys');
+const { 
+  makeWASocket, 
+  DisconnectReason, 
+  useMultiFileAuthState, 
+  downloadMediaMessage,
+  fetchLatestBaileysVersion 
+} = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const path = require('path');
 const emailService = require('./email');
 
-// Fetch the latest WhatsApp Web version dynamically
-async function fetchLatestWaWebVersion() {
-  try {
-    const response = await fetch('https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1025190524.html');
-    if (response.ok) {
-      return {
-        version: [2, 3000, 1025190524],
-        isLatest: true,
-        source: 'community confirmed working'
-      };
-    }
-    throw new Error('Failed to fetch version');
-  } catch (error) {
-    console.warn('Failed to fetch latest version:', error.message);
-    return {
-      version: [2, 3000, 1025190524],
-      isLatest: false,
-      source: 'fallback'
-    };
-  }
-}
-
+/**
+ * BaileysWhatsAppManager - Production-ready WhatsApp connection manager
+ * 
+ * Features:
+ * - Multi-user safe session handling with useMultiFileAuthState
+ * - Auto-fetch latest WhatsApp Web version
+ * - Automatic reconnection logic (except when logged out)
+ * - Connection timeout to prevent stuck states
+ * - Health monitoring and QR expiry cleanup
+ * - Production-stable connection management
+ */
 class BaileysWhatsAppManager {
   constructor() {
+    // Store active WhatsApp clients (sessionId -> client info)
     this.clients = new Map();
+    
+    // Data directory for storing auth credentials
     this.dataDir = path.join(__dirname, '../data');
     this.ensureDataDir();
-    this.qrQueue = []; // Queue for sequential QR generation
+    
+    // QR generation queue to prevent conflicts (sequential processing)
+    this.qrQueue = [];
     this.isGeneratingQR = false;
     
-    // Start connection health monitor
-    this.startHealthMonitor();
+    // Connection timeout configuration (prevent stuck on "connecting")
+    this.CONNECTION_TIMEOUT = 120000; // 2 minutes max connection time
+    this.RECONNECT_DELAY = 5000; // 5 seconds delay before reconnecting
     
-    // Start QR expiry cleanup monitor
+    // Start background monitors
+    this.startHealthMonitor();
     this.startQRCleanupMonitor();
+    this.startConnectionTimeoutMonitor();
   }
 
   // Make clients accessible for phone number retrieval
@@ -104,7 +107,10 @@ class BaileysWhatsAppManager {
     }, 30000); // Check every 30 seconds
   }
 
-  // QR expiry cleanup monitor
+  /**
+   * QR expiry cleanup monitor
+   * Automatically cleans up expired QR codes (older than 5 minutes)
+   */
   startQRCleanupMonitor() {
     setInterval(async () => {
       const QR_EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes
@@ -134,6 +140,48 @@ class BaileysWhatsAppManager {
         }
       }
     }, 60000); // Check every minute
+  }
+
+  /**
+   * Connection timeout monitor
+   * Prevents connections from getting stuck on "connecting" state
+   * Automatically marks as disconnected if stuck for too long
+   */
+  startConnectionTimeoutMonitor() {
+    setInterval(() => {
+      const now = Date.now();
+      
+      for (const [sessionId, client] of this.clients.entries()) {
+        // Check if connection is stuck on "connecting" state
+        if (client.status === 'connecting' && client.connectingSince) {
+          const timeSinceConnecting = now - client.connectingSince;
+          
+          // If stuck on connecting for more than CONNECTION_TIMEOUT, mark as disconnected
+          if (timeSinceConnecting > this.CONNECTION_TIMEOUT) {
+            console.log(`⏱️ Connection timeout for ${sessionId}: Stuck on connecting for ${Math.round(timeSinceConnecting/1000)}s`);
+            
+            // Update status to disconnected
+            client.status = 'disconnected';
+            client.lastUpdate = Date.now();
+            
+            // Update database
+            this.updateDatabaseStatus(sessionId, 'disconnected', null).catch(err => {
+              console.error(`❌ Failed to update database on timeout: ${err.message}`);
+            });
+            
+            // Attempt reconnection (only if not logged out)
+            if (client.socket && !client.isLoggedOut) {
+              console.log(`🔄 Attempting reconnection after timeout for: ${sessionId}`);
+              setTimeout(() => {
+                this.createClient(sessionId).catch(err => {
+                  console.error(`❌ Reconnection failed after timeout: ${err.message}`);
+                });
+              }, this.RECONNECT_DELAY);
+            }
+          }
+        }
+      }
+    }, 30000); // Check every 30 seconds
   }
 
   hasExistingCredentials(sessionId) {
@@ -239,14 +287,16 @@ class BaileysWhatsAppManager {
         console.log(`🆕 Fresh session detected, skipping restoration checks`);
       }
 
-      // Fetch the latest WhatsApp Web version dynamically
+      // Fetch the latest WhatsApp Web version dynamically using Baileys built-in function
+      // This ensures we always use the latest compatible version
       let version;
       try {
-        const versionInfo = await fetchLatestWaWebVersion();
-        version = versionInfo.version;
-        console.log(`📱 [${sessionId}] Using WA Web v${version.join(".")}, isLatest: ${versionInfo.isLatest}`);
+        const { version: latestVersion, isLatest } = await fetchLatestBaileysVersion();
+        version = latestVersion;
+        console.log(`📱 [${sessionId}] Using WA Web v${version.join(".")}, isLatest: ${isLatest}`);
       } catch (error) {
-        console.warn(`⚠️ [${sessionId}] Failed to fetch latest version, using fallback:`, error.message);
+        console.warn(`⚠️ [${sessionId}] Failed to fetch latest Baileys version: ${error.message}`);
+        console.warn(`⚠️ Using fallback version: [2, 3000, 1025190524]`);
         // Fallback to a known working version
         version = [2, 3000, 1025190524];
       }
@@ -375,16 +425,21 @@ class BaileysWhatsAppManager {
             return; // Don't proceed with normal reconnection logic
           }
           
+          // Determine if we should reconnect (don't reconnect if logged out)
           const shouldReconnect = !isLoggedOut;
-          console.log(`🔌 Connection closed for session: ${sessionId}, should reconnect: ${shouldReconnect}`);
+          
+          console.log(`🔌 Connection closed for session: ${sessionId}`);
+          console.log(`🔌 Should reconnect: ${shouldReconnect}`);
           console.log(`🔌 Disconnect reason:`, lastDisconnect?.error?.message);
           console.log(`🔌 Disconnect status code: ${disconnectStatusCode}`);
           
-          // Update status to disconnected but keep client for potential reconnection
+          // Update client status
           if (this.clients.has(sessionId)) {
             const client = this.clients.get(sessionId);
             client.status = 'disconnected';
             client.lastUpdate = Date.now();
+            client.isLoggedOut = isLoggedOut; // Track logout state
+            client.connectingSince = null; // Clear connecting timestamp
           }
           
           // Update database status to disconnected (even if we'll reconnect)
@@ -394,22 +449,41 @@ class BaileysWhatsAppManager {
           });
           
           if (shouldReconnect) {
-            console.log(`🔄 Reconnecting session: ${sessionId} in 30 seconds...`);
-            // Longer delay to prevent false reconnections and reduce server load
+            // Auto-reconnect logic (only if not logged out)
+            console.log(`🔄 Auto-reconnecting session: ${sessionId} in ${this.RECONNECT_DELAY/1000} seconds...`);
+            
+            // Use shorter delay for faster reconnection (production-optimized)
             setTimeout(() => {
-              // Check if client is still disconnected before reconnecting
+              // Double-check client status before reconnecting
               const currentClient = this.clients.get(sessionId);
-              if (currentClient && currentClient.status === 'disconnected') {
+              
+              // Only reconnect if:
+              // 1. Client still exists
+              // 2. Client is still disconnected (not already reconnected)
+              // 3. Client is not logged out
+              if (currentClient && 
+                  currentClient.status === 'disconnected' && 
+                  !currentClient.isLoggedOut) {
                 console.log(`🔄 Attempting reconnection for: ${sessionId}`);
                 this.createClient(sessionId).catch(err => {
-                  console.error(`❌ Reconnection failed for ${sessionId}:`, err);
+                  console.error(`❌ Reconnection failed for ${sessionId}:`, err.message);
+                  // Retry once more after longer delay if first attempt fails
+                  setTimeout(() => {
+                    const retryClient = this.clients.get(sessionId);
+                    if (retryClient && retryClient.status === 'disconnected' && !retryClient.isLoggedOut) {
+                      console.log(`🔄 Retrying reconnection for: ${sessionId}`);
+                      this.createClient(sessionId).catch(retryErr => {
+                        console.error(`❌ Reconnection retry failed for ${sessionId}:`, retryErr.message);
+                      });
+                    }
+                  }, this.RECONNECT_DELAY * 2); // 10 seconds for retry
                 });
               } else {
-                console.log(`✅ Client ${sessionId} already reconnected, skipping reconnection`);
+                console.log(`✅ Client ${sessionId} already reconnected or logged out, skipping reconnection`);
               }
-            }, 30000); // Increased to 30 seconds to reduce unnecessary checks
+            }, this.RECONNECT_DELAY); // 5 seconds delay (faster reconnection)
           } else {
-            // Logged out - update database and remove client
+            // Logged out - cleanup and remove client
             console.log(`📱 Mobile disconnected (logged out) for session: ${sessionId}`);
             
             // Update database status to disconnected
@@ -422,41 +496,46 @@ class BaileysWhatsAppManager {
               console.error(`❌ Failed to send disconnect email: ${err.message}`);
             });
             
-            // Delete client from memory
-            this.clients.delete(sessionId);
+            // Mark as logged out and remove from memory
+            if (this.clients.has(sessionId)) {
+              const client = this.clients.get(sessionId);
+              client.isLoggedOut = true;
+              client.status = 'disconnected';
+            }
+            
+            // Don't delete immediately - let cleanup happen naturally
+            // This prevents immediate reconnection attempts
           }
         }
         
         else if (connection === 'open') {
+          // Connection successfully established
           connectionOpenTime = Date.now();
+          connectionStable = true;
+          
+          // Clear any connection timeout
+          if (stabilityTimer) {
+            clearTimeout(stabilityTimer);
+            stabilityTimer = null;
+          }
+          
           const phoneNumber = socket.user?.id?.split(':')[0] || 'Unknown';
           
           console.log(`✅ WhatsApp connected for session: ${sessionId}`);
           console.log(`📱 Phone number: ${phoneNumber}`);
           
-          // Set temporary status as 'connecting' until stable
-          this.clients.set(sessionId, {
-            socket,
-            qr: null,
-            status: 'connecting',
-            phoneNumber: phoneNumber,
-            lastUpdate: Date.now(),
-            connectedAt: Date.now()
-          });
-          
-          // Immediate connection - no stability delay
-          connectionStable = true;
-          
+          // Update client status to connected immediately
           this.clients.set(sessionId, {
             socket,
             qr: null,
             status: 'connected',
             phoneNumber: phoneNumber,
             lastUpdate: Date.now(),
-            connectedAt: Date.now()
+            connectedAt: Date.now(),
+            connectingSince: null, // Clear connecting timestamp
+            isLoggedOut: false
           });
           
-          console.log(`✅ WhatsApp immediately connected for session: ${sessionId}`);
           console.log(`🔒 Status set to 'connected' for session: ${sessionId}`);
           
           // Update database status immediately
@@ -464,37 +543,90 @@ class BaileysWhatsAppManager {
           this.updateDatabaseStatus(sessionId, 'ready', phoneNumber);
           
           // Update lastUpdate periodically to keep connection alive
-          setInterval(() => {
+          // Store interval ID to cleanup later if needed
+          const updateInterval = setInterval(() => {
             if (this.clients.has(sessionId)) {
               const client = this.clients.get(sessionId);
               if (client.status === 'connected') {
                 client.lastUpdate = Date.now();
+              } else {
+                // Stop updating if client is no longer connected
+                clearInterval(updateInterval);
               }
+            } else {
+              // Stop updating if client no longer exists
+              clearInterval(updateInterval);
             }
           }, 30000); // Update every 30 seconds
+          
         } else if (connection === 'connecting') {
+          // Connection is in progress - set connecting state with timestamp
           console.log(`🔄 Connecting session: ${sessionId}`);
           const currentClient = this.clients.get(sessionId);
+          
+          // Track when connecting started (for timeout detection)
+          const connectingSince = currentClient?.connectingSince || Date.now();
           
           this.clients.set(sessionId, {
             ...currentClient,
             socket,
             qr: null,
             status: 'connecting',
-            lastUpdate: Date.now()
+            lastUpdate: Date.now(),
+            connectingSince: connectingSince, // Track when connecting started
+            isLoggedOut: false
           });
+          
+          // Set connection timeout to prevent getting stuck
+          if (!stabilityTimer) {
+            stabilityTimer = setTimeout(() => {
+              const client = this.clients.get(sessionId);
+              if (client && client.status === 'connecting') {
+                console.log(`⏱️ Connection timeout reached for ${sessionId}, marking as disconnected`);
+                client.status = 'disconnected';
+                client.lastUpdate = Date.now();
+                
+                // Attempt reconnection
+                setTimeout(() => {
+                  this.createClient(sessionId).catch(err => {
+                    console.error(`❌ Reconnection after timeout failed: ${err.message}`);
+                  });
+                }, this.RECONNECT_DELAY);
+              }
+            }, this.CONNECTION_TIMEOUT);
+          }
         }
       });
 
       // If we have existing credentials, set status to connecting immediately
+      // This helps track connection progress and prevents stuck states
       if (hasCredentials) {
         this.clients.set(sessionId, {
           socket,
           qr: null,
           status: 'connecting',
-          lastUpdate: Date.now()
+          lastUpdate: Date.now(),
+          connectingSince: Date.now(), // Track when connecting started
+          isLoggedOut: false
         });
         console.log(`🔄 Restoring existing session: ${sessionId}`);
+        
+        // Set connection timeout for credential-based connections too
+        setTimeout(() => {
+          const client = this.clients.get(sessionId);
+          if (client && client.status === 'connecting') {
+            console.log(`⏱️ Connection timeout for restored session ${sessionId}`);
+            client.status = 'disconnected';
+            client.lastUpdate = Date.now();
+            
+            // Attempt reconnection
+            setTimeout(() => {
+              this.createClient(sessionId).catch(err => {
+                console.error(`❌ Reconnection after timeout failed: ${err.message}`);
+              });
+            }, this.RECONNECT_DELAY);
+          }
+        }, this.CONNECTION_TIMEOUT);
       } else {
         console.log(`🆕 Fresh session - no restoration needed: ${sessionId}`);
       }
@@ -1082,15 +1214,36 @@ class BaileysWhatsAppManager {
     }
   }
 
-  // Get WhatsApp Web version info
-  getWhatsAppVersion() {
-    return {
-      version: '[2, 3000, 1025190524]',
-      status: 'Community confirmed working',
-      source: 'wppconnect-team/wa-version repository',
-      lastUpdated: 'Latest stable version',
-      pairingCodeSupported: false
-    };
+  /**
+   * Get WhatsApp Web version info
+   * Returns current version information (cached or latest)
+   */
+  async getWhatsAppVersion() {
+    try {
+      // Try to fetch latest version info
+      const { version, isLatest } = await fetchLatestBaileysVersion();
+      return {
+        version: version.join('.'),
+        versionArray: version,
+        isLatest: isLatest,
+        status: isLatest ? 'Latest version' : 'Using cached version',
+        source: 'Baileys fetchLatestBaileysVersion',
+        lastUpdated: new Date().toISOString(),
+        pairingCodeSupported: false
+      };
+    } catch (error) {
+      // Fallback if fetch fails
+      return {
+        version: '2.3000.1025190524',
+        versionArray: [2, 3000, 1025190524],
+        isLatest: false,
+        status: 'Fallback version (fetch failed)',
+        source: 'Fallback',
+        lastUpdated: new Date().toISOString(),
+        pairingCodeSupported: false,
+        error: error.message
+      };
+    }
   }
 }
 
