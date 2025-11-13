@@ -59,11 +59,20 @@ export default function SettingsPage() {
 
     setSavingPassword(true)
     try {
+      // Get user ID from localStorage for authentication
+      const userData = typeof window !== 'undefined' ? localStorage.getItem('user') : null
+      if (!userData) {
+        showToast({ type: 'error', title: 'Authentication required', message: 'Please login again.' })
+        return
+      }
+
+      const user = JSON.parse(userData)
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
       const response = await fetch(`${API_URL}/api/auth/change-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-User-ID': user.id, // Send user ID for authentication
         },
         credentials: 'include',
         body: JSON.stringify({
