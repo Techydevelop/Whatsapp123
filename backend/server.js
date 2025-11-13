@@ -1641,47 +1641,7 @@ function detectMediaType(url, contentType) {
   return 'document';
 }
 
-// GHL Provider Webhook (for incoming messages)
-app.post('/ghl/provider/webhook', async (req, res) => {
-  try {
-    console.log('GHL Provider Webhook:', req.body);
-    
-    // Change 3: Prevent duplicate processing - skip InboundMessage types
-    if (req.body.type === 'InboundMessage') {
-      console.log('⏭️ Skipping our own inbound message to prevent loops');
-      return res.json({ status: 'skipped', reason: 'inbound_message_echo' });
-    }
-    
-    // Continue processing only OutboundMessage types
-    if (req.body.type !== 'OutboundMessage' && req.body.type !== 'SMS') {
-      console.log(`⏭️ Skipping webhook type: ${req.body.type}`);
-      return res.json({ status: 'skipped', reason: `unsupported_type_${req.body.type}` });
-    }
-    
-    const { locationId, message, contactId, phone, attachments = [] } = req.body;
-    
-    // Check if this is a duplicate message (prevent echo)
-    const messageKey = `${locationId}_${contactId}_${message}_${Date.now()}`;
-    if (global.messageCache && global.messageCache.has(messageKey)) {
-      console.log(`🚫 Duplicate message detected, ignoring: ${messageKey}`);
-      return res.json({ success: true, status: 'duplicate_ignored' });
-    }
-    
-    // Initialize message cache if not exists
-    if (!global.messageCache) {
-      global.messageCache = new Set();
-    }
-    
-    // Add to cache with 5 minute expiry
-    global.messageCache.add(messageKey);
-    setTimeout(() => {
-      global.messageCache.delete(messageKey);
-    }, 5 * 60 * 1000);
-    
-    if (!locationId) {
-      console.log('Missing required field "locationId" in webhook');
-      return res.json({ status: 'success' });
-    }
+
     
     // Allow empty message for attachment-only messages
     if (!message && (!attachments || attachments.length === 0)) {
