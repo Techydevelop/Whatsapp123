@@ -4,17 +4,33 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useToast } from '@/components/ui/ToastProvider'
 
+interface HistoricalDataPoint {
+  status: string
+  checked_at: string
+}
+
+interface ServiceDetails {
+  connected?: boolean
+  status?: string
+  working?: boolean
+  configured?: boolean
+  canCreate?: boolean
+  operational?: boolean
+  totalClients?: number
+  connectedClients?: number
+  accountCount?: number
+  provider?: string
+  [key: string]: unknown
+}
+
 interface ServiceStatus {
   name: string
   status: 'checking' | 'healthy' | 'unhealthy' | 'warning'
   message: string
   lastChecked?: string
-  details?: any
+  details?: ServiceDetails
   uptimePercentage?: number
-  historicalData?: Array<{
-    status: string
-    checked_at: string
-  }>
+  historicalData?: HistoricalDataPoint[]
 }
 
 export default function MonitoringPage() {
@@ -44,7 +60,7 @@ export default function MonitoringPage() {
   }
 
   // Generate timeline visualization data
-  const generateTimeline = (historicalData: Array<{ status: string; checked_at: string }>, days: number) => {
+  const generateTimeline = (historicalData: HistoricalDataPoint[] | undefined, days: number) => {
     if (!historicalData || historicalData.length === 0) {
       // If no data, return all green (assuming healthy)
       return Array(90).fill({ status: 'healthy' })
@@ -140,7 +156,7 @@ export default function MonitoringPage() {
           lastChecked: new Date().toISOString(),
           details: dbData
         })
-      } catch (error) {
+      } catch {
         checks.push({
           name: 'Database Connection',
           status: 'unhealthy',
@@ -162,7 +178,7 @@ export default function MonitoringPage() {
           lastChecked: new Date().toISOString(),
           details: waData
         })
-      } catch (error) {
+      } catch {
         checks.push({
           name: 'WhatsApp Service',
           status: 'unhealthy',
@@ -184,7 +200,7 @@ export default function MonitoringPage() {
           lastChecked: new Date().toISOString(),
           details: ghlData
         })
-      } catch (error) {
+      } catch {
         checks.push({
           name: 'GHL Integration',
           status: 'unhealthy',
@@ -206,7 +222,7 @@ export default function MonitoringPage() {
           lastChecked: new Date().toISOString(),
           details: qrData
         })
-      } catch (error) {
+      } catch {
         checks.push({
           name: 'QR Code Generation',
           status: 'unhealthy',
@@ -228,7 +244,7 @@ export default function MonitoringPage() {
           lastChecked: new Date().toISOString(),
           details: subData
         })
-      } catch (error) {
+      } catch {
         checks.push({
           name: 'Subaccount Creation',
           status: 'unhealthy',
@@ -250,7 +266,7 @@ export default function MonitoringPage() {
           lastChecked: new Date().toISOString(),
           details: emailData
         })
-      } catch (error) {
+      } catch {
         checks.push({
           name: 'Email Service',
           status: 'unhealthy',
@@ -272,7 +288,7 @@ export default function MonitoringPage() {
           lastChecked: new Date().toISOString(),
           details: webhookData
         })
-      } catch (error) {
+      } catch {
         checks.push({
           name: 'Webhook Handler',
           status: 'unhealthy',
@@ -347,7 +363,7 @@ export default function MonitoringPage() {
         title: `${serviceName} Check`, 
         message: data.message || 'Service check completed' 
       })
-    } catch (error) {
+    } catch {
       setServices(prev => prev.map(service => {
         if (service.name === serviceName) {
           return {
@@ -367,6 +383,7 @@ export default function MonitoringPage() {
     if (user) {
       checkAllServices()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
   // Auto-refresh functionality
@@ -378,6 +395,7 @@ export default function MonitoringPage() {
     }, refreshInterval * 1000)
 
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, refreshInterval, user])
 
   const getStatusColor = (status: string) => {
