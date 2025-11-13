@@ -784,62 +784,28 @@ const requireAuth = async (req, res, next) => {
 
 // Health check
 // Health check endpoints for monitoring
-// Helper function to store uptime data
-async function storeUptimeData(userId, serviceName, status, message, details = null) {
-  try {
-    await supabaseAdmin
-      .from('service_uptime')
-      .insert({
-        user_id: userId,
-        service_name: serviceName,
-        status: status,
-        message: message,
-        details: details
-      });
-  } catch (error) {
-    console.error(`Failed to store uptime data for ${serviceName}:`, error);
-    // Don't fail the health check if storage fails
-  }
-}
-
 app.get('/api/health/database', requireAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
-    
     // Test database connection
     const { data, error } = await supabaseAdmin
       .from('users')
       .select('count')
       .limit(1);
 
-    let status = 'healthy';
-    let message = 'Database connection is healthy';
-    let connected = true;
-
-    if (error) {
-      status = 'unhealthy';
-      message = `Database connection failed: ${error.message}`;
-      connected = false;
-    }
-
-    // Store uptime data
-    await storeUptimeData(userId, 'Database Connection', status, message, { connected, error: error?.message });
-
     if (error) {
       return res.status(500).json({
         connected: false,
-        message: message,
+        message: `Database connection failed: ${error.message}`,
         timestamp: new Date().toISOString()
       });
     }
 
     return res.json({
       connected: true,
-      message: message,
+      message: 'Database connection is healthy',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    await storeUptimeData(req.user.id, 'Database Connection', 'unhealthy', `Database check failed: ${error.message}`);
     return res.status(500).json({
       connected: false,
       message: `Database check failed: ${error.message}`
@@ -849,18 +815,12 @@ app.get('/api/health/database', requireAuth, async (req, res) => {
 
 app.get('/api/health/whatsapp', requireAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
     const clients = waManager.getAllClients();
     const connectedClients = clients.filter(c => c.status === 'connected' || c.status === 'ready');
     
-    const status = clients.length > 0 ? 'healthy' : 'warning';
-    const message = clients.length > 0 
-      ? `WhatsApp service is operational. ${connectedClients.length} active client(s)`
-      : 'WhatsApp service configured but no active clients';
-    
-    const responseData = {
+    return res.json({
       status: 'operational',
-      message: message,
+      message: `WhatsApp service is operational. ${connectedClients.length} active client(s)`,
       totalClients: clients.length,
       connectedClients: connectedClients.length,
       clients: clients.map(c => ({
@@ -868,14 +828,8 @@ app.get('/api/health/whatsapp', requireAuth, async (req, res) => {
         status: c.status,
         phoneNumber: c.phoneNumber || 'N/A'
       }))
-    };
-
-    // Store uptime data
-    await storeUptimeData(userId, 'WhatsApp Service', status, message, responseData);
-    
-    return res.json(responseData);
+    });
   } catch (error) {
-    await storeUptimeData(req.user.id, 'WhatsApp Service', 'unhealthy', `WhatsApp service check failed: ${error.message}`);
     return res.status(500).json({
       status: 'error',
       message: `WhatsApp service check failed: ${error.message}`
@@ -895,7 +849,6 @@ app.get('/api/health/ghl', requireAuth, async (req, res) => {
       .limit(5);
 
     if (error) {
-      await storeUptimeData(userId, 'GHL Integration', 'unhealthy', `GHL integration check failed: ${error.message}`);
       return res.status(500).json({
         connected: false,
         message: `GHL integration check failed: ${error.message}`
@@ -903,24 +856,16 @@ app.get('/api/health/ghl', requireAuth, async (req, res) => {
     }
 
     const hasValidTokens = ghlAccounts && ghlAccounts.length > 0;
-    const status = hasValidTokens ? 'healthy' : 'warning';
-    const message = hasValidTokens 
-      ? `GHL integration is configured. ${ghlAccounts.length} account(s) connected`
-      : 'GHL integration not configured. Please connect a GHL account.';
     
-    const responseData = {
+    return res.json({
       connected: hasValidTokens,
-      message: message,
+      message: hasValidTokens 
+        ? `GHL integration is configured. ${ghlAccounts.length} account(s) connected`
+        : 'GHL integration not configured. Please connect a GHL account.',
       accountCount: ghlAccounts?.length || 0,
       accounts: ghlAccounts || []
-    };
-
-    // Store uptime data
-    await storeUptimeData(userId, 'GHL Integration', status, message, responseData);
-    
-    return res.json(responseData);
+    });
   } catch (error) {
-    await storeUptimeData(req.user.id, 'GHL Integration', 'unhealthy', `GHL integration check failed: ${error.message}`);
     return res.status(500).json({
       connected: false,
       message: `GHL integration check failed: ${error.message}`
@@ -930,34 +875,24 @@ app.get('/api/health/ghl', requireAuth, async (req, res) => {
 
 app.get('/api/health/qr', requireAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
-    
     // Test QR code generation
     const testQR = 'test-qr-data';
     
     try {
       const qrCode = await qrcode.toDataURL(testQR);
-      const status = 'healthy';
-      const message = 'QR code generation is working';
-      const responseData = {
-        working: true,
-        message: message,
-        testQRGenerated: !!qrCode
-      };
-
-      // Store uptime data
-      await storeUptimeData(userId, 'QR Code Generation', status, message, responseData);
       
-      return res.json(responseData);
+      return res.json({
+        working: true,
+        message: 'QR code generation is working',
+        testQRGenerated: !!qrCode
+      });
     } catch (qrError) {
-      await storeUptimeData(userId, 'QR Code Generation', 'unhealthy', `QR code generation failed: ${qrError.message}`);
       return res.status(500).json({
         working: false,
         message: `QR code generation failed: ${qrError.message}`
       });
     }
   } catch (error) {
-    await storeUptimeData(req.user.id, 'QR Code Generation', 'unhealthy', `QR code check failed: ${error.message}`);
     return res.status(500).json({
       working: false,
       message: `QR code check failed: ${error.message}`
@@ -977,7 +912,6 @@ app.get('/api/health/subaccount', requireAuth, async (req, res) => {
       .single();
 
     if (userError || !userInfo) {
-      await storeUptimeData(userId, 'Subaccount Creation', 'unhealthy', 'Failed to fetch user information');
       return res.status(500).json({
         canCreate: false,
         message: 'Failed to fetch user information'
@@ -993,26 +927,18 @@ app.get('/api/health/subaccount', requireAuth, async (req, res) => {
     const currentCount = currentAccounts?.length || 0;
     const maxSubaccounts = userInfo.max_subaccounts || 0;
     const canCreate = currentCount < maxSubaccounts;
-    const status = canCreate ? 'healthy' : 'warning';
-    const message = canCreate
-      ? `Subaccount creation is available. ${maxSubaccounts - currentCount} slot(s) remaining`
-      : `Subaccount limit reached. Current: ${currentCount}/${maxSubaccounts}`;
 
-    const responseData = {
+    return res.json({
       canCreate: canCreate,
-      message: message,
+      message: canCreate
+        ? `Subaccount creation is available. ${maxSubaccounts - currentCount} slot(s) remaining`
+        : `Subaccount limit reached. Current: ${currentCount}/${maxSubaccounts}`,
       currentSubaccounts: currentCount,
       maxSubaccounts: maxSubaccounts,
       subscriptionStatus: userInfo.subscription_status,
       trialEndsAt: userInfo.trial_ends_at
-    };
-
-    // Store uptime data
-    await storeUptimeData(userId, 'Subaccount Creation', status, message, responseData);
-
-    return res.json(responseData);
+    });
   } catch (error) {
-    await storeUptimeData(req.user.id, 'Subaccount Creation', 'unhealthy', `Subaccount check failed: ${error.message}`);
     return res.status(500).json({
       canCreate: false,
       message: `Subaccount check failed: ${error.message}`
@@ -1022,38 +948,28 @@ app.get('/api/health/subaccount', requireAuth, async (req, res) => {
 
 app.get('/api/health/email', requireAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
     const hasResend = !!process.env.RESEND_API_KEY;
     const hasSendGrid = !!process.env.SENDGRID_API_KEY;
     const hasSMTP = !!(process.env.SMTP_HOST || process.env.SMTP_USER);
     
     const configured = hasResend || hasSendGrid || hasSMTP;
-    const status = configured ? 'healthy' : 'warning';
     
     let provider = 'Not configured';
     if (hasResend) provider = 'Resend';
     else if (hasSendGrid) provider = 'SendGrid';
     else if (hasSMTP) provider = 'SMTP';
     
-    const message = configured
-      ? `Email service is configured using ${provider}`
-      : 'Email service is not configured. OTP and notification emails will not work.';
-    
-    const responseData = {
+    return res.json({
       configured: configured,
-      message: message,
+      message: configured
+        ? `Email service is configured using ${provider}`
+        : 'Email service is not configured. OTP and notification emails will not work.',
       provider: provider,
       hasResend: hasResend,
       hasSendGrid: hasSendGrid,
       hasSMTP: hasSMTP
-    };
-
-    // Store uptime data
-    await storeUptimeData(userId, 'Email Service', status, message, responseData);
-    
-    return res.json(responseData);
+    });
   } catch (error) {
-    await storeUptimeData(req.user.id, 'Email Service', 'unhealthy', `Email service check failed: ${error.message}`);
     return res.status(500).json({
       configured: false,
       message: `Email service check failed: ${error.message}`
@@ -1063,74 +979,22 @@ app.get('/api/health/email', requireAuth, async (req, res) => {
 
 app.get('/api/health/webhook', requireAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
-    
     // Check if webhook endpoints are accessible
     const webhookEndpoints = [
       '/ghl/provider/webhook',
       '/whatsapp/webhook'
     ];
     
-    const status = 'healthy';
-    const message = 'Webhook handlers are operational';
-    const responseData = {
+    return res.json({
       operational: true,
-      message: message,
+      message: 'Webhook handlers are operational',
       endpoints: webhookEndpoints,
       status: 'ready'
-    };
-
-    // Store uptime data
-    await storeUptimeData(userId, 'Webhook Handler', status, message, responseData);
-    
-    return res.json(responseData);
+    });
   } catch (error) {
-    await storeUptimeData(req.user.id, 'Webhook Handler', 'unhealthy', `Webhook check failed: ${error.message}`);
     return res.status(500).json({
       operational: false,
       message: `Webhook check failed: ${error.message}`
-    });
-  }
-});
-
-// Get uptime statistics for a service
-app.get('/api/health/uptime/:serviceName', requireAuth, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const serviceName = decodeURIComponent(req.params.serviceName);
-    const days = parseInt(req.query.days || '90') || 90;
-
-    // Get historical checks for calculation
-    const { data: checks, error: checksError } = await supabaseAdmin
-      .from('service_uptime')
-      .select('status, checked_at')
-      .eq('user_id', userId)
-      .eq('service_name', serviceName)
-      .gte('checked_at', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString())
-      .order('checked_at', { ascending: true });
-
-    if (checksError) {
-      return res.status(500).json({
-        error: `Failed to get uptime data: ${checksError.message}`
-      });
-    }
-
-    const totalChecks = checks?.length || 0;
-    const healthyChecks = checks?.filter(c => c.status === 'healthy').length || 0;
-    const uptimePercentage = totalChecks > 0 ? parseFloat(((healthyChecks / totalChecks) * 100).toFixed(2)) : 100.00;
-
-    return res.json({
-      serviceName: serviceName,
-      uptimePercentage: uptimePercentage,
-      period: `${days} days`,
-      totalChecks: totalChecks,
-      healthyChecks: healthyChecks,
-      historicalData: checks || [],
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    return res.status(500).json({
-      error: `Failed to get uptime statistics: ${error.message}`
     });
   }
 });
