@@ -1671,12 +1671,24 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     }
     
     console.log('✅ Processing OutboundMessage webhook');
+    console.log('📋 Webhook Debug - Full request body:', JSON.stringify(req.body, null, 2));
     
     // Process OutboundMessage - actual messages from GHL
-    const { locationId, message, contactId, phone, attachments = [], body, messageId } = req.body;
+    // GHL OutboundMessage may have phone in different fields, check all possibilities
+    const { locationId, message, contactId, phone, attachments = [], body, messageId, conversationId } = req.body;
     
     // Use 'body' field if 'message' is not available (GHL uses 'body' for OutboundMessage)
     const messageText = message || body || '';
+    
+    console.log('📋 Webhook Debug - Extracted fields:', {
+      locationId,
+      contactId,
+      phone,
+      messageId,
+      conversationId,
+      messageText: messageText.substring(0, 50),
+      hasAttachments: attachments && attachments.length > 0
+    });
     
     // Prevent duplicate processing using messageId
     if (messageId) {
@@ -1779,11 +1791,73 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       });
     }
     
-    // Get phone number from webhook data
-    const phoneNumber = req.body.phone;
+    // Get phone number from webhook data or fetch from contactId
+    let phoneNumber = req.body.phone || req.body.contactPhone || req.body.recipientPhone;
+    
+    // If phone is not in webhook, fetch from contactId
+    if (!phoneNumber && contactId) {
+      console.log(`🔍 Phone not in webhook, fetching from contactId: ${contactId}`);
+      try {
+        const contactRes = await makeGHLRequest(`${BASE}/contacts/${contactId}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${validToken}`,
+            Version: "2021-07-28",
+            "Content-Type": "application/json"
+          }
+        }, ghlAccount);
+        
+        if (contactRes.ok) {
+          const contactData = await contactRes.json();
+          phoneNumber = contactData.contact?.phone || contactData.phone;
+          if (phoneNumber) {
+            console.log(`✅ Phone number fetched from contact: ${phoneNumber}`);
+          } else {
+            console.error(`❌ Contact found but no phone number in response:`, contactData);
+          }
+        } else {
+          const errorText = await contactRes.text();
+          console.error(`❌ Failed to fetch contact ${contactId}:`, errorText);
+          
+          // Try fetching from conversation if contactId fails
+          if (conversationId) {
+            console.log(`🔍 Trying to fetch contact from conversation: ${conversationId}`);
+            try {
+              const convRes = await makeGHLRequest(`${BASE}/conversations/${conversationId}`, {
+                method: 'GET',
+                headers: {
+                  Authorization: `Bearer ${validToken}`,
+                  Version: "2021-07-28",
+                  "Content-Type": "application/json"
+                }
+              }, ghlAccount);
+              
+              if (convRes.ok) {
+                const convData = await convRes.json();
+                phoneNumber = convData.conversation?.contact?.phone || convData.contact?.phone || convData.phone;
+                if (phoneNumber) {
+                  console.log(`✅ Phone number fetched from conversation: ${phoneNumber}`);
+                }
+              }
+            } catch (convError) {
+              console.error(`❌ Error fetching conversation:`, convError.message);
+            }
+          }
+        }
+      } catch (contactError) {
+        console.error(`❌ Error fetching contact:`, contactError.message);
+      }
+    }
+    
     if (!phoneNumber) {
-      console.error(`❌ No phone number in webhook data`);
-      return res.json({ status: 'error', message: 'No phone number provided' });
+      console.error(`❌ No phone number available - phone: ${req.body.phone}, contactId: ${contactId}, conversationId: ${conversationId}`);
+      console.error(`❌ Webhook body keys:`, Object.keys(req.body));
+      return res.json({ status: 'error', message: 'No phone number available', body: req.body });
+    }
+    
+    // Ensure phone number is in E.164 format (with +)
+    if (phoneNumber && !phoneNumber.startsWith('+')) {
+      phoneNumber = '+' + phoneNumber.replace(/^\+/, '');
     }
     
     console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
