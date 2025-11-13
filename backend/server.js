@@ -1644,20 +1644,33 @@ function detectMediaType(url, contentType) {
 // GHL Provider Webhook (for incoming messages)
 app.post('/ghl/provider/webhook', async (req, res) => {
   try {
+    console.log('📥 GHL Webhook Received:', {
+      type: req.body.type,
+      locationId: req.body.locationId,
+      phone: req.body.phone,
+      messageId: req.body.messageId,
+      timestamp: new Date().toISOString()
+    });
+    
     // Skip InboundMessage - this is echo of messages we sent to GHL
     if (req.body.type === 'InboundMessage') {
+      console.log('⏭️ Skipping InboundMessage (echo)');
       return res.json({ status: 'skipped', reason: 'inbound_message_echo' });
     }
     
     // Skip SMS type - duplicate of OutboundMessage
     if (req.body.type === 'SMS') {
+      console.log('⏭️ Skipping SMS type (duplicate)');
       return res.json({ status: 'skipped', reason: 'sms_type_duplicate' });
     }
     
     // Skip other non-message types (silent skip)
     if (req.body.type !== 'OutboundMessage') {
+      console.log(`⏭️ Skipping webhook type: ${req.body.type}`);
       return res.json({ status: 'skipped', reason: `unsupported_type_${req.body.type}` });
     }
+    
+    console.log('✅ Processing OutboundMessage webhook');
     
     // Process OutboundMessage - actual messages from GHL
     const { locationId, message, contactId, phone, attachments = [], body, messageId } = req.body;
@@ -1743,22 +1756,40 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
+    console.log(`🔍 Webhook Debug - Session ID: ${session.id}`);
+    console.log(`🔍 Webhook Debug - Subaccount ID: ${session.subaccount_id}`);
+    console.log(`🔍 Webhook Debug - Client Key: ${clientKey}`);
+    console.log(`🔍 Webhook Debug - Session Status: ${session.status}`);
+    
     const clientStatus = waManager.getClientStatus(clientKey);
+    console.log(`🔍 Webhook Debug - Client Status:`, clientStatus);
+    
+    // Try to get all available clients to see what's available
+    const allClients = waManager.getAllClients();
+    console.log(`🔍 Webhook Debug - Available Clients:`, allClients.map(c => ({ sessionId: c.sessionId, status: c.status })));
     
     if (!clientStatus || (clientStatus.status !== 'connected' && clientStatus.status !== 'ready')) {
+      console.error(`❌ WhatsApp client not ready for webhook - Key: ${clientKey}, Status: ${clientStatus?.status || 'not found'}`);
       return res.json({ 
         status: 'error', 
-        message: 'WhatsApp client not connected'
+        message: 'WhatsApp client not connected',
+        clientKey: clientKey,
+        clientStatus: clientStatus?.status || 'not found',
+        availableClients: allClients.map(c => c.sessionId)
       });
     }
     
     // Get phone number from webhook data
     const phoneNumber = req.body.phone;
     if (!phoneNumber) {
-      return res.json({ status: 'success' });
+      console.error(`❌ No phone number in webhook data`);
+      return res.json({ status: 'error', message: 'No phone number provided' });
     }
     
     console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
+    console.log(`📱 Webhook Debug - Message Text: "${messageText}"`);
+    console.log(`📱 Webhook Debug - Message ID: ${messageId}`);
+    console.log(`📱 Webhook Debug - Client Key: ${clientKey}`);
     
     // Check if this message was just received from WhatsApp (prevent echo)
     const recentMessageKey = `whatsapp_${phoneNumber}_${messageText}`;
@@ -1841,17 +1872,32 @@ app.post('/ghl/provider/webhook', async (req, res) => {
       // Send text message if there's text and no attachments
       if (messageText && (!attachments || attachments.length === 0)) {
         console.log(`📤 Sending text message: ${messageText}`);
-        const sendResult = await waManager.sendMessage(clientKey, phoneNumber, messageText || '', 'text');
+        console.log(`📤 Webhook Debug - Calling waManager.sendMessage with:`);
+        console.log(`   - clientKey: ${clientKey}`);
+        console.log(`   - phoneNumber: ${phoneNumber}`);
+        console.log(`   - message: ${messageText}`);
         
-        if (sendResult && sendResult.status === 'skipped') {
-          return res.json({ 
-            status: 'warning', 
-            reason: sendResult.reason,
-            phoneNumber: phoneNumber
-          });
+        try {
+          const sendResult = await waManager.sendMessage(clientKey, phoneNumber, messageText || '', 'text');
+          console.log(`📤 Webhook Debug - Send Result:`, sendResult);
+          
+          if (sendResult && sendResult.status === 'skipped') {
+            console.error(`❌ Message skipped: ${sendResult.reason}`);
+            return res.json({ 
+              status: 'warning', 
+              reason: sendResult.reason,
+              phoneNumber: phoneNumber,
+              sendResult: sendResult
+            });
+          }
+          
+          console.log('✅ Message sent successfully via Baileys');
+          console.log('✅ Webhook Debug - Message delivery confirmed');
+        } catch (sendError) {
+          console.error(`❌ Error in waManager.sendMessage:`, sendError);
+          console.error(`❌ Error stack:`, sendError.stack);
+          throw sendError;
         }
-        
-        console.log('✅ Message sent successfully via Baileys');
       }
     } catch (sendError) {
       console.error('❌ Error sending message via Baileys:', sendError.message);
