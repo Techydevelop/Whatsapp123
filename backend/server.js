@@ -1641,22 +1641,67 @@ function detectMediaType(url, contentType) {
   return 'document';
 }
 
-
+// GHL Provider Webhook (for incoming messages)
+app.post('/ghl/provider/webhook', async (req, res) => {
+  try {
+    // Skip InboundMessage - this is echo of messages we sent to GHL
+    if (req.body.type === 'InboundMessage') {
+      return res.json({ status: 'skipped', reason: 'inbound_message_echo' });
+    }
     
-    // Allow empty message for attachment-only messages
-    if (!message && (!attachments || attachments.length === 0)) {
-      console.log('Missing message content in webhook');
+    // Skip SMS type - duplicate of OutboundMessage
+    if (req.body.type === 'SMS') {
+      return res.json({ status: 'skipped', reason: 'sms_type_duplicate' });
+    }
+    
+    // Skip other non-message types (silent skip)
+    if (req.body.type !== 'OutboundMessage') {
+      return res.json({ status: 'skipped', reason: `unsupported_type_${req.body.type}` });
+    }
+    
+    // Process OutboundMessage - actual messages from GHL
+    const { locationId, message, contactId, phone, attachments = [], body, messageId } = req.body;
+    
+    // Use 'body' field if 'message' is not available (GHL uses 'body' for OutboundMessage)
+    const messageText = message || body || '';
+    
+    // Prevent duplicate processing using messageId
+    if (messageId) {
+      if (!global.messageCache) {
+        global.messageCache = new Map();
+      }
+      if (global.messageCache.has(messageId)) {
+        const cachedData = global.messageCache.get(messageId);
+        const timeSinceCached = Date.now() - cachedData.timestamp;
+        if (timeSinceCached < 5 * 60 * 1000) { // 5 minutes
+          return res.json({ success: true, status: 'duplicate_ignored', messageId });
+        } else {
+          global.messageCache.delete(messageId);
+        }
+      }
+      global.messageCache.set(messageId, {
+        timestamp: Date.now(),
+        messageId: messageId,
+        locationId,
+        contactId
+      });
+    }
+    
+    if (!locationId) {
       return res.json({ status: 'success' });
     }
     
-    // Ignore messages that contain media URLs (these are our inbound messages being echoed back)
-    if (message && (
-      message.includes('storage.googleapis.com/msgsndr') || 
-      message.startsWith('https://storage.googleapis.com') ||
-      message.startsWith('http://') ||
-      (message.startsWith('https://') && message.includes('msgsndr'))
+    // Allow empty message for attachment-only messages
+    if (!messageText && (!attachments || attachments.length === 0)) {
+      return res.json({ status: 'success' });
+    }
+    
+    // Ignore messages that contain media URLs (echo prevention)
+    if (messageText && (
+      messageText.includes('storage.googleapis.com/msgsndr') || 
+      messageText.startsWith('https://storage.googleapis.com') ||
+      (messageText.startsWith('https://') && messageText.includes('msgsndr'))
     )) {
-      console.log('🚫 Ignoring echo of media URL message:', message);
       return res.json({ status: 'success', reason: 'media_url_echo' });
     }
     
@@ -1668,7 +1713,6 @@ function detectMediaType(url, contentType) {
       .maybeSingle();
 
     if (!ghlAccount) {
-      console.log(`GHL account not found for location: ${locationId}`);
       return res.json({ status: 'success' });
     }
 
@@ -1676,7 +1720,6 @@ function detectMediaType(url, contentType) {
     let validToken;
     try {
       validToken = await ensureValidToken(ghlAccount);
-      console.log(`✅ Token validated for GHL account: ${ghlAccount.id}`);
     } catch (error) {
       console.error(`❌ Token validation failed for GHL account ${ghlAccount.id}:`, error);
       return res.json({ status: 'error', message: 'Token validation failed' });
@@ -1693,62 +1736,38 @@ function detectMediaType(url, contentType) {
       .maybeSingle();
     
     if (!session) {
-      console.log(`No active WhatsApp session found for location: ${locationId}`);
       return res.json({ status: 'success' });
     }
     
-    // Get WhatsApp client using Baileys - use subaccount_id from session
+    // Get WhatsApp client using Baileys
     const cleanSubaccountId = session.subaccount_id.replace(/[^a-zA-Z0-9_-]/g, '_');
     const clientKey = `location_${cleanSubaccountId}_${session.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     
-    console.log(`🔍 Looking for client with key: ${clientKey}`);
     const clientStatus = waManager.getClientStatus(clientKey);
     
     if (!clientStatus || (clientStatus.status !== 'connected' && clientStatus.status !== 'ready')) {
-      console.log(`❌ WhatsApp client not ready for key: ${clientKey}, status: ${clientStatus?.status}`);
-      console.log(`📋 Available clients:`, waManager.getAllClients().map(c => c.sessionId));
-      
-      // If client is in qr_ready status, provide helpful message
-      if (clientStatus && clientStatus.status === 'qr_ready') {
       return res.json({ 
         status: 'error', 
-          message: 'WhatsApp client QR code ready - please scan to connect',
-          clientStatus: clientStatus.status,
-          suggestion: 'Please scan the QR code in the dashboard to connect WhatsApp'
-        });
-      }
-      
-      return res.json({ 
-        status: 'error', 
-        message: 'WhatsApp client not connected',
-        clientStatus: clientStatus?.status || 'not found',
-        suggestion: 'Please reconnect WhatsApp'
+        message: 'WhatsApp client not connected'
       });
-    }
-    
-    // If client is in ready status, it's connected and can send messages
-    if (clientStatus && clientStatus.status === 'ready') {
-      console.log(`✅ Client in ready status, sending message...`);
     }
     
     // Get phone number from webhook data
     const phoneNumber = req.body.phone;
     if (!phoneNumber) {
-      console.log(`No phone number found in webhook data`);
       return res.json({ status: 'success' });
     }
     
-    console.log(`📱 Sending message to phone: ${phoneNumber}`);
+    console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
     // Check if this message was just received from WhatsApp (prevent echo)
-    const recentMessageKey = `whatsapp_${phoneNumber}_${message}`;
+    const recentMessageKey = `whatsapp_${phoneNumber}_${messageText}`;
     if (global.recentMessages && global.recentMessages.has(recentMessageKey)) {
-      console.log(`🚫 Message echo detected, not sending back to WhatsApp: ${message}`);
       return res.json({ status: 'success', reason: 'echo_prevented' });
     }
     
-    // Simple echo prevention - only block exact recent messages
-    const messageContent = message.toLowerCase().trim();
+    // Simple echo prevention
+    const messageContent = messageText.toLowerCase().trim();
     const recentMessages = global.recentMessages || new Set();
     let isRecentEcho = false;
     
@@ -1757,27 +1776,20 @@ function detectMediaType(url, contentType) {
         const recentContent = key.split('_').slice(2).join('_').toLowerCase().trim();
         if (recentContent === messageContent) {
           isRecentEcho = true;
-          console.log(`🚫 Echo detected: ${message} from ${phoneNumber}`);
           break;
         }
       }
     }
     
     if (isRecentEcho) {
-      console.log(`🚫 Blocking echo message: ${message}`);
       return res.json({ status: 'success', reason: 'echo_prevented' });
     }
-    
-    
-    console.log(`📱 Sending message to phone: ${phoneNumber} (from GHL webhook)`);
     
     // Process and send message (text and/or media)
     try {
       // Check if we have attachments to send
       if (attachments && attachments.length > 0) {
-        console.log(`📎 Processing ${attachments.length} attachment(s)`);
-        
-        // Ensure token is available (already validated above, but refresh if needed)
+        // Ensure token is available
         if (!validToken) {
           validToken = await ensureValidToken(ghlAccount);
         }
@@ -1786,179 +1798,66 @@ function detectMediaType(url, contentType) {
         for (let i = 0; i < attachments.length; i++) {
           const attachmentUrl = attachments[i];
           try {
-            // Detect media type from URL first
             let mediaType = detectMediaType(attachmentUrl);
-            
-            // Try to download media from GHL
             let mediaPayload = null;
             let fileName = null;
             
-            console.log(`📥 Downloading attachment ${i + 1}/${attachments.length} from GHL...`);
             try {
               const mediaBuffer = await downloadGHLMedia(attachmentUrl, validToken);
-              mediaPayload = mediaBuffer; // Use buffer if download succeeds
-              console.log(`✅ Downloaded ${mediaBuffer.length} bytes`);
+              mediaPayload = mediaBuffer;
             } catch (downloadError) {
-              // If download fails (401 or other error), use URL directly
-              console.warn(`⚠️ Download failed, using URL directly: ${downloadError.message}`);
-              console.log(`📤 Will send media via URL (Baileys will download)`);
               mediaPayload = attachmentUrl; // Fallback to URL
             }
             
-            // Extract filename from URL if available (for documents especially)
             if (mediaType === 'document' || mediaType === 'audio') {
               const urlParts = attachmentUrl.split('/');
               const lastPart = urlParts[urlParts.length - 1];
               if (lastPart && lastPart.includes('.')) {
-                fileName = lastPart.split('?')[0]; // Remove query params
+                fileName = lastPart.split('?')[0];
               }
             }
             
-            console.log(`📤 Sending ${mediaType} attachment (${i + 1}/${attachments.length})`);
+            const caption = (i === 0 && messageText) ? messageText : '';
             
-            // Send media message with caption (only for first attachment if there's text)
-            const caption = (i === 0 && message) ? message : '';
-            
-            // Send via WhatsApp - Baileys will handle buffer or URL
-            const sendResult = await waManager.sendMessage(
+            await waManager.sendMessage(
               clientKey, 
               phoneNumber, 
               caption, 
               mediaType, 
-              mediaPayload,  // Can be Buffer or URL
-              fileName       // Optional filename for documents/audio
+              mediaPayload,
+              fileName
             );
-            
-            console.log(`✅ ${mediaType} attachment sent successfully`);
-            
-            // If there was an error sending, log it but continue with other attachments
-            if (sendResult && sendResult.status === 'skipped') {
-              console.warn(`⚠️ Attachment ${i + 1} skipped: ${sendResult.reason}`);
-            }
             
           } catch (attachError) {
             console.error(`❌ Error sending attachment ${i + 1}:`, attachError.message);
-            // Continue with other attachments even if one fails
           }
         }
         
-        // If there were attachments but no text message, we're done
-        if (!message) {
-          console.log('✅ All attachments sent successfully');
-          
-          // Note: Tagging already done per attachment above
-          // If needed, can add overall success tagging here
+        if (!messageText) {
           return res.json({ status: 'success' });
         }
-        
-        // If there's also a text message and it wasn't sent as caption, send it separately
-        // (Note: If caption was sent with first attachment, we skip sending text again)
-        if (message && attachments.length > 0) {
-          // The message was likely sent as caption with first attachment
-          // But if user wants separate text, we can add logic here
-          console.log('✅ Media sent with caption');
-          
-          // Tagging already done per attachment above, no need to duplicate
-        }
       }
       
-      // Send text message if there's text and no attachments, or if text wasn't sent as caption
-      if (message && (!attachments || attachments.length === 0)) {
-        console.log(`📤 Sending text message: ${message}`);
-      const sendResult = await waManager.sendMessage(clientKey, phoneNumber, message || '', 'text');
-      
-      // Check if message was skipped (no WhatsApp)
-      if (sendResult && sendResult.status === 'skipped') {
-        console.warn(`⚠️ Message skipped: ${sendResult.reason} for ${phoneNumber}`);
+      // Send text message if there's text and no attachments
+      if (messageText && (!attachments || attachments.length === 0)) {
+        console.log(`📤 Sending text message: ${messageText}`);
+        const sendResult = await waManager.sendMessage(clientKey, phoneNumber, messageText || '', 'text');
         
-        // Send notification message back to GHL conversation
-        try {
-          const providerId = getProviderId();
-          const notificationPayload = {
-            type: "SMS",  // Changed to SMS for workflow triggers
-            conversationProviderId: providerId,  // Required for workflows
-            contactId: contactId,
-            message: `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`,
-            direction: "inbound",
-            status: "delivered",
-            altId: `failed_${Date.now()}`
-          };
-          
-          // validToken already available in scope
-          const notificationRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${validToken}`,
-              Version: "2021-07-28",
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(notificationPayload)
-          }, ghlAccount);
-          
-          if (notificationRes.ok) {
-            console.log(`✅ Failure notification sent to GHL conversation`);
-          }
-        } catch (notifError) {
-          console.error(`❌ Failed to send notification to GHL:`, notifError.message);
+        if (sendResult && sendResult.status === 'skipped') {
+          return res.json({ 
+            status: 'warning', 
+            reason: sendResult.reason,
+            phoneNumber: phoneNumber
+          });
         }
         
-        return res.json({ 
-          status: 'warning', 
-          reason: sendResult.reason,
-          phoneNumber: phoneNumber,
-          message: 'Number does not have WhatsApp - notification sent to conversation'
-        });
-      }
-      
-      console.log('✅ Message sent successfully via Baileys');
-      
-      // Store outgoing message in local database
-      try {
-        // Note: sessionId is not available in outgoing message context, skip local storage for now
-        console.log('⚠️ Skipping outgoing message local storage - sessionId not available in this context');
-      } catch (dbError) {
-        console.error('❌ Error storing outgoing message in local database:', dbError);
-        }
+        console.log('✅ Message sent successfully via Baileys');
       }
     } catch (sendError) {
       console.error('❌ Error sending message via Baileys:', sendError.message);
-      
-      // Send error notification to GHL conversation
-      try {
-        const providerId = getProviderId();
-        const errorPayload = {
-          type: "SMS",  // Changed to SMS for workflow triggers
-          conversationProviderId: providerId,  // Required for workflows
-          contactId: contactId,
-          message: `⚠️ Message delivery failed\n\n❌ Error: ${sendError.message}\n\n💡 Please check the phone number and try again.`,
-          direction: "inbound",
-          status: "delivered",
-          altId: `error_${Date.now()}`
-        };
-        
-        const validToken = await ensureValidToken(ghlAccount);
-        const errorRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${validToken}`,
-            Version: "2021-07-28",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(errorPayload)
-        }, ghlAccount);
-        
-        if (errorRes.ok) {
-          console.log(`✅ Error notification sent to GHL conversation`);
-        }
-      } catch (notifError) {
-        console.error(`❌ Failed to send error notification to GHL:`, notifError.message);
-      }
-      
       return res.json({ 
         status: 'error', 
-        error: sendError.message,
-        phoneNumber: phoneNumber,
-        message: 'Error notification sent to conversation'
+        error: sendError.message
       });
     }
     
@@ -1999,20 +1898,14 @@ function getProviderId() {
 // WhatsApp message receiver webhook (for incoming WhatsApp messages)
 app.post('/whatsapp/webhook', async (req, res) => {
   try {
-    console.log('📨 Received WhatsApp message:', req.body);
-    console.log('📨 Webhook headers:', req.headers);
-    console.log('📨 Webhook timestamp:', new Date().toISOString());
-    
     const { from, message, messageType = 'text', mediaUrl, mediaMessage, timestamp: messageTimestamp, sessionId, whatsappMsgId } = req.body;
     
     if (!from) {
-      console.log('Missing required field "from" in WhatsApp webhook');
       return res.json({ status: 'success' });
     }
     
     // Allow empty message for media messages
     if (!message && !mediaUrl && !mediaMessage) {
-      console.log('Missing message content in WhatsApp webhook');
       return res.json({ status: 'success' });
     }
     
@@ -2023,33 +1916,22 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // Get GHL account from session or use first available
     let ghlAccount = null;
     if (sessionId) {
-      console.log(`🔍 Looking for session: ${sessionId}`);
-      
       const { data: session } = await supabaseAdmin
         .from('sessions')
         .select('*, ghl_accounts(*)')
         .eq('id', sessionId)
         .maybeSingle();
       
-      console.log(`📋 Session found:`, session ? 'Yes' : 'No');
-      
       if (session && session.ghl_accounts) {
         ghlAccount = session.ghl_accounts;
-        console.log(`✅ Using GHL account from session: ${ghlAccount.id}`);
-      } else {
-        console.log(`⚠️ Session found but no GHL account linked`);
       }
     }
     
     // Fallback: Try to find GHL account by session ID pattern
     if (!ghlAccount && sessionId) {
-      console.log(`🔄 Trying to find GHL account by session ID pattern`);
-      
-      // Extract subaccount ID from session ID (location_xxx_yyy format)
       const sessionParts = sessionId.split('_');
       if (sessionParts.length >= 2) {
-        const subaccountId = sessionParts[1]; // location_XXX_yyy -> XXX
-        console.log(`🔍 Extracted subaccount ID: ${subaccountId}`);
+        const subaccountId = sessionParts[1];
         
         const { data: accountBySubaccount } = await supabaseAdmin
           .from('ghl_accounts')
@@ -2059,15 +1941,12 @@ app.post('/whatsapp/webhook', async (req, res) => {
         
         if (accountBySubaccount) {
           ghlAccount = accountBySubaccount;
-          console.log(`✅ Found GHL account by subaccount ID: ${ghlAccount.id}`);
         }
       }
     }
     
     // Final fallback to any GHL account if still not found
     if (!ghlAccount) {
-      console.log(`🔄 Final fallback to any available GHL account`);
-      
       const { data: anyAccount } = await supabaseAdmin
         .from('ghl_accounts')
         .select('*')
@@ -2076,12 +1955,10 @@ app.post('/whatsapp/webhook', async (req, res) => {
       
       if (anyAccount) {
         ghlAccount = anyAccount;
-        console.log(`✅ Using final fallback GHL account: ${ghlAccount.id}`);
       }
     }
     
     if (!ghlAccount) {
-      console.log(`❌ No GHL account found for message from: ${from}`);
       return res.json({ status: 'success' });
     }
     
@@ -2090,22 +1967,13 @@ app.post('/whatsapp/webhook', async (req, res) => {
     // Use account's conversation provider ID (more reliable)
     let providerId = ghlAccount.conversation_provider_id;
     if (!providerId) {
-      // Fallback to environment provider ID
       providerId = getProviderId();
       if (!providerId) {
-        console.error('❌ No conversation provider ID found');
         return res.json({ status: 'error', message: 'Provider ID not available' });
       }
     }
     
-    console.log(`🔑 Provider ID being used: ${providerId}`);
-    console.log(`🔑 Account conversation provider ID: ${ghlAccount.conversation_provider_id}`);
-    console.log(`🔑 Environment provider ID: ${getProviderId()}`);
-    
     console.log(`📱 Processing WhatsApp message from: ${phone} for location: ${locationId}`);
-    console.log(`📨 Raw message from WhatsApp:`, JSON.stringify(req.body, null, 2));
-    console.log(`💬 Extracted message text:`, `"${message}"`);
-    console.log(`🔍 Message type:`, typeof message);
     
     // Get valid token for this GHL account
     const validToken = await ensureValidToken(ghlAccount);
@@ -2130,28 +1998,24 @@ app.post('/whatsapp/webhook', async (req, res) => {
       if (contactRes.ok) {
         const contactData = await contactRes.json();
         contactId = contactData.contact?.id;
-        console.log(`✅ Contact upserted: ${contactId}`);
       } else {
         const errorText = await contactRes.text();
-        console.error(`❌ Failed to upsert contact:`, errorText);
         
         // Try to extract contactId from error if it's a duplicate contact error
         try {
           const errorJson = JSON.parse(errorText);
           if (errorJson.meta && errorJson.meta.contactId) {
             contactId = errorJson.meta.contactId;
-            console.log(`📝 Using contact ID from error message: ${contactId}`);
           }
         } catch (parseError) {
-          console.error(`❌ Could not parse error response:`, parseError);
+          // Silent fail
         }
       }
     } catch (contactError) {
-      console.error(`❌ Error upserting contact:`, contactError);
+      // Silent fail
     }
     
     if (!contactId) {
-      console.log(`❌ No contact ID available, cannot forward message to GHL`);
       return res.json({ status: 'success' });
     }
     
@@ -2337,12 +2201,15 @@ app.post('/whatsapp/webhook', async (req, res) => {
           payload.attachments = attachments;
         }
       
-      console.log(`📤 Sending to GHL SMS Provider:`, JSON.stringify(payload, null, 2));
-      console.log(`🔑 Using Provider ID:`, providerId);
-      console.log(`👤 Using Contact ID:`, contactId);
-      console.log(`💬 Message Content:`, `"${message}"`);
-      console.log(`📏 Message Length:`, message.length);
-      console.log(`📎 Attachments Count:`, attachments.length);
+      console.log(`📤 Sending to GHL SMS Provider:`, {
+        type: payload.type,
+        conversationProviderId: payload.conversationProviderId,
+        contactId: payload.contactId,
+        message: payload.message,
+        direction: payload.direction,
+        status: payload.status,
+        altId: payload.altId
+      });
       
       // Send message directly to GHL (working approach)
       const inboundRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
@@ -2360,10 +2227,8 @@ app.post('/whatsapp/webhook', async (req, res) => {
         console.log(`✅ Inbound message added to GHL conversation for contact: ${contactId}`);
         console.log(`📊 GHL Response:`, JSON.stringify(responseData, null, 2));
         
-        // Trigger customer_replied workflow via webhook
+        // Trigger customer_replied workflow via webhook (silent)
         try {
-          console.log(`🔄 Triggering customer_replied workflow via webhook...`);
-          
           const workflowPayload = {
             event_type: "customer_replied",
             contact_id: contactId,
@@ -2376,54 +2241,15 @@ app.post('/whatsapp/webhook', async (req, res) => {
             timestamp: new Date().toISOString()
           };
           
-          // Call our workflow webhook endpoint
-          const workflowRes = await fetch(`${process.env.BACKEND_URL || 'https://api.octendr.com'}/api/ghl-workflow`, {
+          await fetch(`${process.env.BACKEND_URL || 'https://api.octendr.com'}/api/ghl-workflow`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
             },
             body: JSON.stringify(workflowPayload)
           });
-          
-          if (workflowRes.ok) {
-            const workflowData = await workflowRes.json();
-            console.log(`✅ Customer replied workflow triggered successfully`);
-            console.log(`📊 Workflow Response:`, JSON.stringify(workflowData, null, 2));
-          } else {
-            const errorText = await workflowRes.text();
-            console.log(`⚠️ Customer replied workflow trigger failed:`, errorText);
-          }
         } catch (workflowError) {
-          console.error(`❌ Error triggering customer_replied workflow:`, workflowError.message);
-        }
-        console.log(`📊 Response Status:`, inboundRes.status);
-        console.log(`📊 Response Headers:`, Object.fromEntries(inboundRes.headers.entries()));
-        
-        // Check if message was actually created
-        if (responseData.messageId) {
-          console.log(`📝 Message ID created: ${responseData.messageId}`);
-          console.log(`💬 Message should be visible in GHL with content: "${message}"`);
-          
-          // Try to fetch the message back to verify it was created
-          try {
-            const verifyRes = await makeGHLRequest(`${BASE}/conversations/${responseData.conversationId}/messages/${responseData.messageId}`, {
-              method: 'GET',
-              headers: {
-                Authorization: `Bearer ${validToken}`,
-                Version: "2021-07-28",
-                "Content-Type": "application/json"
-              }
-            }, ghlAccount);
-            
-            if (verifyRes.ok) {
-              const verifyData = await verifyRes.json();
-              console.log(`🔍 Message verification:`, JSON.stringify(verifyData, null, 2));
-            } else {
-              console.log(`⚠️ Could not verify message: ${verifyRes.status}`);
-            }
-          } catch (verifyError) {
-            console.log(`⚠️ Message verification failed:`, verifyError.message);
-          }
+          // Silent fail
         }
         
         // Store message in local database
@@ -2462,8 +2288,8 @@ app.post('/whatsapp/webhook', async (req, res) => {
             const fromNumber = phone.replace('+', '');
             const toNumber = sessionData.phone_number || 'unknown';
             
-            // Store in local messages table
-            const { error: insertError } = await supabaseAdmin
+            // Store in local messages table (silent)
+            await supabaseAdmin
               .from('messages')
               .insert({
                 session_id: sessionData.id,
@@ -2477,17 +2303,9 @@ app.post('/whatsapp/webhook', async (req, res) => {
                 direction: 'in',
                 created_at: new Date().toISOString()
               });
-            
-            if (insertError) {
-              console.error('❌ Failed to store message in local database:', insertError);
-            } else {
-              console.log('✅ Message stored in local database');
-            }
-          } else {
-            console.log('⚠️ No session found for local message storage');
           }
         } catch (dbError) {
-          console.error('❌ Error storing message in local database:', dbError);
+          // Silent fail
         }
 
         // Note: Team notifications are now handled by GHL workflows
