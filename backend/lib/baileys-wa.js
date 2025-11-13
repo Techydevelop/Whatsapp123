@@ -1222,15 +1222,15 @@ class BaileysWhatsAppManager {
     try {
       // Try to fetch latest version info
       const { version, isLatest } = await fetchLatestBaileysVersion();
-      return {
+    return {
         version: version.join('.'),
         versionArray: version,
         isLatest: isLatest,
         status: isLatest ? 'Latest version' : 'Using cached version',
         source: 'Baileys fetchLatestBaileysVersion',
         lastUpdated: new Date().toISOString(),
-        pairingCodeSupported: false
-      };
+      pairingCodeSupported: false
+    };
     } catch (error) {
       // Fallback if fetch fails
       return {

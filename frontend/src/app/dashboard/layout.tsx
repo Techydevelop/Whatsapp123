@@ -80,12 +80,33 @@ export default function DashboardLayout({
       )
     },
     { 
+      name: 'Monitoring', 
+      href: '/dashboard/monitoring', 
+      current: pathname === '/dashboard/monitoring',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+      )
+    },
+    { 
       name: 'Settings', 
       href: '/dashboard/settings', 
       current: pathname === '/dashboard/settings',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-1.14 1.951-1.14 2.25 0a1.724 1.724 0 002.573 1.066c1.003-.59 2.18.588 1.59 1.59a1.724 1.724 0 001.066 2.573c1.14.3 1.14 1.951 0 2.25a1.724 1.724 0 00-1.066 2.573c.59 1.003-.588 2.18-1.59 1.59a1.724 1.724 0 00-2.573 1.066c-.3 1.14-1.951 1.14-2.25 0a1.724 1.724 0 00-2.573-1.066c-1.003.59-2.18-.588-1.59-1.59a1.724 1.724 0 00-1.066-2.573c-1.14-.3-1.14-1.951 0-2.25a1.724 1.724 0 001.066-2.573c-.59-1.003.588-2.18 1.59-1.59.94.553 2.12.09 2.573-1.066z" />
+        </svg>
+      )
+    },
+    { 
+      name: 'Help Center', 
+      href: 'https://www.octendr.com/help', 
+      current: false,
+      external: true,
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       )
     },
@@ -140,22 +161,33 @@ export default function DashboardLayout({
         <aside className="w-64 bg-white border-r border-gray-200 overflow-y-auto">
           <div className="p-4">
             <nav className="space-y-1">
-                {navigation.map((item) => (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={`${
-                      item.current
-                      ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600'
-                      : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900 border-l-4 border-transparent'
-                  } group flex items-center px-3 py-3 text-sm font-medium rounded-r-lg transition-all duration-200`}
-                >
-                  <span className={`${item.current ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-600'} mr-3`}>
-                    {item.icon}
-                  </span>
-                    {item.name}
-                  </Link>
-                ))}
+                {navigation.map((item) => {
+                  const linkProps = item.external 
+                    ? { href: item.href, target: '_blank', rel: 'noopener noreferrer' }
+                    : { href: item.href };
+                  
+                  return (
+                    <Link
+                      key={item.name}
+                      {...linkProps}
+                      className={`${
+                        item.current
+                        ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600'
+                        : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900 border-l-4 border-transparent'
+                    } group flex items-center px-3 py-3 text-sm font-medium rounded-r-lg transition-all duration-200`}
+                  >
+                    <span className={`${item.current ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-600'} mr-3`}>
+                      {item.icon}
+                    </span>
+                      {item.name}
+                      {item.external && (
+                        <svg className="w-4 h-4 ml-auto text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      )}
+                    </Link>
+                  );
+                })}
             </nav>
             
             {/* Sidebar Footer */}

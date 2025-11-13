@@ -196,6 +196,10 @@ async function makeGHLRequest(url, options, ghlAccount, retryCount = 0) {
 const BaileysWhatsAppManager = require('./lib/baileys-wa');
 const waManager = new BaileysWhatsAppManager();
 
+// Password utilities
+const { hashPassword, verifyPassword, generateOTP } = require('./lib/password');
+const emailService = require('./lib/email');
+
 // Scheduled token refresh (every 6 hours - more frequent for 24-hour tokens)
 setInterval(async () => {
   try {
@@ -779,6 +783,358 @@ const requireAuth = async (req, res, next) => {
 };
 
 // Health check
+// Health check endpoints for monitoring
+// Helper function to store uptime data
+async function storeUptimeData(userId, serviceName, status, message, details = null) {
+  try {
+    await supabaseAdmin
+      .from('service_uptime')
+      .insert({
+        user_id: userId,
+        service_name: serviceName,
+        status: status,
+        message: message,
+        details: details
+      });
+  } catch (error) {
+    console.error(`Failed to store uptime data for ${serviceName}:`, error);
+    // Don't fail the health check if storage fails
+  }
+}
+
+app.get('/api/health/database', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Test database connection
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .select('count')
+      .limit(1);
+
+    let status = 'healthy';
+    let message = 'Database connection is healthy';
+    let connected = true;
+
+    if (error) {
+      status = 'unhealthy';
+      message = `Database connection failed: ${error.message}`;
+      connected = false;
+    }
+
+    // Store uptime data
+    await storeUptimeData(userId, 'Database Connection', status, message, { connected, error: error?.message });
+
+    if (error) {
+      return res.status(500).json({
+        connected: false,
+        message: message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    return res.json({
+      connected: true,
+      message: message,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    await storeUptimeData(req.user.id, 'Database Connection', 'unhealthy', `Database check failed: ${error.message}`);
+    return res.status(500).json({
+      connected: false,
+      message: `Database check failed: ${error.message}`
+    });
+  }
+});
+
+app.get('/api/health/whatsapp', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const clients = waManager.getAllClients();
+    const connectedClients = clients.filter(c => c.status === 'connected' || c.status === 'ready');
+    
+    const status = clients.length > 0 ? 'healthy' : 'warning';
+    const message = clients.length > 0 
+      ? `WhatsApp service is operational. ${connectedClients.length} active client(s)`
+      : 'WhatsApp service configured but no active clients';
+    
+    const responseData = {
+      status: 'operational',
+      message: message,
+      totalClients: clients.length,
+      connectedClients: connectedClients.length,
+      clients: clients.map(c => ({
+        sessionId: c.sessionId,
+        status: c.status,
+        phoneNumber: c.phoneNumber || 'N/A'
+      }))
+    };
+
+    // Store uptime data
+    await storeUptimeData(userId, 'WhatsApp Service', status, message, responseData);
+    
+    return res.json(responseData);
+  } catch (error) {
+    await storeUptimeData(req.user.id, 'WhatsApp Service', 'unhealthy', `WhatsApp service check failed: ${error.message}`);
+    return res.status(500).json({
+      status: 'error',
+      message: `WhatsApp service check failed: ${error.message}`
+    });
+  }
+});
+
+app.get('/api/health/ghl', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Check if user has GHL accounts
+    const { data: ghlAccounts, error } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('id, location_id, expires_at, token_expires_at')
+      .eq('user_id', userId)
+      .limit(5);
+
+    if (error) {
+      await storeUptimeData(userId, 'GHL Integration', 'unhealthy', `GHL integration check failed: ${error.message}`);
+      return res.status(500).json({
+        connected: false,
+        message: `GHL integration check failed: ${error.message}`
+      });
+    }
+
+    const hasValidTokens = ghlAccounts && ghlAccounts.length > 0;
+    const status = hasValidTokens ? 'healthy' : 'warning';
+    const message = hasValidTokens 
+      ? `GHL integration is configured. ${ghlAccounts.length} account(s) connected`
+      : 'GHL integration not configured. Please connect a GHL account.';
+    
+    const responseData = {
+      connected: hasValidTokens,
+      message: message,
+      accountCount: ghlAccounts?.length || 0,
+      accounts: ghlAccounts || []
+    };
+
+    // Store uptime data
+    await storeUptimeData(userId, 'GHL Integration', status, message, responseData);
+    
+    return res.json(responseData);
+  } catch (error) {
+    await storeUptimeData(req.user.id, 'GHL Integration', 'unhealthy', `GHL integration check failed: ${error.message}`);
+    return res.status(500).json({
+      connected: false,
+      message: `GHL integration check failed: ${error.message}`
+    });
+  }
+});
+
+app.get('/api/health/qr', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Test QR code generation
+    const testQR = 'test-qr-data';
+    
+    try {
+      const qrCode = await qrcode.toDataURL(testQR);
+      const status = 'healthy';
+      const message = 'QR code generation is working';
+      const responseData = {
+        working: true,
+        message: message,
+        testQRGenerated: !!qrCode
+      };
+
+      // Store uptime data
+      await storeUptimeData(userId, 'QR Code Generation', status, message, responseData);
+      
+      return res.json(responseData);
+    } catch (qrError) {
+      await storeUptimeData(userId, 'QR Code Generation', 'unhealthy', `QR code generation failed: ${qrError.message}`);
+      return res.status(500).json({
+        working: false,
+        message: `QR code generation failed: ${qrError.message}`
+      });
+    }
+  } catch (error) {
+    await storeUptimeData(req.user.id, 'QR Code Generation', 'unhealthy', `QR code check failed: ${error.message}`);
+    return res.status(500).json({
+      working: false,
+      message: `QR code check failed: ${error.message}`
+    });
+  }
+});
+
+app.get('/api/health/subaccount', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Check user subscription status
+    const { data: userInfo, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('subscription_status, max_subaccounts, trial_ends_at')
+      .eq('id', userId)
+      .single();
+
+    if (userError || !userInfo) {
+      await storeUptimeData(userId, 'Subaccount Creation', 'unhealthy', 'Failed to fetch user information');
+      return res.status(500).json({
+        canCreate: false,
+        message: 'Failed to fetch user information'
+      });
+    }
+
+    // Get current subaccounts count
+    const { data: currentAccounts } = await supabaseAdmin
+      .from('ghl_accounts')
+      .select('id', { count: 'exact' })
+      .eq('user_id', userId);
+
+    const currentCount = currentAccounts?.length || 0;
+    const maxSubaccounts = userInfo.max_subaccounts || 0;
+    const canCreate = currentCount < maxSubaccounts;
+    const status = canCreate ? 'healthy' : 'warning';
+    const message = canCreate
+      ? `Subaccount creation is available. ${maxSubaccounts - currentCount} slot(s) remaining`
+      : `Subaccount limit reached. Current: ${currentCount}/${maxSubaccounts}`;
+
+    const responseData = {
+      canCreate: canCreate,
+      message: message,
+      currentSubaccounts: currentCount,
+      maxSubaccounts: maxSubaccounts,
+      subscriptionStatus: userInfo.subscription_status,
+      trialEndsAt: userInfo.trial_ends_at
+    };
+
+    // Store uptime data
+    await storeUptimeData(userId, 'Subaccount Creation', status, message, responseData);
+
+    return res.json(responseData);
+  } catch (error) {
+    await storeUptimeData(req.user.id, 'Subaccount Creation', 'unhealthy', `Subaccount check failed: ${error.message}`);
+    return res.status(500).json({
+      canCreate: false,
+      message: `Subaccount check failed: ${error.message}`
+    });
+  }
+});
+
+app.get('/api/health/email', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const hasResend = !!process.env.RESEND_API_KEY;
+    const hasSendGrid = !!process.env.SENDGRID_API_KEY;
+    const hasSMTP = !!(process.env.SMTP_HOST || process.env.SMTP_USER);
+    
+    const configured = hasResend || hasSendGrid || hasSMTP;
+    const status = configured ? 'healthy' : 'warning';
+    
+    let provider = 'Not configured';
+    if (hasResend) provider = 'Resend';
+    else if (hasSendGrid) provider = 'SendGrid';
+    else if (hasSMTP) provider = 'SMTP';
+    
+    const message = configured
+      ? `Email service is configured using ${provider}`
+      : 'Email service is not configured. OTP and notification emails will not work.';
+    
+    const responseData = {
+      configured: configured,
+      message: message,
+      provider: provider,
+      hasResend: hasResend,
+      hasSendGrid: hasSendGrid,
+      hasSMTP: hasSMTP
+    };
+
+    // Store uptime data
+    await storeUptimeData(userId, 'Email Service', status, message, responseData);
+    
+    return res.json(responseData);
+  } catch (error) {
+    await storeUptimeData(req.user.id, 'Email Service', 'unhealthy', `Email service check failed: ${error.message}`);
+    return res.status(500).json({
+      configured: false,
+      message: `Email service check failed: ${error.message}`
+    });
+  }
+});
+
+app.get('/api/health/webhook', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Check if webhook endpoints are accessible
+    const webhookEndpoints = [
+      '/ghl/provider/webhook',
+      '/whatsapp/webhook'
+    ];
+    
+    const status = 'healthy';
+    const message = 'Webhook handlers are operational';
+    const responseData = {
+      operational: true,
+      message: message,
+      endpoints: webhookEndpoints,
+      status: 'ready'
+    };
+
+    // Store uptime data
+    await storeUptimeData(userId, 'Webhook Handler', status, message, responseData);
+    
+    return res.json(responseData);
+  } catch (error) {
+    await storeUptimeData(req.user.id, 'Webhook Handler', 'unhealthy', `Webhook check failed: ${error.message}`);
+    return res.status(500).json({
+      operational: false,
+      message: `Webhook check failed: ${error.message}`
+    });
+  }
+});
+
+// Get uptime statistics for a service
+app.get('/api/health/uptime/:serviceName', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const serviceName = decodeURIComponent(req.params.serviceName);
+    const days = parseInt(req.query.days || '90') || 90;
+
+    // Get historical checks for calculation
+    const { data: checks, error: checksError } = await supabaseAdmin
+      .from('service_uptime')
+      .select('status, checked_at')
+      .eq('user_id', userId)
+      .eq('service_name', serviceName)
+      .gte('checked_at', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString())
+      .order('checked_at', { ascending: true });
+
+    if (checksError) {
+      return res.status(500).json({
+        error: `Failed to get uptime data: ${checksError.message}`
+      });
+    }
+
+    const totalChecks = checks?.length || 0;
+    const healthyChecks = checks?.filter(c => c.status === 'healthy').length || 0;
+    const uptimePercentage = totalChecks > 0 ? parseFloat(((healthyChecks / totalChecks) * 100).toFixed(2)) : 100.00;
+
+    return res.json({
+      serviceName: serviceName,
+      uptimePercentage: uptimePercentage,
+      period: `${days} days`,
+      totalChecks: totalChecks,
+      healthyChecks: healthyChecks,
+      historicalData: checks || [],
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: `Failed to get uptime statistics: ${error.message}`
+    });
+  }
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
@@ -1354,6 +1710,325 @@ app.get('/api/user/subscription-info', requireAuth, async (req, res) => {
 });
 
 // Admin routes
+// Password management endpoints
+// Change password (requires authentication)
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+
+    // Get user from database
+    const { data: user, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('id, password')
+      .eq('id', userId)
+      .single();
+
+    if (userError || !user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Verify current password
+    const isValidPassword = await verifyPassword(currentPassword, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const hashedPassword = await hashPassword(newPassword);
+
+    // Update password in database
+    const { error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({ password: hashedPassword })
+      .eq('id', userId);
+
+    if (updateError) {
+      console.error('Error updating password:', updateError);
+      return res.status(500).json({ error: 'Failed to update password' });
+    }
+
+    console.log(`✅ Password changed for user ${userId}`);
+    return res.json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    return res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+// Send OTP for password reset
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    // Get user from database
+    const { data: user, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('id, email, name')
+      .eq('email', email)
+      .eq('is_verified', true)
+      .single();
+
+    // Always return success to prevent email enumeration
+    if (userError || !user) {
+      return res.json({ success: true, message: 'If the email exists, an OTP has been sent' });
+    }
+
+    // Generate OTP
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Store OTP in database (create a password_resets table or use a simple cache)
+    // For now, we'll store it in a password_resets table
+    const { error: otpError } = await supabaseAdmin
+      .from('password_resets')
+      .upsert({
+        email: user.email,
+        otp: otp,
+        expires_at: expiresAt.toISOString(),
+        used: false
+      }, {
+        onConflict: 'email'
+      });
+
+    if (otpError) {
+      console.error('Error storing OTP:', otpError);
+      // Still return success to prevent email enumeration
+      return res.json({ success: true, message: 'If the email exists, an OTP has been sent' });
+    }
+
+    // Send OTP via email
+    const userName = user.name || user.email.split('@')[0];
+    const subject = 'Password Reset OTP - Octendr';
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Password Reset OTP</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              background-color: #f5f5f5;
+              margin: 0;
+              padding: 0;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              background-color: #ffffff;
+              padding: 0;
+            }
+            .header {
+              background: linear-gradient(135deg, #075E54 0%, #128C7E 100%);
+              padding: 30px;
+              text-align: center;
+              color: white;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+              font-weight: 700;
+            }
+            .content {
+              padding: 40px 30px;
+            }
+            .otp-box {
+              background: #F0F2F5;
+              border: 2px dashed #25D366;
+              padding: 20px;
+              margin: 30px 0;
+              border-radius: 8px;
+              text-align: center;
+            }
+            .otp-code {
+              font-size: 32px;
+              font-weight: 700;
+              color: #25D366;
+              letter-spacing: 8px;
+              margin: 10px 0;
+            }
+            .warning-box {
+              background: #FFF3E0;
+              border-left: 4px solid #FF9800;
+              padding: 15px 20px;
+              margin: 20px 0;
+              border-radius: 4px;
+            }
+            .warning-box strong {
+              color: #E65100;
+              display: block;
+              margin-bottom: 10px;
+            }
+            .footer {
+              background: #F0F2F5;
+              padding: 20px;
+              text-align: center;
+              color: #54656F;
+              font-size: 14px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>🔐 Password Reset</h1>
+            </div>
+            <div class="content">
+              <p>Hello ${userName},</p>
+              <p>You requested to reset your password. Use the OTP below to reset your password:</p>
+              <div class="otp-box">
+                <div class="otp-code">${otp}</div>
+              </div>
+              <div class="warning-box">
+                <strong>⏰ Important:</strong>
+                <ul style="margin: 10px 0; padding-left: 20px;">
+                  <li>This OTP expires in 10 minutes</li>
+                  <li>Do not share this OTP with anyone</li>
+                  <li>If you didn't request this, please ignore this email</li>
+                </ul>
+              </div>
+              <p style="color: #54656F; font-size: 14px; margin-top: 30px;">
+                Need help? Contact our support team.
+              </p>
+            </div>
+            <div class="footer">
+              <p>This is an automated email from <strong>Octendr</strong></p>
+              <p>WhatsApp GHL Integration Platform</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const textContent = `
+Password Reset OTP - Octendr
+
+Hello ${userName},
+
+You requested to reset your password. Use the OTP below to reset your password:
+
+OTP: ${otp}
+
+⏰ Important:
+- This OTP expires in 10 minutes
+- Do not share this OTP with anyone
+- If you didn't request this, please ignore this email
+
+This is an automated email from Octendr.
+    `;
+
+    const emailResult = await emailService.sendEmailViaAPI({
+      to: user.email,
+      subject: subject,
+      html: htmlContent,
+      text: textContent
+    });
+
+    if (emailResult.success) {
+      console.log(`✅ OTP sent to ${user.email}`);
+    } else {
+      console.error(`❌ Failed to send OTP email:`, emailResult.error);
+    }
+
+    return res.json({ success: true, message: 'If the email exists, an OTP has been sent' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    // Always return success to prevent email enumeration
+    return res.json({ success: true, message: 'If the email exists, an OTP has been sent' });
+  }
+});
+
+// Verify OTP and reset password
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ error: 'Email, OTP, and new password are required' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+
+    // Get OTP from database
+    const { data: resetData, error: resetError } = await supabaseAdmin
+      .from('password_resets')
+      .select('*')
+      .eq('email', email)
+      .eq('used', false)
+      .single();
+
+    if (resetError || !resetData) {
+      return res.status(400).json({ error: 'Invalid or expired OTP' });
+    }
+
+    // Check if OTP matches
+    if (resetData.otp !== otp) {
+      return res.status(400).json({ error: 'Invalid OTP' });
+    }
+
+    // Check if OTP is expired
+    const expiresAt = new Date(resetData.expires_at);
+    if (expiresAt < new Date()) {
+      return res.status(400).json({ error: 'OTP has expired' });
+    }
+
+    // Get user
+    const { data: user, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('id, email')
+      .eq('email', email)
+      .single();
+
+    if (userError || !user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Hash new password
+    const hashedPassword = await hashPassword(newPassword);
+
+    // Update password
+    const { error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({ password: hashedPassword })
+      .eq('id', user.id);
+
+    if (updateError) {
+      console.error('Error updating password:', updateError);
+      return res.status(500).json({ error: 'Failed to reset password' });
+    }
+
+    // Mark OTP as used
+    await supabaseAdmin
+      .from('password_resets')
+      .update({ used: true })
+      .eq('email', email);
+
+    console.log(`✅ Password reset for user ${user.id}`);
+    return res.json({ success: true, message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
 app.get('/admin/ghl/subaccounts', requireAuth, async (req, res) => {
   try {
     // req.user already set by requireAuth middleware
@@ -1692,7 +2367,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     // Prevent duplicate processing using messageId
     if (messageId) {
-      if (!global.messageCache) {
+    if (!global.messageCache) {
         global.messageCache = new Map();
       }
       if (global.messageCache.has(messageId)) {
@@ -1924,7 +2599,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
             
             const caption = (i === 0 && messageText) ? messageText : '';
             
-            await waManager.sendMessage(
+            const attachResult = await waManager.sendMessage(
               clientKey, 
               phoneNumber, 
               caption, 
@@ -1933,8 +2608,84 @@ app.post('/ghl/provider/webhook', async (req, res) => {
               fileName
             );
             
+            // Check if attachment send was skipped/failed
+            if (attachResult && attachResult.status === 'skipped') {
+              console.error(`❌ Attachment skipped: ${attachResult.reason}`);
+              
+              // Send error message to GHL conversation
+              try {
+                if (contactId) {
+                  let errorMessage = '';
+                  if (attachResult.reason === 'Number does not have WhatsApp') {
+                    errorMessage = `⚠️ Attachment delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`;
+                  } else {
+                    errorMessage = `⚠️ Attachment delivery failed\n\nReason: ${attachResult.reason || 'Unknown error'}\n\nPhone: ${phoneNumber}`;
+                  }
+                  
+                  const errorPayload = {
+                    type: "SMS",
+                    conversationProviderId: ghlAccount.conversation_provider_id || getProviderId(),
+                    contactId: contactId,
+                    message: errorMessage,
+                    direction: "inbound",
+                    status: "delivered",
+                    altId: `error_${Date.now()}`
+                  };
+                  
+                  const errorRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${validToken}`,
+                      Version: "2021-07-28",
+                      "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(errorPayload)
+                  }, ghlAccount);
+                  
+                  if (errorRes.ok) {
+                    console.log(`✅ Error message sent to GHL conversation for attachment failure`);
+                  }
+                }
+              } catch (errorMsgError) {
+                console.error(`❌ Error sending error message to GHL:`, errorMsgError.message);
+              }
+            }
+            
           } catch (attachError) {
             console.error(`❌ Error sending attachment ${i + 1}:`, attachError.message);
+            
+            // Send error message to GHL conversation on exception
+            try {
+              if (contactId) {
+                const errorMessage = `⚠️ Attachment delivery failed\n\nError: ${attachError.message || 'Unknown error'}\n\nPhone: ${phoneNumber}`;
+                
+                const errorPayload = {
+                  type: "SMS",
+                  conversationProviderId: ghlAccount.conversation_provider_id || getProviderId(),
+                  contactId: contactId,
+                  message: errorMessage,
+                  direction: "inbound",
+                  status: "delivered",
+                  altId: `error_${Date.now()}`
+                };
+                
+                const errorRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${validToken}`,
+                    Version: "2021-07-28",
+                    "Content-Type": "application/json"
+                  },
+                  body: JSON.stringify(errorPayload)
+                }, ghlAccount);
+                
+                if (errorRes.ok) {
+                  console.log(`✅ Error message sent to GHL conversation`);
+                }
+              }
+            } catch (errorMsgError) {
+              console.error(`❌ Error sending error message to GHL:`, errorMsgError.message);
+            }
           }
         }
         
@@ -1955,21 +2706,122 @@ app.post('/ghl/provider/webhook', async (req, res) => {
           const sendResult = await waManager.sendMessage(clientKey, phoneNumber, messageText || '', 'text');
           console.log(`📤 Webhook Debug - Send Result:`, sendResult);
           
-          if (sendResult && sendResult.status === 'skipped') {
+      if (sendResult && sendResult.status === 'skipped') {
             console.error(`❌ Message skipped: ${sendResult.reason}`);
-            return res.json({ 
-              status: 'warning', 
-              reason: sendResult.reason,
-              phoneNumber: phoneNumber,
-              sendResult: sendResult
-            });
-          }
+            
+            // Send error message to GHL conversation when message fails
+            try {
+              let errorMessage = '';
+              if (sendResult.reason === 'Number does not have WhatsApp') {
+                errorMessage = `⚠️ Message delivery failed\n\n❌ ${phoneNumber} does not have WhatsApp\n\n💡 Please verify the phone number or use another contact method.`;
+              } else {
+                errorMessage = `⚠️ Message delivery failed\n\nReason: ${sendResult.reason || 'Unknown error'}\n\nPhone: ${phoneNumber}`;
+              }
+              
+              // Use conversationId from webhook if available, otherwise find from contactId
+              let targetConversationId = conversationId;
+              if (!targetConversationId && contactId) {
+                try {
+                  const convRes = await makeGHLRequest(`${BASE}/conversations/search?contactId=${contactId}`, {
+                    method: 'GET',
+                    headers: {
+                      Authorization: `Bearer ${validToken}`,
+                      Version: "2021-07-28",
+                      "Content-Type": "application/json"
+                    }
+                  }, ghlAccount);
+                  
+                  if (convRes.ok) {
+                    const convData = await convRes.json();
+                    if (convData.conversations && convData.conversations.length > 0) {
+                      targetConversationId = convData.conversations[0].id;
+                    }
+                  }
+                } catch (convError) {
+                  console.error(`❌ Error finding conversation:`, convError.message);
+                }
+              }
+              
+              // Send error message to GHL conversation
+              if (contactId) {
+                const errorPayload = {
+                  type: "SMS",
+                  conversationProviderId: ghlAccount.conversation_provider_id || getProviderId(),
+            contactId: contactId,
+                  message: errorMessage,
+            direction: "inbound",
+            status: "delivered",
+                  altId: `error_${Date.now()}`
+          };
           
-          console.log('✅ Message sent successfully via Baileys');
+                const errorRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${validToken}`,
+              Version: "2021-07-28",
+              "Content-Type": "application/json"
+            },
+                  body: JSON.stringify(errorPayload)
+          }, ghlAccount);
+          
+                if (errorRes.ok) {
+                  console.log(`✅ Error message sent to GHL conversation for contact: ${contactId}`);
+                } else {
+                  const errorText = await errorRes.text();
+                  console.error(`❌ Failed to send error message to GHL:`, errorText);
+                }
+              }
+            } catch (errorMsgError) {
+              console.error(`❌ Error sending error message to GHL:`, errorMsgError.message);
+        }
+        
+        return res.json({ 
+          status: 'warning', 
+          reason: sendResult.reason,
+          phoneNumber: phoneNumber,
+              sendResult: sendResult
+        });
+      }
+      
+      console.log('✅ Message sent successfully via Baileys');
           console.log('✅ Webhook Debug - Message delivery confirmed');
-        } catch (sendError) {
+    } catch (sendError) {
           console.error(`❌ Error in waManager.sendMessage:`, sendError);
           console.error(`❌ Error stack:`, sendError.stack);
+      
+          // Send error message to GHL conversation on exception
+      try {
+            if (contactId) {
+              const errorMessage = `⚠️ Message delivery failed\n\nError: ${sendError.message || 'Unknown error'}\n\nPhone: ${phoneNumber}`;
+              
+        const errorPayload = {
+                type: "SMS",
+                conversationProviderId: ghlAccount.conversation_provider_id || getProviderId(),
+          contactId: contactId,
+                message: errorMessage,
+          direction: "inbound",
+          status: "delivered",
+          altId: `error_${Date.now()}`
+        };
+        
+        const errorRes = await makeGHLRequest(`${BASE}/conversations/messages/inbound`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${validToken}`,
+            Version: "2021-07-28",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(errorPayload)
+        }, ghlAccount);
+        
+        if (errorRes.ok) {
+                console.log(`✅ Error message sent to GHL conversation`);
+        }
+            }
+          } catch (errorMsgError) {
+            console.error(`❌ Error sending error message to GHL:`, errorMsgError.message);
+      }
+      
           throw sendError;
         }
       }

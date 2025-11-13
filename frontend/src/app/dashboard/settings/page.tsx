@@ -52,16 +52,38 @@ export default function SettingsPage() {
       showToast({ type: 'error', title: 'Mismatch', message: 'New password and confirm do not match.' })
       return
     }
+    if (!currentPassword) {
+      showToast({ type: 'error', title: 'Required', message: 'Please enter your current password.' })
+      return
+    }
 
     setSavingPassword(true)
     try {
-      // No backend change per requirements; just simulate success
-      showToast({ type: 'success', title: 'Password changed', message: 'Your password has been updated.' })
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const response = await fetch(`${API_URL}/api/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          currentPassword,
+          newPassword
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to change password')
+      }
+
+      showToast({ type: 'success', title: 'Password changed', message: 'Your password has been updated successfully.' })
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
-    } catch {
-      showToast({ type: 'error', title: 'Change failed', message: 'Could not change password.' })
+    } catch (err) {
+      showToast({ type: 'error', title: 'Change failed', message: err instanceof Error ? err.message : 'Could not change password.' })
     } finally {
       setSavingPassword(false)
     }
