@@ -8,6 +8,8 @@ const qrcode = require('qrcode');
 const { processWhatsAppMedia } = require('./mediaHandler');
 const axios = require('axios');
 const Stripe = require('stripe');
+// Import Baileys functions for media decryption
+const { downloadMediaMessage, downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -2231,7 +2233,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     // Prevent duplicate processing using messageId
     if (messageId) {
-    if (!global.messageCache) {
+      if (!global.messageCache) {
         global.messageCache = new Map();
       }
       if (global.messageCache.has(messageId)) {
@@ -6021,6 +6023,56 @@ setTimeout(async () => {
   await checkAndProcessExpiredTrials();
   await checkAndSendReminders();
 }, 5000); // Wait 5 seconds after server starts
+
+// Initialize global caches to prevent memory leaks
+if (!global.messageCache) {
+  global.messageCache = new Map();
+}
+if (!global.recentMessages) {
+  global.recentMessages = new Set();
+}
+if (!global.recentInboundMessages) {
+  global.recentInboundMessages = new Set();
+}
+
+// Cleanup global caches periodically to prevent memory leaks
+setInterval(() => {
+  try {
+    // Clean old message cache entries (older than 10 minutes)
+    if (global.messageCache) {
+      const now = Date.now();
+      for (const [key, value] of global.messageCache.entries()) {
+        if (now - value.timestamp > 10 * 60 * 1000) {
+          global.messageCache.delete(key);
+        }
+      }
+    }
+    
+    // Clean recent messages set if it gets too large (prevent memory leak)
+    if (global.recentMessages && global.recentMessages.size > 10000) {
+      global.recentMessages.clear();
+    }
+    
+    // Clean recent inbound messages set if it gets too large
+    if (global.recentInboundMessages && global.recentInboundMessages.size > 10000) {
+      global.recentInboundMessages.clear();
+    }
+  } catch (cleanupError) {
+    console.error('❌ Error cleaning global caches:', cleanupError);
+  }
+}, 30 * 60 * 1000); // Every 30 minutes
+
+// Global error handlers to prevent server crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit - just log the error
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // Don't exit - just log the error
+  // In production, you might want to gracefully shutdown
+});
 
 // Start server
 app.listen(PORT, () => {

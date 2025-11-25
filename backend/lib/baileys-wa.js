@@ -263,9 +263,30 @@ class BaileysWhatsAppManager {
     try {
       console.log(`🔄 Processing QR queue for session: ${sessionId}`);
       const socket = await this.createClientInternal(sessionId);
-      resolve(socket);
+      
+      // Handle timeout gracefully - don't reject, just log
+      if (!socket) {
+        console.warn(`⏱️ [${sessionId}] Socket creation returned null (likely timeout) - will retry`);
+        // Resolve with null instead of rejecting to prevent unhandled rejection
+        resolve(null);
+      } else {
+        resolve(socket);
+      }
     } catch (error) {
-      reject(error);
+      // Handle timeout errors specifically
+      const errorMessage = error.message || error.toString() || '';
+      const isTimeout = errorMessage.includes('Timed Out') || 
+                       errorMessage.includes('timeout') || 
+                       errorMessage.includes('Request Time-out') ||
+                       (error.output && error.output.statusCode === 408);
+      
+      if (isTimeout) {
+        console.warn(`⏱️ [${sessionId}] Timeout in QR queue - resolving with null for retry`);
+        resolve(null); // Don't reject - allow retry
+      } else {
+        console.error(`❌ [${sessionId}] Error in QR queue:`, error.message || error);
+        reject(error);
+      }
     } finally {
       this.isGeneratingQR = false;
       // Process next in queue after a delay
@@ -300,8 +321,11 @@ class BaileysWhatsAppManager {
         // Fallback to a known working version
         version = [2, 3000, 1025190524];
       }
-
-      const socket = makeWASocket({
+      
+      // Wrap socket creation in timeout protection
+      let socket;
+      try {
+        socket = makeWASocket({
         auth: state,
         logger: {
           level: 'silent',
@@ -326,13 +350,15 @@ class BaileysWhatsAppManager {
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: true,
         syncFullHistory: false,
-        defaultQueryTimeoutMs: 60000, // 60 seconds query timeout
-        keepAliveIntervalMs: 10000, // Keep-alive every 10 seconds (prevents disconnection)
-        connectTimeoutMs: 120000, // 2 minutes connection timeout
-        retryRequestDelayMs: 2000, // 2 seconds delay between retries
+        defaultQueryTimeoutMs: 120000, // 120 seconds (2 minutes) - increased for slow connections
+        keepAliveIntervalMs: 8000, // Keep-alive every 8 seconds (more frequent for 6.7.21 - prevents disconnection)
+        connectTimeoutMs: 180000, // 3 minutes connection timeout (increased)
+        retryRequestDelayMs: 3000, // 3 seconds delay between retries (increased)
         maxMsgRetryCount: 3,
-        heartbeatIntervalMs: 30000, // Heartbeat every 30 seconds (more stable for 6.7.19)
-        msgRetryCounterCache: new Map(),
+        heartbeatIntervalMs: 20000, // Heartbeat every 20 seconds (more frequent for 6.7.21 - prevents disconnection)
+        printQRInTerminal: false,
+        // Removed msgRetryCounterCache - let Baileys use its default cache implementation
+        // This prevents "msgRetryCache.del is not a function" error
         getMessage: async (key) => {
           return {
             conversation: 'Hello from Octendr!'
@@ -342,7 +368,53 @@ class BaileysWhatsAppManager {
         shouldIgnoreJid: () => false,
         fireInitQueries: true,
         emitOwnEvents: false
-      });
+        });
+        
+        // Add error handler to catch timeout and other errors
+        socket.ev.on('error', (error) => {
+          console.error(`❌ [${sessionId}] Baileys socket error:`, error.message || error);
+          
+          // Handle timeout errors specifically - don't crash
+          const errorMessage = error.message || error.toString() || '';
+          const isTimeout = errorMessage.includes('Timed Out') || 
+                           errorMessage.includes('timeout') || 
+                           errorMessage.includes('Request Time-out') ||
+                           (error.output && error.output.statusCode === 408);
+          
+          if (isTimeout) {
+            console.warn(`⏱️ [${sessionId}] Timeout error detected - this is usually recoverable`);
+            // Don't throw - let reconnection logic handle it
+            return;
+          }
+          
+          // For other errors, log but don't crash
+          console.warn(`⚠️ [${sessionId}] Non-critical socket error:`, error.message || error);
+        });
+        
+      } catch (socketError) {
+        // Handle socket creation errors (including timeouts) - don't crash
+        const errorMessage = socketError.message || socketError.toString() || '';
+        const isTimeout = errorMessage.includes('Timed Out') || 
+                         errorMessage.includes('timeout') || 
+                         errorMessage.includes('Request Time-out') ||
+                         (socketError.output && socketError.output.statusCode === 408);
+        
+        if (isTimeout) {
+          console.warn(`⏱️ [${sessionId}] Socket creation timeout - will retry`);
+          // Mark as disconnected and let retry logic handle it
+          this.clients.set(sessionId, {
+            socket: null,
+            qr: null,
+            status: 'disconnected',
+            lastUpdate: Date.now(),
+            isLoggedOut: false
+          });
+          // Return null instead of throwing to prevent unhandled rejection
+          return null;
+        }
+        console.error(`❌ [${sessionId}] Error creating socket:`, socketError.message || socketError);
+        throw socketError;
+      }
 
       // Handle connection updates with stability check
       let connectionStable = false;
@@ -391,8 +463,24 @@ class BaileysWhatsAppManager {
           connectionOpenTime = null;
           
           const disconnectStatusCode = (lastDisconnect?.error)?.output?.statusCode;
+          const disconnectMessage = lastDisconnect?.error?.message || '';
           const isLoggedOut = disconnectStatusCode === DisconnectReason.loggedOut;
           const isRestartRequired = disconnectStatusCode === DisconnectReason.restartRequired;
+          
+          // Detect system-caused disconnections (not user logout)
+          // System disconnections include: connectionLost, connectionClosed, timedOut, badSession, etc.
+          const isSystemDisconnect = !isLoggedOut && (
+            disconnectStatusCode === DisconnectReason.connectionClosed ||
+            disconnectStatusCode === DisconnectReason.connectionLost ||
+            disconnectStatusCode === DisconnectReason.connectionReplaced ||
+            disconnectStatusCode === DisconnectReason.timedOut ||
+            disconnectStatusCode === DisconnectReason.badSession ||
+            disconnectMessage.includes('Timed Out') ||
+            disconnectMessage.includes('timeout') ||
+            disconnectMessage.includes('Connection closed') ||
+            disconnectMessage.includes('Connection lost') ||
+            (!disconnectStatusCode && !isLoggedOut) // Unknown disconnect = likely system issue
+          );
           
           // According to Baileys docs: after QR scan, WhatsApp forcibly disconnects with restartRequired
           // This is NOT an error - we must create a new socket
@@ -429,8 +517,9 @@ class BaileysWhatsAppManager {
           
           console.log(`🔌 Connection closed for session: ${sessionId}`);
           console.log(`🔌 Should reconnect: ${shouldReconnect}`);
-          console.log(`🔌 Disconnect reason:`, lastDisconnect?.error?.message);
+          console.log(`🔌 Disconnect reason:`, disconnectMessage);
           console.log(`🔌 Disconnect status code: ${disconnectStatusCode}`);
+          console.log(`🔌 Is system disconnect: ${isSystemDisconnect}`);
           
           // Update client status
           if (this.clients.has(sessionId)) {
@@ -439,6 +528,8 @@ class BaileysWhatsAppManager {
             client.lastUpdate = Date.now();
             client.isLoggedOut = isLoggedOut; // Track logout state
             client.connectingSince = null; // Clear connecting timestamp
+            client.disconnectReason = disconnectMessage; // Store disconnect reason
+            client.disconnectCode = disconnectStatusCode; // Store disconnect code
           }
           
           // Update database status to disconnected (even if we'll reconnect)
@@ -446,6 +537,18 @@ class BaileysWhatsAppManager {
           this.updateDatabaseStatus(sessionId, 'disconnected', null).catch(err => {
             console.error(`❌ Failed to update database on disconnect: ${err.message}`);
           });
+          
+          // Send email notification for system-caused disconnections
+          if (isSystemDisconnect && shouldReconnect) {
+            console.log(`📧 System-caused disconnect detected - sending email notification`);
+            this.sendDisconnectEmail(sessionId, 'system', {
+              reason: disconnectMessage,
+              code: disconnectStatusCode,
+              timestamp: new Date().toISOString()
+            }).catch(err => {
+              console.error(`❌ Failed to send system disconnect email: ${err.message}`);
+            });
+          }
           
           if (shouldReconnect) {
             // Auto-reconnect logic (only if not logged out)
@@ -466,6 +569,19 @@ class BaileysWhatsAppManager {
                 console.log(`🔄 Attempting reconnection for: ${sessionId}`);
                 this.createClient(sessionId).catch(err => {
                   console.error(`❌ Reconnection failed for ${sessionId}:`, err.message);
+                  
+                  // Send email if reconnection fails after system disconnect
+                  if (isSystemDisconnect) {
+                    this.sendDisconnectEmail(sessionId, 'system_reconnect_failed', {
+                      reason: disconnectMessage,
+                      code: disconnectStatusCode,
+                      reconnectError: err.message,
+                      timestamp: new Date().toISOString()
+                    }).catch(emailErr => {
+                      console.error(`❌ Failed to send reconnect failure email: ${emailErr.message}`);
+                    });
+                  }
+                  
                   // Retry once more after longer delay if first attempt fails
                   setTimeout(() => {
                     const retryClient = this.clients.get(sessionId);
@@ -490,7 +606,7 @@ class BaileysWhatsAppManager {
               console.error(`❌ Failed to update database on logout: ${err.message}`);
             });
             
-            // Send email notification for mobile disconnect
+            // Send email notification for mobile disconnect (user logout)
             this.sendDisconnectEmail(sessionId, 'mobile').catch(err => {
               console.error(`❌ Failed to send disconnect email: ${err.message}`);
             });
@@ -637,7 +753,15 @@ class BaileysWhatsAppManager {
       socket.ev.on('messages.upsert', async (m) => {
         try {
           const msg = m.messages[0];
-          console.log(`📨 Message received from ${msg.key.remoteJid}, timestamp: ${msg.messageTimestamp}, type: ${m.type}`);
+          const from = msg.key.remoteJid;
+          
+          // Filter out broadcast/status messages EARLY to prevent unnecessary processing
+          if (from && (from.includes('@broadcast') || from.includes('status@') || from.includes('@newsletter'))) {
+            // Silently ignore - no logging to reduce spam
+            return;
+          }
+          
+          console.log(`📨 Message received from ${from}, timestamp: ${msg.messageTimestamp}, type: ${m.type}`);
           
           if (!msg.key.fromMe && m.type === 'notify') {
             // Only process messages received after connection is established
@@ -669,8 +793,7 @@ class BaileysWhatsAppManager {
               }
             }
             
-            console.log(`✅ Processing message from ${msg.key.remoteJid}`);
-            const from = msg.key.remoteJid;
+            console.log(`✅ Processing message from ${from}`);
             // Detect message type and content
             let messageText = '';
             let messageType = 'text';
@@ -708,12 +831,6 @@ class BaileysWhatsAppManager {
             } else {
               messageText = '📎 Media/Other';
               messageType = 'other';
-            }
-            
-            // Filter out broadcast messages and status messages
-            if (from.includes('@broadcast') || from.includes('status@') || from.includes('@newsletter')) {
-              console.log(`🚫 Ignoring broadcast/status message from: ${from}`);
-              return;
             }
             
             console.log(`📨 Received message from ${from}: ${messageText}`);
@@ -768,6 +885,28 @@ class BaileysWhatsAppManager {
       return socket;
 
     } catch (error) {
+      // Handle timeout errors gracefully - don't crash server
+      const errorMessage = error.message || error.toString() || '';
+      const isTimeout = errorMessage.includes('Timed Out') || 
+                       errorMessage.includes('timeout') || 
+                       errorMessage.includes('Request Time-out') ||
+                       (error.output && error.output.statusCode === 408);
+      
+      if (isTimeout) {
+        console.warn(`⏱️ [${sessionId}] Connection timeout during client creation - this is recoverable`);
+        // Mark as disconnected so retry logic can handle it
+        this.clients.set(sessionId, {
+          socket: null,
+          qr: null,
+          status: 'disconnected',
+          lastUpdate: Date.now(),
+          isLoggedOut: false
+        });
+        // Return null instead of throwing to prevent unhandled rejection
+        return null;
+      }
+      
+      // For other errors, log and throw
       console.error(`❌ Error creating Baileys client for session ${sessionId}:`, error);
       throw error;
     }
@@ -1124,11 +1263,11 @@ class BaileysWhatsAppManager {
   }
 
   // Send disconnect email notification
-  async sendDisconnectEmail(sessionId, reason = 'mobile') {
+  async sendDisconnectEmail(sessionId, reason = 'mobile', details = null) {
     try {
       // Extract session ID from sessionId (format: location_subaccountId_sessionId)
       const sessionIdParts = sessionId.split('_');
-      const actualSessionId = sessionIdParts.slice(2).join('_');
+      const actualSessionId = sessionIdParts.length >= 3 ? sessionIdParts.slice(2).join('_') : sessionId;
       
       // Get session from database to get user_id and subaccount_id
       const { createClient } = require('@supabase/supabase-js');
@@ -1159,11 +1298,12 @@ class BaileysWhatsAppManager {
         return;
       }
       
-      // Send email notification
+      // Send email notification with details for system disconnections
       await emailService.sendDisconnectNotification(
         session.user_id,
         ghlAccount.location_id,
-        reason
+        reason,
+        details // Pass disconnect details (reason, code, timestamp, etc.)
       );
       
     } catch (error) {
@@ -1221,15 +1361,15 @@ class BaileysWhatsAppManager {
     try {
       // Try to fetch latest version info
       const { version, isLatest } = await fetchLatestBaileysVersion();
-    return {
+      return {
         version: version.join('.'),
         versionArray: version,
         isLatest: isLatest,
         status: isLatest ? 'Latest version' : 'Using cached version',
         source: 'Baileys fetchLatestBaileysVersion',
         lastUpdated: new Date().toISOString(),
-      pairingCodeSupported: false
-    };
+        pairingCodeSupported: false
+      };
     } catch (error) {
       // Fallback if fetch fails
       return {

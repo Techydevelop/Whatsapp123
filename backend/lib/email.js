@@ -14,7 +14,7 @@ class EmailService {
    * @param {string} locationId - GHL Location ID
    * @param {string} reason - Reason for disconnect (mobile/logout)
    */
-  async sendDisconnectNotification(userId, locationId, reason = 'mobile') {
+  async sendDisconnectNotification(userId, locationId, reason = 'mobile', details = null) {
     try {
       console.log(`📧 Preparing disconnect email for user: ${userId}, location: ${locationId}, reason: ${reason}`);
 
@@ -45,12 +45,22 @@ class EmailService {
 
       const locationName = ghlAccount ? `Location ${locationId}` : `Location ${locationId}`;
 
-      // Prepare email content
-      // Avoid spam trigger words in subject
-      const subject = 'WhatsApp Connection - Action Required';
-      const disconnectReason = reason === 'mobile' 
-        ? 'disconnected from your mobile phone' 
-        : 'logged out from the dashboard';
+      // Prepare email content based on disconnect reason
+      let subject, disconnectReason, emailType;
+      
+      if (reason === 'system' || reason === 'system_reconnect_failed') {
+        subject = 'WhatsApp Connection Lost - System Issue';
+        disconnectReason = 'lost due to a system issue';
+        emailType = 'system';
+      } else if (reason === 'mobile') {
+        subject = 'WhatsApp Connection - Action Required';
+        disconnectReason = 'disconnected from your mobile phone';
+        emailType = 'mobile';
+      } else {
+        subject = 'WhatsApp Connection - Action Required';
+        disconnectReason = 'logged out from the dashboard';
+        emailType = 'dashboard';
+      }
       
       const userName = user.name || user.email.split('@')[0];
       
@@ -171,13 +181,35 @@ class EmailService {
                   </div>
                   <div class="info-row">
                     <span><strong>Disconnected:</strong></span>
-                    <span>${new Date().toLocaleString()}</span>
+                    <span>${details?.timestamp ? new Date(details.timestamp).toLocaleString() : new Date().toLocaleString()}</span>
                   </div>
                   <div class="info-row">
                     <span><strong>Reason:</strong></span>
-                    <span>${reason === 'mobile' ? 'Mobile disconnect' : 'Dashboard logout'}</span>
+                    <span>${emailType === 'system' ? 'System Issue' : emailType === 'mobile' ? 'Mobile disconnect' : 'Dashboard logout'}</span>
                   </div>
+                  ${details && details.reason ? `
+                  <div class="info-row">
+                    <span><strong>Error Details:</strong></span>
+                    <span>${details.reason}</span>
+                  </div>
+                  ` : ''}
+                  ${details && details.code ? `
+                  <div class="info-row">
+                    <span><strong>Error Code:</strong></span>
+                    <span>${details.code}</span>
+                  </div>
+                  ` : ''}
                 </div>
+                
+                ${emailType === 'system' ? `
+                <div class="alert-box" style="background: #E3F2FD; border-left-color: #2196F3;">
+                  <strong>⚠️ System Disconnection Detected</strong>
+                  <p>Your WhatsApp connection was lost due to a system issue (network timeout, connection error, etc.). Our system is automatically attempting to reconnect. If reconnection fails, please reconnect manually using the steps below.</p>
+                  ${details && details.reconnectError ? `
+                  <p style="margin-top: 10px;"><strong>Reconnection Status:</strong> Failed - ${details.reconnectError}</p>
+                  ` : ''}
+                </div>
+                ` : ''}
                 
                 <p><strong>To reconnect your WhatsApp:</strong></p>
                 <ol class="steps">
@@ -221,8 +253,11 @@ Hello ${userName},
 We noticed that your WhatsApp connection for ${locationName} has been ${disconnectReason}.
 
 Account: ${locationName}
-Disconnected: ${new Date().toLocaleString()}
-Reason: ${reason === 'mobile' ? 'Mobile disconnect' : 'Dashboard logout'}
+Disconnected: ${details?.timestamp ? new Date(details.timestamp).toLocaleString() : new Date().toLocaleString()}
+Reason: ${emailType === 'system' ? 'System Issue' : emailType === 'mobile' ? 'Mobile disconnect' : 'Dashboard logout'}
+${details && details.reason ? `Error: ${details.reason}\n` : ''}
+${details && details.code ? `Error Code: ${details.code}\n` : ''}
+${emailType === 'system' ? '\n⚠️ System Disconnection: Your connection was lost due to a system issue. Our system is automatically attempting to reconnect.\n' : ''}
 
 To reconnect:
 1. Go to your Dashboard
