@@ -326,13 +326,12 @@ class BaileysWhatsAppManager {
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: true,
         syncFullHistory: false,
-        defaultQueryTimeoutMs: 120000,
-        keepAliveIntervalMs: 10000, // More frequent keep-alive
-        connectTimeoutMs: 120000,
-        retryRequestDelayMs: 2000, // Longer delay between retries
+        defaultQueryTimeoutMs: 60000, // 60 seconds query timeout
+        keepAliveIntervalMs: 10000, // Keep-alive every 10 seconds (prevents disconnection)
+        connectTimeoutMs: 120000, // 2 minutes connection timeout
+        retryRequestDelayMs: 2000, // 2 seconds delay between retries
         maxMsgRetryCount: 3,
-        heartbeatIntervalMs: 5000, // More frequent heartbeat
-        defaultQueryTimeoutMs: 60000, // Shorter query timeout
+        heartbeatIntervalMs: 30000, // Heartbeat every 30 seconds (more stable for 6.7.19)
         msgRetryCounterCache: new Map(),
         getMessage: async (key) => {
           return {
