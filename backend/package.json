@@ -2,6 +2,7 @@
   "name": "whatsapp-saas",
   "version": "1.0.0",
   "description": "WhatsApp SaaS Platform with Supabase and React",
+  "license": "MIT",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,7 +11,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
-    "@whiskeysockets/baileys": "^6.7.21",
+    "@whiskeysockets/baileys": "6.7.21",
     "axios": "^1.12.2",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",

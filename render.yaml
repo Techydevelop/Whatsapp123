@@ -6,8 +6,8 @@ services:
     region: singapore
     rootDir: backend
     buildCommand: |
-      # Use Yarn for faster and more reliable builds
-      yarn install --production
+      # Use npm (package-lock.json exists)
+      npm ci --production
     startCommand: node server.js
     autoDeploy: true
     envVars:
