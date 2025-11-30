@@ -2233,7 +2233,7 @@ app.post('/ghl/provider/webhook', async (req, res) => {
     
     // Prevent duplicate processing using messageId
     if (messageId) {
-      if (!global.messageCache) {
+    if (!global.messageCache) {
         global.messageCache = new Map();
       }
       if (global.messageCache.has(messageId)) {

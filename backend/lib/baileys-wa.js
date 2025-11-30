@@ -538,17 +538,9 @@ class BaileysWhatsAppManager {
             console.error(`❌ Failed to update database on disconnect: ${err.message}`);
           });
           
-          // Send email notification for system-caused disconnections
-          if (isSystemDisconnect && shouldReconnect) {
-            console.log(`📧 System-caused disconnect detected - sending email notification`);
-            this.sendDisconnectEmail(sessionId, 'system', {
-              reason: disconnectMessage,
-              code: disconnectStatusCode,
-              timestamp: new Date().toISOString()
-            }).catch(err => {
-              console.error(`❌ Failed to send system disconnect email: ${err.message}`);
-            });
-          }
+          // NOTE: No email sent immediately on system disconnect
+          // Email will only be sent if reconnection fails after all attempts
+          // This prevents spam emails during temporary network issues
           
           if (shouldReconnect) {
             // Auto-reconnect logic (only if not logged out)
@@ -570,25 +562,56 @@ class BaileysWhatsAppManager {
                 this.createClient(sessionId).catch(err => {
                   console.error(`❌ Reconnection failed for ${sessionId}:`, err.message);
                   
-                  // Send email if reconnection fails after system disconnect
-                  if (isSystemDisconnect) {
-                    this.sendDisconnectEmail(sessionId, 'system_reconnect_failed', {
-                      reason: disconnectMessage,
-                      code: disconnectStatusCode,
-                      reconnectError: err.message,
-                      timestamp: new Date().toISOString()
-                    }).catch(emailErr => {
-                      console.error(`❌ Failed to send reconnect failure email: ${emailErr.message}`);
-                    });
-                  }
-                  
                   // Retry once more after longer delay if first attempt fails
                   setTimeout(() => {
                     const retryClient = this.clients.get(sessionId);
                     if (retryClient && retryClient.status === 'disconnected' && !retryClient.isLoggedOut) {
                       console.log(`🔄 Retrying reconnection for: ${sessionId}`);
-                      this.createClient(sessionId).catch(retryErr => {
+                      this.createClient(sessionId).catch(async retryErr => {
                         console.error(`❌ Reconnection retry failed for ${sessionId}:`, retryErr.message);
+                        
+                        // Send email ONLY if:
+                        // 1. All reconnection attempts failed
+                        // 2. Dashboard status is STILL "disconnected" (verified from database)
+                        // 3. Client status is STILL "disconnected" (not reconnected)
+                        if (isSystemDisconnect) {
+                          // Wait a moment for any potential reconnection to complete
+                          await new Promise(resolve => setTimeout(resolve, 2000));
+                          
+                          // Check actual database status before sending email
+                          const { createClient: createSupabaseClient } = require('@supabase/supabase-js');
+                          const supabaseUrl = process.env.SUPABASE_URL;
+                          const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+                          const supabaseAdmin = createSupabaseClient(supabaseUrl, supabaseKey);
+                          
+                          const sessionIdParts = sessionId.split('_');
+                          const actualSessionId = sessionIdParts.slice(2).join('_');
+                          
+                          const { data: session } = await supabaseAdmin
+                            .from('sessions')
+                            .select('status')
+                            .eq('id', actualSessionId)
+                            .maybeSingle();
+                          
+                          // Get current client status
+                          const finalClient = this.clients.get(sessionId);
+                          const clientStillDisconnected = finalClient && finalClient.status === 'disconnected';
+                          
+                          // Only send email if BOTH database and client show disconnected
+                          if (session && session.status === 'disconnected' && clientStillDisconnected) {
+                            console.log(`📧 Verified: Dashboard status is "disconnected" - sending email`);
+                            this.sendDisconnectEmail(sessionId, 'system_dashboard', {
+                              reason: disconnectMessage,
+                              code: disconnectStatusCode,
+                              reconnectError: retryErr.message,
+                              timestamp: new Date().toISOString()
+                            }).catch(emailErr => {
+                              console.error(`❌ Failed to send disconnect email: ${emailErr.message}`);
+                            });
+                          } else {
+                            console.log(`✅ Status is not disconnected (DB: ${session?.status}, Client: ${finalClient?.status}) - skipping email`);
+                          }
+                        }
                       });
                     }
                   }, this.RECONNECT_DELAY * 2); // 10 seconds for retry
