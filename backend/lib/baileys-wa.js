@@ -574,7 +574,7 @@ class BaileysWhatsAppManager {
                         // 1. All reconnection attempts failed
                         // 2. Dashboard status is STILL "disconnected" (verified from database)
                         // 3. Client status is STILL "disconnected" (not reconnected)
-                        if (isSystemDisconnect) {
+                  if (isSystemDisconnect) {
                           // Wait a moment for any potential reconnection to complete
                           await new Promise(resolve => setTimeout(resolve, 2000));
                           
@@ -601,13 +601,13 @@ class BaileysWhatsAppManager {
                           if (session && session.status === 'disconnected' && clientStillDisconnected) {
                             console.log(`📧 Verified: Dashboard status is "disconnected" - sending email`);
                             this.sendDisconnectEmail(sessionId, 'system_dashboard', {
-                              reason: disconnectMessage,
-                              code: disconnectStatusCode,
+                      reason: disconnectMessage,
+                      code: disconnectStatusCode,
                               reconnectError: retryErr.message,
-                              timestamp: new Date().toISOString()
-                            }).catch(emailErr => {
+                      timestamp: new Date().toISOString()
+                    }).catch(emailErr => {
                               console.error(`❌ Failed to send disconnect email: ${emailErr.message}`);
-                            });
+                    });
                           } else {
                             console.log(`✅ Status is not disconnected (DB: ${session?.status}, Client: ${finalClient?.status}) - skipping email`);
                           }
@@ -778,9 +778,13 @@ class BaileysWhatsAppManager {
           const msg = m.messages[0];
           const from = msg.key.remoteJid;
           
-          // Filter out broadcast/status messages EARLY to prevent unnecessary processing
-          if (from && (from.includes('@broadcast') || from.includes('status@') || from.includes('@newsletter'))) {
-            // Silently ignore - no logging to reduce spam
+          // Filter out broadcast/status/newsletter/list messages EARLY to prevent unnecessary processing
+          if (from && (from.includes('@broadcast') || 
+                       from.includes('status@') || 
+                       from.includes('@newsletter') || 
+                       from.includes('@lid'))) {
+            // Silently ignore newsletter/list/broadcast messages - no logging to reduce spam
+            console.log(`🚫 Ignoring newsletter/list/broadcast message from: ${from}`);
             return;
           }
           
