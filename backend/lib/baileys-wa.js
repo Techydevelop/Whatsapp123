@@ -779,24 +779,37 @@ class BaileysWhatsAppManager {
           console.log(`📬 Number of messages in batch: ${m.messages?.length || 0}`);
           
           const msg = m.messages[0];
-          const from = msg.key.remoteJid;
+          let from = msg.key.remoteJid;
+          
+          // Check if message has senderPn (real sender for newsletter/community messages)
+          const actualSender = msg.key.senderPn || msg.key.participant || from;
           
           console.log(`📬 Message details:`, {
-            from: from,
+            remoteJid: from,
+            actualSender: actualSender,
             fromMe: msg.key.fromMe,
             type: m.type,
             hasMessage: !!msg.message,
             messageKeys: msg.message ? Object.keys(msg.message) : []
           });
           
-          // Filter out broadcast/status/newsletter/list messages EARLY to prevent unnecessary processing
+          // If message is from newsletter/list but has real senderPn, use that instead
+          if (from && from.includes('@lid') && actualSender && !actualSender.includes('@lid')) {
+            console.log(`📧 Newsletter/List message detected, using actual sender: ${actualSender}`);
+            from = actualSender; // Use real sender instead of newsletter ID
+          }
+          
+          // Filter out broadcast/status messages (but allow @lid with valid senderPn)
           if (from && (from.includes('@broadcast') || 
                        from.includes('status@') || 
-                       from.includes('@newsletter') || 
-                       from.includes('@lid'))) {
-            // Log what type of message is being ignored for debugging
-            console.log(`🚫 Ignoring newsletter/list/broadcast message from: ${from}`);
-            console.log(`🔍 Message type detected: ${from.includes('@lid') ? 'Newsletter/List' : from.includes('@broadcast') ? 'Broadcast' : 'Status'}`);
+                       from.includes('@newsletter'))) {
+            console.log(`🚫 Ignoring broadcast/status message from: ${from}`);
+            return;
+          }
+          
+          // Filter out @lid messages that don't have a real sender
+          if (from && from.includes('@lid')) {
+            console.log(`🚫 Ignoring newsletter/list message without valid sender from: ${from}`);
             console.log(`🔍 Full message key:`, JSON.stringify(msg.key, null, 2));
             return;
           }
