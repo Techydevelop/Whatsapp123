@@ -775,16 +775,29 @@ class BaileysWhatsAppManager {
       // Handle messages
       socket.ev.on('messages.upsert', async (m) => {
         try {
+          console.log(`📬 messages.upsert event triggered for session: ${sessionId}`);
+          console.log(`📬 Number of messages in batch: ${m.messages?.length || 0}`);
+          
           const msg = m.messages[0];
           const from = msg.key.remoteJid;
+          
+          console.log(`📬 Message details:`, {
+            from: from,
+            fromMe: msg.key.fromMe,
+            type: m.type,
+            hasMessage: !!msg.message,
+            messageKeys: msg.message ? Object.keys(msg.message) : []
+          });
           
           // Filter out broadcast/status/newsletter/list messages EARLY to prevent unnecessary processing
           if (from && (from.includes('@broadcast') || 
                        from.includes('status@') || 
                        from.includes('@newsletter') || 
                        from.includes('@lid'))) {
-            // Silently ignore newsletter/list/broadcast messages - no logging to reduce spam
+            // Log what type of message is being ignored for debugging
             console.log(`🚫 Ignoring newsletter/list/broadcast message from: ${from}`);
+            console.log(`🔍 Message type detected: ${from.includes('@lid') ? 'Newsletter/List' : from.includes('@broadcast') ? 'Broadcast' : 'Status'}`);
+            console.log(`🔍 Full message key:`, JSON.stringify(msg.key, null, 2));
             return;
           }
           
