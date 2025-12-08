@@ -790,6 +790,17 @@ class BaileysWhatsAppManager {
           
           console.log(`📨 Message received from ${from}, timestamp: ${msg.messageTimestamp}, type: ${m.type}`);
           
+          // Debug: Check why messages are not being processed
+          if (msg.key.fromMe) {
+            console.log(`🚫 Ignoring message from self (fromMe = true) from: ${from}`);
+            return;
+          }
+          
+          if (m.type !== 'notify') {
+            console.log(`🚫 Ignoring non-notify message type: ${m.type} from: ${from}`);
+            return;
+          }
+          
           if (!msg.key.fromMe && m.type === 'notify') {
             // Only process messages received after connection is established
             const connectionTime = this.clients.get(sessionId)?.connectedAt;
@@ -813,9 +824,11 @@ class BaileysWhatsAppManager {
               const connectionTimeMs = connectionTime;
               
               console.log(`⏰ Message time: ${messageTimeMs}, Connection time: ${connectionTimeMs}`);
+              console.log(`⏰ Time difference: ${(messageTimeMs - connectionTimeMs) / 1000} seconds`);
               
               if (messageTimeMs < connectionTimeMs) {
                 console.log(`🚫 Ignoring old message received before connection: ${messageTimeMs} < ${connectionTimeMs}`);
+                console.log(`🚫 Message is ${(connectionTimeMs - messageTimeMs) / 1000} seconds too old`);
                 return;
               }
             }
