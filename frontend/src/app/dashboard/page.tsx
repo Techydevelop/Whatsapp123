@@ -50,7 +50,12 @@ export default function Dashboard() {
   const isTrialExpired = (): boolean => {
     if (!userSubscription) return false
     if (userSubscription.status === 'expired') return true
-    if (userSubscription.trialEndsAt) {
+    if (userSubscription.status === 'cancelled') return true
+    
+    // Only check trial_ends_at if user is actually on trial/free plan
+    // Active subscriptions (starter/professional) should NOT be blocked by old trial dates
+    const isOnTrial = userSubscription.status === 'trial' || userSubscription.status === 'free'
+    if (isOnTrial && userSubscription.trialEndsAt) {
       try {
         return new Date(userSubscription.trialEndsAt) <= new Date()
       } catch {
@@ -909,15 +914,15 @@ export default function Dashboard() {
             {!searchQuery && filterStatus === 'all' && (
               <button
                 onClick={() => {
-                  if (userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date())) {
+                  if (isTrialExpired()) {
                     setShowUpgradeModal(true)
                   } else {
                     window.location.href = '/dashboard/add-subaccount'
                   }
                 }}
-                disabled={userSubscription?.status === 'expired' || !!(userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date())}
+                disabled={isTrialExpired()}
                 className="inline-flex items-center px-6 py-3 border border-transparent rounded-lg text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title={userSubscription?.status === 'expired' || (userSubscription?.trialEndsAt && new Date(userSubscription.trialEndsAt) <= new Date()) ? 'Your trial has expired. Please upgrade to add accounts.' : ''}
+                title={isTrialExpired() ? 'Your subscription has expired. Please upgrade to add accounts.' : ''}
               >
                 <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />

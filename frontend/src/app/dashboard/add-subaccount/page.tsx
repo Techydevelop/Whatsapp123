@@ -73,7 +73,12 @@ export default function AddSubAccount() {
   const isExpired = (): boolean => {
     if (!subscriptionStatus) return false
     if (subscriptionStatus.status === 'expired') return true
-    if (subscriptionStatus.trialEndsAt) {
+    if (subscriptionStatus.status === 'cancelled') return true
+    
+    // Only check trial_ends_at if user is actually on trial/free plan
+    // Active subscriptions (starter/professional) should NOT be blocked by old trial dates
+    const isOnTrial = subscriptionStatus.status === 'trial' || subscriptionStatus.status === 'free'
+    if (isOnTrial && subscriptionStatus.trialEndsAt) {
       try {
         return new Date(subscriptionStatus.trialEndsAt) <= new Date()
       } catch {

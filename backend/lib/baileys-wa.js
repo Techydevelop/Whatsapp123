@@ -816,18 +816,20 @@ class BaileysWhatsAppManager {
           
           console.log(`📨 Message received from ${from}, timestamp: ${msg.messageTimestamp}, type: ${m.type}`);
           
-          // Debug: Check why messages are not being processed
+          // Filter: Ignore messages from self (outbound messages)
           if (msg.key.fromMe) {
-            console.log(`🚫 Ignoring message from self (fromMe = true) from: ${from}`);
+            console.log(`🚫 Ignoring outbound message (fromMe = true) from: ${from}`);
             return;
           }
           
+          // Filter: Only process 'notify' type messages (incoming messages)
           if (m.type !== 'notify') {
             console.log(`🚫 Ignoring non-notify message type: ${m.type} from: ${from}`);
             return;
           }
           
-          if (!msg.key.fromMe && m.type === 'notify') {
+          // Process incoming messages (fromMe = false, type = notify)
+          {
             // Only process messages received after connection is established
             const connectionTime = this.clients.get(sessionId)?.connectedAt;
             if (connectionTime) {

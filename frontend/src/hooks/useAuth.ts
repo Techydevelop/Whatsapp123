@@ -55,8 +55,9 @@ export function useAuth() {
     // Clear localStorage
     localStorage.removeItem('user')
     
-    // Redirect to login
-    router.push('/login')
+    // Use window.location.href instead of router.push to force full page reload
+    // This ensures clean state and prevents stuck redirects
+    window.location.href = '/login'
   }
 
   return { user, loading, logout }

@@ -172,10 +172,14 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Login failed');
       localStorage.setItem('user', JSON.stringify(data.user));
-      router.push('/dashboard');
+      // Use window.location.href instead of router.push to force full page reload
+      // This ensures localStorage is properly read before dashboard loads
+      window.location.href = '/dashboard';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
-    } finally { setIsLoading(false); }
+      setIsLoading(false); // Only reset loading on error
+    }
+    // Don't reset loading on success - let page reload handle it
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {

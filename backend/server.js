@@ -1161,10 +1161,12 @@ app.get('/oauth/callback', async (req, res) => {
 
     // Check if subscription/trial is expired - BLOCK ALL ACTIONS
     // IMPORTANT: Only check trial expiry if user is on trial/free plan
-    // Active/Professional subscriptions should NOT be blocked by trial_ends_at
+    // Active subscriptions (starter/professional) should NOT be blocked by trial_ends_at
     const isOnTrial = userInfo.subscription_status === 'trial' || userInfo.subscription_status === 'free';
     const trialExpired = isOnTrial && userInfo.trial_ends_at && new Date(userInfo.trial_ends_at) <= new Date();
-    const isExpired = userInfo.subscription_status === 'expired' || trialExpired;
+    const isExpired = userInfo.subscription_status === 'expired' || 
+                      userInfo.subscription_status === 'cancelled' || 
+                      trialExpired;
     
     if (isExpired) {
       console.log('❌ Subscription/trial expired - blocking account addition', {
@@ -1930,10 +1932,12 @@ app.post('/admin/create-session', requireAuth, async (req, res) => {
     
     if (userInfo) {
       // IMPORTANT: Only check trial expiry if user is on trial/free plan
-      // Active/Professional subscriptions should NOT be blocked by trial_ends_at
+      // Active subscriptions (starter/professional) should NOT be blocked by trial_ends_at
       const isOnTrial = userInfo.subscription_status === 'trial' || userInfo.subscription_status === 'free';
       const trialExpired = isOnTrial && userInfo.trial_ends_at && new Date(userInfo.trial_ends_at) <= new Date();
-      const isExpired = userInfo.subscription_status === 'expired' || trialExpired;
+      const isExpired = userInfo.subscription_status === 'expired' || 
+                        userInfo.subscription_status === 'cancelled' || 
+                        trialExpired;
       
       if (isExpired) {
         return res.status(403).json({ 
