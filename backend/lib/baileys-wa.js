@@ -793,6 +793,18 @@ class BaileysWhatsAppManager {
             messageKeys: msg.message ? Object.keys(msg.message) : []
           });
           
+          // Filter out empty messages (deleted/failed decryption/protocol messages)
+          if (!msg.message || Object.keys(msg.message).length === 0) {
+            console.log(`🚫 Ignoring empty/deleted message from: ${from}`);
+            return;
+          }
+          
+          // Filter out protocol messages (WhatsApp system messages)
+          if (msg.message?.protocolMessage) {
+            console.log(`🚫 Ignoring protocol/system message from: ${from}`);
+            return;
+          }
+          
           // If message is from newsletter/list but has real senderPn, use that instead
           if (from && from.includes('@lid') && actualSender && !actualSender.includes('@lid')) {
             console.log(`📧 Newsletter/List message detected, using actual sender: ${actualSender}`);
