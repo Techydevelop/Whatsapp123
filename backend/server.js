@@ -1160,11 +1160,19 @@ app.get('/oauth/callback', async (req, res) => {
     });
 
     // Check if subscription/trial is expired - BLOCK ALL ACTIONS
-    const isExpired = userInfo.subscription_status === 'expired' || 
-      (userInfo.trial_ends_at && new Date(userInfo.trial_ends_at) <= new Date());
+    // IMPORTANT: Only check trial expiry if user is on trial/free plan
+    // Active/Professional subscriptions should NOT be blocked by trial_ends_at
+    const isOnTrial = userInfo.subscription_status === 'trial' || userInfo.subscription_status === 'free';
+    const trialExpired = isOnTrial && userInfo.trial_ends_at && new Date(userInfo.trial_ends_at) <= new Date();
+    const isExpired = userInfo.subscription_status === 'expired' || trialExpired;
     
     if (isExpired) {
-      console.log('❌ Subscription/trial expired - blocking account addition');
+      console.log('❌ Subscription/trial expired - blocking account addition', {
+        status: userInfo.subscription_status,
+        trial_ends_at: userInfo.trial_ends_at,
+        isOnTrial,
+        trialExpired
+      });
       const frontendUrl = process.env.FRONTEND_URL || 'https://octendr.com';
       return res.redirect(`${frontendUrl}/dashboard?error=subscription_expired`);
     }
@@ -1921,8 +1929,11 @@ app.post('/admin/create-session', requireAuth, async (req, res) => {
       .single();
     
     if (userInfo) {
-      const isExpired = userInfo.subscription_status === 'expired' || 
-        (userInfo.trial_ends_at && new Date(userInfo.trial_ends_at) <= new Date());
+      // IMPORTANT: Only check trial expiry if user is on trial/free plan
+      // Active/Professional subscriptions should NOT be blocked by trial_ends_at
+      const isOnTrial = userInfo.subscription_status === 'trial' || userInfo.subscription_status === 'free';
+      const trialExpired = isOnTrial && userInfo.trial_ends_at && new Date(userInfo.trial_ends_at) <= new Date();
+      const isExpired = userInfo.subscription_status === 'expired' || trialExpired;
       
       if (isExpired) {
         return res.status(403).json({ 
